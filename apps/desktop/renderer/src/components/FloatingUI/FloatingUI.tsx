@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, KeyboardEvent } from 'react'
 import { useAgent } from '../../hooks/useAgent'
+import { HelixLogo } from '../HelixLogo/HelixLogo'
 import MessageBubble from './MessageBubble'
 import ConfirmationPrompt from './ConfirmationPrompt'
 import TaskStatusBar from './TaskStatusBar'
@@ -68,7 +69,7 @@ export default function FloatingUI() {
       {/* ── Header ─────────────────────────────── */}
       <div className="floating-ui__header" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
         <div className="floating-ui__brand">
-          <span className="floating-ui__wordmark">HELIX</span>
+          <HelixLogo size="sm" showText={true} />
           <span className={`status-dot ${statusDotClass}`} title={agentStatus} />
         </div>
         <div className="floating-ui__model-info">
@@ -82,7 +83,7 @@ export default function FloatingUI() {
           <button
             className="icon-btn"
             onClick={openToolbox}
-            title="Open Toolbox"
+            title="Open Toolbox & Control Center"
             aria-label="Open Toolbox"
           >
             <GearIcon />
@@ -99,8 +100,8 @@ export default function FloatingUI() {
       <div className="floating-ui__messages">
         {messages.length === 0 && (
           <div className="floating-ui__empty">
-            <span className="floating-ui__empty-icon">◈</span>
-            <p className="floating-ui__empty-text">HELIX is ready. Ask anything or give a command.</p>
+            <HelixLogo size="lg" showText={false} className="floating-ui__empty-logo" />
+            <p className="floating-ui__empty-text">HELIX is ready. Ask anything or give an OS command.</p>
           </div>
         )}
         {messages.map((msg, idx) => (

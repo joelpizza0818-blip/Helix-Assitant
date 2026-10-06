@@ -101,9 +101,14 @@
   padding: 40px 20px;
 }
 
-.floating-ui__empty-icon {
-  font-size: 24px;
-  opacity: 0.5;
+.floating-ui__empty-logo {
+  opacity: 0.8;
+  transition: transform var(--duration-normal, 0.3s) ease;
+}
+
+.floating-ui__empty:hover .floating-ui__empty-logo {
+  transform: scale(1.08);
+  opacity: 1;
 }
 
 .floating-ui__empty-text {

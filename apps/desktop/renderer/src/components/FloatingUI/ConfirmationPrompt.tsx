@@ -54,7 +54,7 @@ export default function ConfirmationPrompt({ request, onConfirm, onReject }: Pro
       </div>
 
       <p className="confirmation-prompt__hint">
-        You can also confirm with 👍 or reject with 👎 if camera is enabled
+        Hand gestures: Thumbs Up to Confirm · Thumbs Down to Reject
       </p>
     </div>
   )
