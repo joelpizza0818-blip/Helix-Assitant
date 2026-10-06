@@ -1,0 +1,12 @@
+:root {
+  --canvas: #101010;        /* page background */
+  --carbon: #1d1a18;        /* card/section backgrounds */
+  --border: #3d3a39;        /* borders */
+  --graphite: #4d4947;      /* subtle backgrounds */
+  --muted: #8a8380;         /* muted text, labels */
+  --secondary: #b8b3b0;     /* secondary text */
+  --bone: #eeeeee;          /* primary text */
+  --chalk: #fafafa;         /* emphasis text */
+  --orange: #ee6018;        /* CTAs, status - NOT decorative */
+  --green: #a0ca92;         /* success/status - NOT decorative */
+}

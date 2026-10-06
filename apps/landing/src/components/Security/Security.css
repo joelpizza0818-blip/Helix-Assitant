@@ -1,0 +1,50 @@
+.security {
+  padding: 96px 0;
+  background-color: var(--canvas);
+  border-top: 1px solid var(--border);
+}
+
+.security-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.security-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 24px;
+}
+
+.security-card {
+  background-color: var(--carbon);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+}
+
+.security-icon {
+  font-size: 24px;
+  margin-bottom: 16px;
+}
+
+.security-title {
+  font-size: 18px;
+  font-weight: 400;
+  color: var(--bone);
+  margin-bottom: 8px;
+}
+
+.security-body {
+  font-size: 14px;
+  color: var(--secondary);
+  line-height: 1.6;
+}
+
+@media (max-width: 768px) {
+  .security-grid {
+    grid-template-columns: 1fr;
+  }
+}

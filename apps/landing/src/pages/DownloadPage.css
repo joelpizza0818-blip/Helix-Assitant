@@ -1,0 +1,87 @@
+.download-page {
+  background-color: var(--canvas);
+  min-height: 100vh;
+}
+
+.download-page-content {
+  padding-top: 120px;
+}
+
+.download-page-header {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px 48px;
+}
+
+.download-page-title {
+  font-size: 44px;
+  font-weight: 400;
+  color: var(--chalk);
+  margin-bottom: 12px;
+}
+
+.download-page-desc {
+  font-size: 16px;
+  color: var(--muted);
+  max-width: 600px;
+  line-height: 1.6;
+}
+
+.troubleshooting-section {
+  padding: 64px 0 96px;
+  border-top: 1px solid var(--border);
+}
+
+.troubleshooting-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.troubleshooting-title {
+  font-size: 20px;
+  font-weight: 400;
+  color: var(--bone);
+  margin-bottom: 24px;
+}
+
+.notes-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+.note-card {
+  background-color: var(--carbon);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.note-heading {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--orange);
+  display: block;
+  margin-bottom: 8px;
+}
+
+.note-body {
+  font-size: 13px;
+  color: var(--secondary);
+  line-height: 1.6;
+}
+
+.note-body code {
+  background-color: var(--canvas);
+  border: 1px solid var(--border);
+  padding: 2px 4px;
+  border-radius: 2px;
+  font-size: 11px;
+}
+
+@media (max-width: 800px) {
+  .notes-grid {
+    grid-template-columns: 1fr;
+  }
+}

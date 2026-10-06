@@ -1,0 +1,106 @@
+.confirmation-prompt {
+  margin: 0 var(--space-2) 8px;
+  padding: var(--space-2);
+  background: var(--carbon);
+  border: 1px solid var(--orange);
+  border-radius: var(--radius-card);
+  animation: slideIn var(--duration-base) var(--ease);
+  flex-shrink: 0;
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.confirmation-prompt__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.confirmation-prompt__title {
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  color: var(--orange);
+  font-weight: var(--weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.confirmation-prompt__level {
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  padding: 2px 6px;
+  border-radius: var(--radius-btn);
+}
+
+.level--low      { background: rgba(160, 202, 146, 0.15); color: var(--green); }
+.level--medium   { background: rgba(238, 96, 24, 0.15);  color: var(--orange); }
+.level--high     { background: rgba(212, 84, 74, 0.15);  color: var(--red); }
+.level--critical { background: rgba(212, 84, 74, 0.25);  color: var(--red); border: 1px solid rgba(212, 84, 74, 0.4); }
+
+.confirmation-prompt__body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.confirmation-section__label {
+  display: block;
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  color: var(--muted);
+  margin-bottom: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.confirmation-section__value {
+  font-size: var(--text-sm);
+  color: var(--secondary);
+  line-height: var(--leading-base);
+}
+
+.confirmation-prompt__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.confirm-btn {
+  flex: 1;
+  height: 32px;
+  background: var(--orange);
+  color: var(--chalk);
+  border-radius: var(--radius-btn);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  transition: opacity var(--duration-fast) var(--ease);
+}
+
+.confirm-btn:hover { opacity: 0.9; }
+
+.reject-btn {
+  flex: 1;
+  height: 32px;
+  background: transparent;
+  color: var(--secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-btn);
+  font-size: var(--text-sm);
+  transition: all var(--duration-fast) var(--ease);
+}
+
+.reject-btn:hover {
+  border-color: var(--muted);
+  color: var(--bone);
+}
+
+.confirmation-prompt__hint {
+  font-size: var(--text-xs);
+  color: var(--graphite);
+  margin-top: 8px;
+  text-align: center;
+}

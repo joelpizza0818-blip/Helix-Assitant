@@ -1,0 +1,24 @@
+{
+  "name": "helix-assistant",
+  "version": "1.0.0",
+  "description": "HELIX - Persistent Windows AI desktop agent",
+  "private": true,
+  "workspaces": [
+    "apps/desktop",
+    "apps/landing",
+    "server",
+    "shared"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspaces",
+    "dev:desktop": "npm run dev:all --workspace=@helix/desktop",
+    "dev:landing": "npm run dev --workspace=@helix/landing",
+    "dev:server": "npm run dev --workspace=@helix/server",
+    "build": "npm run build --workspaces",
+    "build:desktop": "npm run build --workspace=@helix/desktop",
+    "build:landing": "npm run build --workspace=@helix/landing",
+    "build:server": "npm run build --workspace=@helix/server",
+    "test": "npm run test --workspaces",
+    "test:agent": "python -m pytest services/agent/tests/ -v"
+  }
+}

@@ -1,0 +1,108 @@
+.download-section {
+  padding: 96px 0;
+  background-color: var(--canvas);
+  border-top: 1px solid var(--border);
+}
+
+.download-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.download-box {
+  background-color: var(--carbon);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 48px;
+}
+
+.download-header {
+  margin-bottom: 32px;
+}
+
+.download-title {
+  font-size: 36px;
+  font-weight: 400;
+  color: var(--chalk);
+  margin-bottom: 12px;
+}
+
+.download-desc {
+  font-size: 15px;
+  color: var(--muted);
+  max-width: 600px;
+  line-height: 1.6;
+}
+
+.download-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 36px;
+}
+
+.build-tag {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--graphite);
+}
+
+.source-instructions {
+  background-color: var(--canvas);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 20px;
+  margin-bottom: 36px;
+}
+
+.instructions-title {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--orange);
+  margin-bottom: 12px;
+}
+
+.code-block {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--secondary);
+  line-height: 1.6;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.sys-reqs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+}
+
+.req-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.req-title {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--graphite);
+}
+
+.req-val {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--bone);
+}
+
+@media (max-width: 800px) {
+  .download-box {
+    padding: 24px;
+  }
+  .sys-reqs {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

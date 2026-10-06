@@ -1,0 +1,93 @@
+.bubble {
+  padding: 8px 12px;
+  border-radius: var(--radius-card);
+  max-width: 100%;
+  word-break: break-word;
+}
+
+.bubble--user {
+  background: var(--carbon);
+  border: 1px solid var(--border);
+  color: var(--bone);
+}
+
+.bubble--assistant {
+  background: transparent;
+  color: var(--secondary);
+}
+
+.bubble__content {
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+  white-space: pre-wrap;
+}
+
+.bubble__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.bubble__model {
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  color: var(--graphite);
+}
+
+.bubble__time {
+  font-size: var(--text-xs);
+  color: var(--graphite);
+  margin-left: auto;
+}
+
+/* System messages */
+.bubble-system-text {
+  font-size: var(--text-xs);
+  color: var(--graphite);
+  font-family: var(--font-mono);
+}
+
+/* Tool execution */
+.bubble-tool {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--carbon);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-btn);
+  width: 100%;
+  overflow: hidden;
+}
+
+.bubble-tool__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--green);
+  flex-shrink: 0;
+}
+
+.bubble-tool__name {
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.bubble-tool__content {
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  color: var(--secondary);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bubble-tool__time {
+  font-size: var(--text-xs);
+  color: var(--graphite);
+  flex-shrink: 0;
+}

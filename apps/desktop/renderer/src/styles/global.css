@@ -1,0 +1,116 @@
+@import './variables.css';
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background-color: var(--canvas);
+  color: var(--bone);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-normal);
+  line-height: var(--leading-base);
+  user-select: none;
+  overflow: hidden;
+}
+
+/* Allow text selection in message/content areas */
+.selectable {
+  user-select: text;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--graphite);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+
+/* Selection */
+::selection {
+  background: var(--orange);
+  color: var(--chalk);
+}
+
+/* Buttons reset */
+button {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-normal);
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+  transition: all var(--duration-fast) var(--ease);
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Inputs reset */
+input, textarea {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--bone);
+  background: var(--carbon);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-btn);
+  outline: none;
+  transition: border-color var(--duration-fast) var(--ease);
+}
+
+input:focus, textarea:focus {
+  border-color: var(--muted);
+}
+
+input::placeholder, textarea::placeholder {
+  color: var(--graphite);
+}
+
+/* Links */
+a {
+  color: var(--orange);
+  text-decoration: none;
+  transition: opacity var(--duration-fast) var(--ease);
+}
+a:hover { opacity: 0.8; }
+
+/* Monospace blocks */
+code, pre {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+/* Utility classes */
+.text-xs      { font-size: var(--text-xs); }
+.text-sm      { font-size: var(--text-sm); }
+.text-base    { font-size: var(--text-base); }
+.text-mono    { font-family: var(--font-mono); }
+.text-muted   { color: var(--muted); }
+.text-secondary { color: var(--secondary); }
+.text-bone    { color: var(--bone); }
+.text-orange  { color: var(--orange); }
+.text-green   { color: var(--green); }
+.text-red     { color: var(--red); }
+.weight-medium { font-weight: var(--weight-medium); }
+.truncate     { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

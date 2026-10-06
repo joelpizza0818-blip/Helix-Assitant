@@ -1,0 +1,201 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  extensions = [pgvector(map: "vector")]
+}
+
+model User {
+  id           String               @id @default(uuid())
+  email        String               @unique
+  displayName  String?              @map("display_name")
+  isActive     Boolean              @default(true) @map("is_active")
+  supabaseId   String               @unique @map("supabase_id")
+  lastLoginAt  DateTime?            @map("last_login_at")
+  createdAt    DateTime             @default(now()) @map("created_at")
+  updatedAt    DateTime             @updatedAt @map("updated_at")
+
+  devices       Device[]
+  settings      Settings?
+  tasks         Task[]
+  memories      Memory[]
+  credentials   ApiCredential[]
+  modelConfigs  ModelConfiguration[]
+  permissions   Permission[]
+  confirmationPolicies ConfirmationPolicy[]
+
+  @@map("users")
+}
+
+model Device {
+  id           String    @id @default(uuid())
+  userId       String    @map("user_id")
+  deviceName   String    @map("device_name")
+  osVersion    String?   @map("os_version")
+  agentVersion String?   @map("agent_version")
+  isActive     Boolean   @default(true) @map("is_active")
+  lastSeenAt   DateTime? @map("last_seen_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tasks        Task[]
+  memories     Memory[]
+
+  @@index([userId])
+  @@map("devices")
+}
+
+model Settings {
+  id                    String   @id @default(uuid())
+  userId                String   @unique @map("user_id")
+  voiceEnabled          Boolean  @default(true) @map("voice_enabled")
+  cameraEnabled         Boolean  @default(false) @map("camera_enabled")
+  wakeWord              String   @default("helix") @map("wake_word")
+  startWithWindows      Boolean  @default(true) @map("start_with_windows")
+  defaultModel          String?  @map("default_model")
+  preferredProvider     String?  @map("preferred_provider")
+  fallbackEnabled       Boolean  @default(true) @map("fallback_enabled")
+  crossProviderFallback Boolean  @default(false) @map("cross_provider_fallback")
+  costPreference        String   @default("balanced") @map("cost_preference")
+  speedPreference       String   @default("balanced") @map("speed_preference")
+  qualityPreference     String   @default("balanced") @map("quality_preference")
+  logLevel              String   @default("INFO") @map("log_level")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+  rawJson               Json?    @map("raw_json")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("settings")
+}
+
+model ApiCredential {
+  id              String    @id @default(uuid())
+  userId          String    @map("user_id")
+  provider        String
+  keySlot         Int       @map("key_slot")
+  keyHash         String    @map("key_hash") // Never store plaintext API keys
+  isActive        Boolean   @default(true) @map("is_active")
+  healthStatus    String    @default("unconfigured") @map("health_status")
+  lastValidatedAt DateTime? @map("last_validated_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider, keySlot])
+  @@index([userId, provider])
+  @@map("api_credentials")
+}
+
+model ModelConfiguration {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  modelId   String   @map("model_id")
+  provider  String
+  isEnabled Boolean  @default(true) @map("is_enabled")
+  priority  Int      @default(5)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, modelId])
+  @@index([userId])
+  @@map("model_configurations")
+}
+
+model Task {
+  id            String    @id @default(uuid())
+  userId        String    @map("user_id")
+  deviceId      String?   @map("device_id")
+  description   String
+  status        String    @default("queued") // queued, running, paused, waiting_confirmation, completed, failed, cancelled
+  priority      Int       @default(5)
+  currentAction String?   @map("current_action")
+  model         String?
+  provider      String?
+  error         String?
+  result        Json?
+  startedAt     DateTime? @map("started_at")
+  completedAt   DateTime? @map("completed_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  user   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device Device?   @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  logs   TaskLog[]
+
+  @@index([userId, status])
+  @@index([userId, createdAt])
+  @@map("tasks")
+}
+
+model TaskLog {
+  id        String   @id @default(uuid())
+  taskId    String   @map("task_id")
+  level     String   @default("INFO")
+  message   String
+  action    String?
+  timestamp DateTime @default(now())
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@map("task_logs")
+}
+
+model Memory {
+  id          String    @id @default(uuid())
+  userId      String    @map("user_id")
+  deviceId    String?   @map("device_id")
+  content     String
+  memoryType  String    @map("memory_type") // SHORT_TERM, CONVERSATION, LONG_TERM, SEMANTIC
+  source      String?
+  importance  Float     @default(0.5)
+  expiresAt   DateTime? @map("expires_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device Device? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  @@index([userId, memoryType])
+  @@index([userId, expiresAt])
+  @@map("memories")
+}
+
+model Permission {
+  id             String   @id @default(uuid())
+  userId         String   @map("user_id")
+  permissionType String   @map("permission_type")
+  level          String   // READ_ONLY, LOW_RISK, MODIFY, EXECUTE, SYSTEM, CRITICAL
+  granted        Boolean  @default(false)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, permissionType])
+  @@index([userId])
+  @@map("permissions")
+}
+
+model ConfirmationPolicy {
+  id                   String   @id @default(uuid())
+  userId               String   @map("user_id")
+  toolName             String   @map("tool_name")
+  requiresConfirmation Boolean  @default(true) @map("requires_confirmation")
+  autoConfirmLevel     String?  @map("auto_confirm_level")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, toolName])
+  @@index([userId])
+  @@map("confirmation_policies")
+}

@@ -1,0 +1,49 @@
+:root {
+  /* ── Colors ─────────────────────────────────── */
+  --canvas:    #101010;
+  --carbon:    #1d1a18;
+  --border:    #3d3a39;
+  --graphite:  #4d4947;
+  --muted:     #8a8380;
+  --secondary: #b8b3b0;
+  --bone:      #eeeeee;
+  --chalk:     #fafafa;
+  --orange:    #ee6018;
+  --green:     #a0ca92;
+  --red:       #d4544a;
+
+  /* ── Typography ──────────────────────────────── */
+  --font-sans: 'Geist', 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'Geist Mono', 'JetBrains Mono', 'Fira Code', monospace;
+  --text-xs:   12px;
+  --text-sm:   14px;
+  --text-base: 16px;
+  --text-2xl:  24px;
+  --text-4xl:  36px;
+  --text-5xl:  44px;
+  --text-7xl:  72px;
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --leading-tight: 1.2;
+  --leading-base:  1.5;
+  --leading-relaxed: 1.6;
+
+  /* ── Spacing ─────────────────────────────────── */
+  --space-1:  8px;
+  --space-2:  16px;
+  --space-3:  24px;
+  --space-4:  32px;
+  --space-6:  48px;
+  --space-12: 96px;
+
+  /* ── Borders & Radii ─────────────────────────── */
+  --radius-btn:   3px;
+  --radius-card:  10px;
+  --radius-panel: 20px;
+  --border-width: 1px;
+
+  /* ── Transitions ─────────────────────────────── */
+  --ease:          cubic-bezier(0.4, 0, 0.2, 1);
+  --duration-fast: 0.15s;
+  --duration-base: 0.2s;
+}

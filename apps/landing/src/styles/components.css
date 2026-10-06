@@ -1,0 +1,94 @@
+.btn-primary {
+  background-color: var(--orange);
+  color: var(--bone);
+  border-radius: 3px;
+  padding: 12px 24px;
+  font-weight: 500;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+.btn-primary:hover {
+  filter: brightness(0.9);
+}
+
+.btn-secondary {
+  background-color: transparent;
+  color: var(--bone);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 12px 24px;
+  font-weight: 500;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+.btn-secondary:hover {
+  border-color: var(--secondary);
+}
+
+.btn-ghost {
+  background-color: transparent;
+  color: var(--muted);
+  border: none;
+  border-radius: 3px;
+  padding: 8px 16px;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  font-size: 14px;
+}
+.btn-ghost:hover {
+  color: var(--bone);
+}
+
+.card {
+  background-color: var(--carbon);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 24px;
+}
+
+.badge {
+  display: inline-flex;
+  font-size: 12px;
+  font-family: 'Geist Mono', monospace;
+  background-color: var(--graphite);
+  color: var(--muted);
+  border-radius: 3px;
+  padding: 4px 8px;
+}
+
+.section {
+  padding: 96px 0;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding-left: 24px;
+  padding-right: 24px;
+}
+
+.section-label {
+  font-size: 12px;
+  font-family: 'Geist Mono', monospace;
+  color: var(--orange);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 16px;
+  display: block;
+}
+
+.section-title {
+  font-size: 44px;
+  color: var(--bone);
+  font-weight: 400;
+  margin-bottom: 24px;
+}
+
+.section-subtitle {
+  font-size: 16px;
+  color: var(--secondary);
+  max-width: 600px;
+  margin-bottom: 48px;
+}
