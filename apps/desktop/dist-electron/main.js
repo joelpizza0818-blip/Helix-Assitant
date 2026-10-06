@@ -107,15 +107,33 @@ function createToolboxWindow() {
     return win;
 }
 async function startPythonAgent() {
-    let agentDir = isDev
-        ? path_1.default.resolve(__dirname, '../../services/agent')
-        : path_1.default.join(process.resourcesPath, 'agent');
-    if (!fs_1.default.existsSync(path_1.default.join(agentDir, 'main.py'))) {
-        const fallbackDir = path_1.default.resolve(process.cwd(), 'services/agent');
-        if (fs_1.default.existsSync(path_1.default.join(fallbackDir, 'main.py'))) {
-            agentDir = fallbackDir;
+    // Resolve agent directory — try multiple strategies
+    const candidates = isDev
+        ? [
+            // process.cwd() is typically the workspace root (apps/desktop)
+            path_1.default.resolve(process.cwd(), '../../services/agent'),
+            // From dist-electron/ go up to monorepo root
+            path_1.default.resolve(__dirname, '../../../services/agent'),
+            // From apps/desktop/ go up to monorepo root
+            path_1.default.resolve(__dirname, '../../services/agent'),
+            // Absolute fallback
+            path_1.default.resolve(process.cwd(), 'services/agent'),
+        ]
+        : [path_1.default.join(process.resourcesPath, 'agent')];
+    let agentDir = '';
+    for (const candidate of candidates) {
+        if (fs_1.default.existsSync(path_1.default.join(candidate, 'main.py'))) {
+            agentDir = candidate;
+            break;
         }
     }
+    if (!agentDir) {
+        console.error('[Main] Python agent main.py not found in any candidate path:');
+        candidates.forEach((c) => console.error(`  - ${c}`));
+        console.error('[Main] Python agent will NOT start. The app will run without backend.');
+        return;
+    }
+    console.log(`[Main] Found Python agent at: ${agentDir}`);
     pythonManager = new python_manager_1.PythonManager();
     pythonManager.onStdout((line) => {
         console.log(`[Python] ${line}`);
@@ -233,11 +251,16 @@ electron_1.app.whenReady().then(async () => {
     floatingWindow?.focus();
     trayManager.updateStatus('idle');
 });
+let isQuitting = false;
 electron_1.app.on('before-quit', async () => {
+    isQuitting = true;
     console.log('[Main] Quitting HELIX...');
-    // Allow windows to close
+    // Allow windows to actually close
     floatingWindow?.removeAllListeners('close');
     toolboxWindow?.removeAllListeners('close');
+    floatingWindow?.destroy();
+    toolboxWindow?.destroy();
+    trayManager?.destroy();
     // Stop Python agent
     await pythonManager?.stop();
 });

@@ -11,7 +11,8 @@ export default defineConfig({
       {
         entry: resolve(__dirname, 'electron/main.ts'),
         onstart(options) {
-          options.startup()
+          // Delay startup to ensure Vite HTTP server is fully bound
+          setTimeout(() => options.startup(), 3000)
         },
         vite: {
           build: {

@@ -121,16 +121,36 @@ function createToolboxWindow(): BrowserWindow {
 }
 
 async function startPythonAgent(): Promise<void> {
-  let agentDir = isDev
-    ? path.resolve(__dirname, '../../services/agent')
-    : path.join(process.resourcesPath, 'agent')
+  // Resolve agent directory — try multiple strategies
+  const candidates = isDev
+    ? [
+        // process.cwd() is typically the workspace root (apps/desktop)
+        path.resolve(process.cwd(), '../../services/agent'),
+        // From dist-electron/ go up to monorepo root
+        path.resolve(__dirname, '../../../services/agent'),
+        // From apps/desktop/ go up to monorepo root
+        path.resolve(__dirname, '../../services/agent'),
+        // Absolute fallback
+        path.resolve(process.cwd(), 'services/agent'),
+      ]
+    : [path.join(process.resourcesPath, 'agent')]
 
-  if (!fs.existsSync(path.join(agentDir, 'main.py'))) {
-    const fallbackDir = path.resolve(process.cwd(), 'services/agent')
-    if (fs.existsSync(path.join(fallbackDir, 'main.py'))) {
-      agentDir = fallbackDir
+  let agentDir = ''
+  for (const candidate of candidates) {
+    if (fs.existsSync(path.join(candidate, 'main.py'))) {
+      agentDir = candidate
+      break
     }
   }
+
+  if (!agentDir) {
+    console.error('[Main] Python agent main.py not found in any candidate path:')
+    candidates.forEach((c) => console.error(`  - ${c}`))
+    console.error('[Main] Python agent will NOT start. The app will run without backend.')
+    return
+  }
+
+  console.log(`[Main] Found Python agent at: ${agentDir}`)
 
   pythonManager = new PythonManager()
 
@@ -261,11 +281,17 @@ app.whenReady().then(async () => {
   trayManager.updateStatus('idle')
 })
 
+let isQuitting = false
+
 app.on('before-quit', async () => {
+  isQuitting = true
   console.log('[Main] Quitting HELIX...')
-  // Allow windows to close
+  // Allow windows to actually close
   floatingWindow?.removeAllListeners('close')
   toolboxWindow?.removeAllListeners('close')
+  floatingWindow?.destroy()
+  toolboxWindow?.destroy()
+  trayManager?.destroy()
   // Stop Python agent
   await pythonManager?.stop()
 })
