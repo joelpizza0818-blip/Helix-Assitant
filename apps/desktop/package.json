@@ -11,7 +11,7 @@
     "dev:all": "vite",
     "build": "tsc -p tsconfig.main.json && vite build && electron-builder",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit"
   },
   "dependencies": {
     "react": "^18.2.0",

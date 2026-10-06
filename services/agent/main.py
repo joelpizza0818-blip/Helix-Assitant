@@ -2,10 +2,14 @@ import asyncio
 import argparse
 import logging
 import signal
+import json
+import os
+from pathlib import Path
 from dotenv import load_dotenv
 import websockets
 
 from core.event_bus import EventBus
+from core.desktop_bridge import DesktopRequestHandler, _serialize
 from core.state_manager import StateManager
 from core.task_manager import TaskManager
 from core.planner import Planner
@@ -24,9 +28,35 @@ from ai.google_provider import GoogleProvider
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("HELIX_MAIN")
 
-async def ws_handler(websocket, event_bus: EventBus):
-    async for message in websocket:
-        await event_bus.publish("WS_MESSAGE", {"data": message})
+async def ws_handler(websocket, clients: set, request_handler: DesktopRequestHandler):
+    clients.add(websocket)
+    try:
+        async for raw_message in websocket:
+            request_id = None
+            try:
+                message = json.loads(raw_message)
+                if not isinstance(message, dict):
+                    raise ValueError("WebSocket message must be a JSON object")
+                request_id = message.get("request_id")
+                response = await request_handler.dispatch(message)
+                if response:
+                    await websocket.send(json.dumps(response))
+            except (json.JSONDecodeError, ValueError, TypeError) as error:
+                logger.warning("Invalid desktop WebSocket request: %s", error)
+                if request_id is not None:
+                    await websocket.send(json.dumps({
+                        "request_id": request_id,
+                        "error": str(error),
+                    }))
+            except Exception as error:
+                logger.exception("Desktop WebSocket request failed")
+                if request_id is not None:
+                    await websocket.send(json.dumps({
+                        "request_id": request_id,
+                        "error": "Internal agent request failed",
+                    }))
+    finally:
+        clients.discard(websocket)
 
 async def main():
     parser = argparse.ArgumentParser()
@@ -56,9 +86,59 @@ async def main():
     orchestrator = Orchestrator(planner, task_manager, event_bus, fallback_manager)
     
     agent = Agent(event_bus, state_manager, orchestrator, task_manager)
-    
+
+    default_settings_path = Path(os.environ.get("APPDATA", Path.home())) / "HELIX" / "settings.json"
+    settings_path = Path(os.environ.get("HELIX_SETTINGS_PATH", default_settings_path))
+    request_handler = DesktopRequestHandler(
+        task_manager,
+        provider_registry,
+        capability_registry,
+        key_manager,
+        settings_path,
+    )
+    clients = set()
+
+    async def broadcast_event(event_name: str, payload: dict):
+        event_types = {
+            "TASK_CREATED": "task_update",
+            "TASK_STATUS_CHANGED": "task_update",
+            "TASK_CANCELLED": "task_update",
+            "WAIT_CONFIRMATION": "confirmation_request",
+            "AGENT_MESSAGE": "agent_message",
+            "STATUS_UPDATE": "status_update",
+            "FALLBACK_EVENT": "fallback_event",
+            "ERROR": "error",
+            "PROVIDER_UPDATE": "provider_update",
+        }
+        if event_name in {"TASK_CREATED", "TASK_STATUS_CHANGED", "TASK_CANCELLED"}:
+            task = await task_manager.get_task(payload.get("task_id", ""))
+            if task is None:
+                return
+            event_payload = _serialize(task)
+            event_payload["error"] = None
+        else:
+            event_payload = payload
+
+        event = json.dumps({
+            "type": event_types.get(event_name, event_name.lower()),
+            "payload": event_payload,
+        })
+        stale_clients = set()
+        for client in clients:
+            try:
+                await client.send(event)
+            except websockets.ConnectionClosed:
+                stale_clients.add(client)
+            except Exception:
+                logger.exception("Failed to forward %s to desktop client", event_name)
+                stale_clients.add(client)
+        clients.difference_update(stale_clients)
+
+    await event_bus.subscribe("*", broadcast_event)
+    await asyncio.sleep(0)
+
     server = await websockets.serve(
-        lambda ws: ws_handler(ws, event_bus), 
+        lambda ws: ws_handler(ws, clients, request_handler),
         "127.0.0.1", 
         args.ws_port
     )

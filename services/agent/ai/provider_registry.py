@@ -19,6 +19,9 @@ class ProviderRegistry:
             return None
         return self._providers.get(provider_id)
 
+    def get_registered_provider(self, provider_id: str) -> Optional[BaseAIProvider]:
+        return self._providers.get(provider_id)
+
     def get_available_providers(self) -> List[BaseAIProvider]:
         available = []
         for pid, provider in self._providers.items():

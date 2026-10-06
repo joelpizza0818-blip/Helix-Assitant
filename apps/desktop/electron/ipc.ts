@@ -8,7 +8,7 @@ interface AgentMessage {
 }
 
 // Map of request-id -> resolver for two-way request/response over WebSocket
-type ResponseResolver = (data: unknown) => void
+type ResponseResolver = (data: unknown, error?: string) => void
 
 const RECONNECT_DELAY_MS = 3000
 const MAX_RECONNECT_ATTEMPTS = 10
@@ -18,6 +18,7 @@ export class IPCBridge {
   private mainWindow: BrowserWindow | null = null
   private toolboxWindow: BrowserWindow | null = null
   private pendingRequests: Map<string, ResponseResolver> = new Map()
+  private queuedRequests: Map<string, AgentMessage & { request_id: string }> = new Map()
   private reconnectAttempts: number = 0
   private wsUrl: string = ''
   private reconnecting: boolean = false
@@ -85,18 +86,29 @@ export class IPCBridge {
           console.log('[IPCBridge] Connected to Python agent WebSocket')
           this.reconnectAttempts = 0
           this.reconnecting = false
+          for (const [requestId, message] of this.queuedRequests) {
+            if (!this.pendingRequests.has(requestId)) {
+              this.queuedRequests.delete(requestId)
+              continue
+            }
+            ws.send(JSON.stringify(message))
+            this.queuedRequests.delete(requestId)
+          }
           resolve()
         })
 
         ws.on('message', (data: WebSocket.Data) => {
           try {
-            const message = JSON.parse(data.toString()) as AgentMessage & { request_id?: string }
+            const message = JSON.parse(data.toString()) as AgentMessage & {
+              request_id?: string
+              error?: string
+            }
 
             // Handle request/response pairing
             if (message.request_id && this.pendingRequests.has(message.request_id)) {
               const resolver = this.pendingRequests.get(message.request_id)!
               this.pendingRequests.delete(message.request_id)
-              resolver(message.payload)
+              resolver(message.payload, message.error)
               return
             }
 
@@ -160,15 +172,21 @@ export class IPCBridge {
 
       const timeout = setTimeout(() => {
         this.pendingRequests.delete(requestId)
+        this.queuedRequests.delete(requestId)
         reject(new Error(`Request timeout: ${message.type}`))
       }, timeoutMs)
 
-      this.pendingRequests.set(requestId, (data) => {
+      this.pendingRequests.set(requestId, (data, error) => {
         clearTimeout(timeout)
-        resolve(data)
+        if (error) reject(new Error(error))
+        else resolve(data)
       })
 
-      this._sendToPython(messageWithId)
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify(messageWithId))
+      } else {
+        this.queuedRequests.set(requestId, messageWithId)
+      }
     })
   }
 

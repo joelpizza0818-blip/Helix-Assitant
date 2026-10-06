@@ -11,6 +11,12 @@ def test_no_keys_configured(clean_env):
     assert not km.is_provider_configured("anthropic")
     assert km.get_available_key("google") is None
 
+def test_empty_environment_keys_are_not_configured(clean_env, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY_1", "")
+    km = KeyManager()
+    assert not km.is_provider_configured("openai")
+    assert "openai" not in km.get_configured_providers()
+
 def test_single_provider_configured(google_only_env):
     km = KeyManager()
     assert km.get_configured_providers() == ["google"]

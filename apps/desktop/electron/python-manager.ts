@@ -1,4 +1,5 @@
 import { spawn, ChildProcess } from 'child_process'
+import { createServer } from 'net'
 import path from 'path'
 import fs from 'fs'
 
@@ -11,6 +12,7 @@ export class PythonManager {
   private process: ChildProcess | null = null
   private agentDir: string = ''
   private wsPort: number = 8765
+  private settingsPath: string = ''
   private restartCount: number = 0
   private maxRestarts: number = 5
   private stopping: boolean = false
@@ -19,12 +21,50 @@ export class PythonManager {
   private stderrHandlers: StdoutHandler[] = []
   private exitHandlers: ExitHandler[] = []
 
-  async start(agentDir: string, wsPort: number): Promise<void> {
+  async start(agentDir: string, wsPort: number, settingsPath: string): Promise<number> {
     this.agentDir = agentDir
-    this.wsPort = wsPort
+    this.wsPort = await this.findAvailablePort(wsPort)
+    this.settingsPath = settingsPath
+    if (this.wsPort !== wsPort) {
+      console.warn(`[PythonManager] Port ${wsPort} is already in use; using ${this.wsPort} instead`)
+    }
     this.stopping = false
     this.restartCount = 0
-    return this._spawn()
+    await this._spawn()
+    return this.wsPort
+  }
+
+  private findAvailablePort(preferredPort: number): Promise<number> {
+    return new Promise((resolve, reject) => {
+      const server = createServer()
+      server.once('error', (error: NodeJS.ErrnoException) => {
+        if (error.code !== 'EADDRINUSE') {
+          reject(error)
+          return
+        }
+
+        const fallbackServer = createServer()
+        fallbackServer.once('error', reject)
+        fallbackServer.listen(0, '127.0.0.1', () => {
+          const address = fallbackServer.address()
+          if (!address || typeof address === 'string') {
+            fallbackServer.close()
+            reject(new Error('Could not determine an available agent port'))
+            return
+          }
+          fallbackServer.close((closeError) => {
+            if (closeError) reject(closeError)
+            else resolve(address.port)
+          })
+        })
+      })
+      server.listen(preferredPort, '127.0.0.1', () => {
+        server.close((error) => {
+          if (error) reject(error)
+          else resolve(preferredPort)
+        })
+      })
+    })
   }
 
   private async _spawn(): Promise<void> {
@@ -44,7 +84,11 @@ export class PythonManager {
     this.process = spawn(pythonExe, ['main.py', '--ws-port', String(this.wsPort)], {
       cwd: this.agentDir,
       stdio: ['pipe', 'pipe', 'pipe'],
-      windowsHide: true
+      windowsHide: true,
+      env: {
+        ...process.env,
+        HELIX_SETTINGS_PATH: this.settingsPath
+      }
     })
 
     let stdoutBuffer = ''

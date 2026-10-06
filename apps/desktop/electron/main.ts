@@ -17,7 +17,8 @@ import { TrayManager } from './tray'
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 const RENDERER_URL = isDev ? 'http://127.0.0.1:5173' : `file://${path.join(__dirname, '../dist/index.html')}`
-const WS_PORT = parseInt(process.env.AGENT_WS_PORT || '8765', 10)
+const DEFAULT_WS_PORT = parseInt(process.env.AGENT_WS_PORT || '8765', 10)
+let wsPort = DEFAULT_WS_PORT
 
 let floatingWindow: BrowserWindow | null = null
 let toolboxWindow: BrowserWindow | null = null
@@ -168,7 +169,11 @@ async function startPythonAgent(): Promise<void> {
   })
 
   try {
-    await pythonManager.start(agentDir, WS_PORT)
+    wsPort = await pythonManager.start(
+      agentDir,
+      DEFAULT_WS_PORT,
+      path.join(app.getPath('userData'), 'settings.json')
+    )
     console.log('[Main] Python agent started')
   } catch (err) {
     console.error('[Main] Failed to start Python agent:', err)
@@ -191,7 +196,7 @@ async function connectWebSocket(retryCount = 0, maxRetries = 15): Promise<void> 
   }
 
   try {
-    await ipcBridge.connectToPython(`ws://127.0.0.1:${WS_PORT}`)
+    await ipcBridge.connectToPython(`ws://127.0.0.1:${wsPort}`)
     console.log('[Main] Connected to Python agent WebSocket')
     trayManager?.updateStatus('idle')
   } catch (err) {

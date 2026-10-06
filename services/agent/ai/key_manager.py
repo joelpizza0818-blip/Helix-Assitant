@@ -21,7 +21,7 @@ class KeyManager:
             prefix = provider.upper()
             for i in range(1, 4):
                 key = os.environ.get(f"{prefix}_API_KEY_{i}")
-                self.keys[provider].append(key)
+                self.keys[provider].append(key.strip() if key and key.strip() else None)
 
     def get_available_key(self, provider: str) -> Optional[Tuple[int, str]]:
         if provider not in self.keys:
@@ -74,7 +74,7 @@ class KeyManager:
         state["cooldown_until"] = 0
 
     def is_provider_configured(self, provider: str) -> bool:
-        return any(k is not None for k in self.keys.get(provider, []))
+        return any(k for k in self.keys.get(provider, []))
 
     def get_configured_providers(self) -> List[str]:
         return [p for p in self.keys.keys() if self.is_provider_configured(p)]
