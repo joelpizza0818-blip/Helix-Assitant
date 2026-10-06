@@ -228,7 +228,9 @@ app.whenReady().then(async () => {
   // Connect IPC bridge
   await connectIPC()
 
-  // Show tray and floating window
+  // Show floating window on startup
+  floatingWindow?.show()
+  floatingWindow?.focus()
   trayManager.updateStatus('idle')
 })
 
