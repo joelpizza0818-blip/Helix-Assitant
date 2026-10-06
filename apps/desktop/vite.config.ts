@@ -9,10 +9,10 @@ export default defineConfig({
     react(),
     electron([
       {
-        entry: 'electron/main.ts',
+        entry: resolve(__dirname, 'electron/main.ts'),
         vite: {
           build: {
-            outDir: 'dist-electron',
+            outDir: resolve(__dirname, 'dist-electron'),
             rollupOptions: {
               external: ['electron', 'ws', 'path', 'child_process', 'fs', 'os']
             }
@@ -20,10 +20,10 @@ export default defineConfig({
         }
       },
       {
-        entry: 'electron/preload.ts',
+        entry: resolve(__dirname, 'electron/preload.ts'),
         vite: {
           build: {
-            outDir: 'dist-electron',
+            outDir: resolve(__dirname, 'dist-electron'),
             rollupOptions: {
               external: ['electron']
             }
