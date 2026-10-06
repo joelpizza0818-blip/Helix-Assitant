@@ -13,15 +13,17 @@ export function Navigation() {
         </div>
         
         <div className="nav-center">
-          <a href="#features" className="nav-link">Features</a>
-          <a href="#how-it-works" className="nav-link">How it Works</a>
-          <a href="#security" className="nav-link">Security</a>
-          <Link to="/download" className="nav-link">Download</Link>
+          <a href="#features" className="nav-link">Capabilities</a>
+          <a href="#router" className="nav-link">Model Router</a>
+          <a href="#security" className="nav-link">Zero-Trust</a>
+          <Link to="/download" className="nav-link">Docs</Link>
         </div>
         
         <div className="nav-right">
-          <Link to="/login" className="btn-ghost">Login</Link>
-          <Link to="/download" className="btn-primary nav-download">Download <span className="nav-download-os">for Windows</span></Link>
+          <Link to="/login" className="btn-ghost">Log in</Link>
+          <Link to="/download" className="btn-primary nav-cta">
+            Download for Windows
+          </Link>
         </div>
       </div>
     </nav>

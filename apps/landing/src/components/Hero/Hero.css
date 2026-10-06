@@ -1,22 +1,22 @@
 .hero {
   padding-top: 140px;
-  padding-bottom: 96px;
+  padding-bottom: var(--spacing-80);
   background-color: var(--canvas);
 }
 
 .hero-container {
-  max-width: 1200px;
+  max-width: var(--page-max-width);
   margin: 0 auto;
-  padding: 0 24px;
+  padding: 0 var(--spacing-24);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 48px;
+  gap: var(--spacing-52);
 }
 
 .hero-left {
-  flex: 1;
-  max-width: 580px;
+  flex: 1.1;
+  max-width: 620px;
 }
 
 .hero-badge {
@@ -25,47 +25,123 @@
   font-size: 11px;
   color: var(--orange);
   letter-spacing: 0.12em;
-  margin-bottom: 16px;
+  margin-bottom: var(--spacing-16);
   background-color: rgba(238, 96, 24, 0.08);
-  padding: 4px 8px;
-  border-radius: 2px;
+  border: 1px solid rgba(238, 96, 24, 0.2);
+  padding: 4px 10px;
+  border-radius: var(--radius-tags);
 }
 
 .hero-title {
-  font-size: 72px;
-  font-weight: 400;
-  line-height: 1;
+  font-size: 52px;
+  font-weight: var(--font-weight-medium);
+  line-height: var(--leading-display);
   letter-spacing: -0.03em;
   color: var(--chalk);
-  margin-bottom: 12px;
-}
-
-.hero-subtitle {
-  font-size: 36px;
-  font-weight: 400;
-  line-height: 1.2;
-  color: var(--bone);
-  margin-bottom: 24px;
+  margin-bottom: var(--spacing-16);
 }
 
 .hero-desc {
-  font-size: 16px;
-  line-height: 1.6;
-  color: var(--muted);
-  margin-bottom: 40px;
+  font-size: var(--text-body-lg);
+  line-height: var(--leading-body-lg);
+  letter-spacing: var(--tracking-body-lg);
+  color: var(--secondary);
+  margin-bottom: var(--spacing-32);
 }
 
+/* ── OpenAI Signature Prompt Bar ────────────────────────────── */
+.hero-prompt-bar {
+  margin-bottom: var(--spacing-32);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-12);
+}
+
+.prompt-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background-color: var(--carbon);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-inputs);
+  padding: 6px 8px 6px 18px;
+  transition: border-color var(--duration-fast) var(--ease), box-shadow var(--duration-fast) var(--ease);
+}
+
+.prompt-input-wrapper:focus-within {
+  border-color: rgba(255, 255, 255, 0.28);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.prompt-icon {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.prompt-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--bone);
+  font-size: var(--text-input);
+  font-family: var(--font-sans);
+  letter-spacing: var(--tracking-input);
+}
+
+.prompt-input::placeholder {
+  color: var(--muted);
+}
+
+.prompt-submit-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background-color: var(--orange);
+  color: var(--chalk);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform var(--duration-fast) var(--ease), filter var(--duration-fast) var(--ease);
+  text-decoration: none;
+  flex-shrink: 0;
+}
+
+.prompt-submit-btn:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.1);
+}
+
+/* ── Tag Chip Row ───────────────────────────────────────────── */
+.tag-chip-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-8);
+  flex-wrap: wrap;
+}
+
+.tag-chip--active {
+  border-color: var(--orange);
+  color: var(--chalk);
+  background-color: rgba(238, 96, 24, 0.1);
+}
+
+/* ── CTAs & Specs ───────────────────────────────────────────── */
 .hero-ctas {
   display: flex;
-  gap: 16px;
-  margin-bottom: 48px;
+  gap: var(--spacing-16);
+  margin-bottom: var(--spacing-40);
 }
 
 .hero-specs {
   display: flex;
-  gap: 24px;
-  padding-top: 24px;
-  border-top: 1px solid var(--border);
+  gap: var(--spacing-32);
+  padding-top: var(--spacing-24);
+  border-top: 1px solid var(--color-hairline);
 }
 
 .spec-item {
@@ -77,8 +153,8 @@
 .spec-label {
   font-family: var(--font-mono);
   font-size: 10px;
-  color: var(--graphite);
-  letter-spacing: 0.08em;
+  color: var(--muted);
+  letter-spacing: 0.1em;
 }
 
 .spec-val {
@@ -88,17 +164,23 @@
 }
 
 .hero-right {
-  flex: 1;
+  flex: 0.9;
   display: flex;
   justify-content: flex-end;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 960px) {
   .hero-container {
     flex-direction: column;
+  }
+  .hero-left {
+    max-width: 100%;
   }
   .hero-right {
     justify-content: center;
     width: 100%;
+  }
+  .hero-title {
+    font-size: 40px;
   }
 }

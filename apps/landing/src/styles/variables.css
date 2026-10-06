@@ -1,12 +1,85 @@
 :root {
-  --canvas: #101010;        /* page background */
-  --carbon: #1d1a18;        /* card/section backgrounds */
-  --border: #3d3a39;        /* borders */
-  --graphite: #4d4947;      /* subtle backgrounds */
-  --muted: #8a8380;         /* muted text, labels */
-  --secondary: #b8b3b0;     /* secondary text */
-  --bone: #eeeeee;          /* primary text */
-  --chalk: #fafafa;         /* emphasis text */
-  --orange: #ee6018;        /* CTAs, status - NOT decorative */
-  --green: #a0ca92;         /* success/status - NOT decorative */
+  /* ── Preserved Core Palette ─────────────────────────────────── */
+  --canvas: #101010;        /* Base canvas background */
+  --carbon: #1d1a18;        /* Card and elevated surface */
+  --border: rgba(255, 255, 255, 0.12); /* Hairline structure without weight */
+  --graphite: #4d4947;      /* Subtle backgrounds, tertiary accents */
+  --muted: #8a8380;         /* Muted text, secondary captions */
+  --secondary: #b8b3b0;     /* Body secondary text */
+  --bone: #eeeeee;          /* Primary text, high contrast */
+  --chalk: #fafafa;         /* Display headline emphasis */
+  --orange: #ee6018;        /* The sole filled action CTA button punctuation */
+  --green: #a0ca92;         /* Functional status only */
+  --red: #d4544a;           /* Error and danger status */
+
+  /* ── OpenAI Style Surface & Border Tokens ───────────────────── */
+  --color-canvas: var(--canvas);
+  --color-surface: var(--carbon);
+  --color-hairline: rgba(255, 255, 255, 0.12);
+  --color-whisper: rgba(255, 255, 255, 0.05);
+  --color-ash: rgba(255, 255, 255, 0.08);
+
+  /* ── Typography — Fonts ─────────────────────────────────────── */
+  --font-sans: 'Geist', 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: 'Geist Mono', 'JetBrains Mono', monospace;
+
+  /* ── Typography — Major Second Scale ────────────────────────── */
+  --text-caption: 13px;
+  --leading-caption: 1.51;
+  --tracking-caption: -0.13px;
+
+  --text-input: 16px;
+  --leading-input: 1.5;
+  --tracking-input: -0.16px;
+
+  --text-body-lg: 18px;
+  --leading-body-lg: 1.32;
+  --tracking-body-lg: -0.18px;
+
+  --text-subheading: 22px;
+  --leading-subheading: 1.26;
+  --tracking-subheading: -0.22px;
+
+  --text-heading: 28px;
+  --leading-heading: 1.21;
+  --tracking-heading: 0.31px;
+
+  --text-display: 48px;
+  --leading-display: 1.16;
+  --tracking-display: -1.44px;
+
+  /* Typography — Weights */
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+
+  /* ── 4px Base Spacing Scale ─────────────────────────────────── */
+  --spacing-4: 4px;
+  --spacing-8: 8px;
+  --spacing-12: 12px;
+  --spacing-16: 16px;
+  --spacing-20: 20px;
+  --spacing-24: 24px;
+  --spacing-32: 32px;
+  --spacing-40: 40px;
+  --spacing-52: 52px;
+  --spacing-64: 64px;
+  --spacing-80: 80px;
+  --spacing-120: 120px;
+
+  /* ── OpenAI Geometric Border Radii ──────────────────────────── */
+  --radius-buttons: 9999px; /* Pill buttons signature */
+  --radius-inputs: 9999px;  /* Pill prompt bar signature */
+  --radius-tags: 9999px;    /* Pill tag chips signature */
+  --radius-cards: 6px;      /* Architectural, near-zero radius */
+  --radius-links: 4px;
+  --radius-btn: 9999px;
+  --radius-card: 6px;
+
+  /* ── Layout & Elevation ─────────────────────────────────────── */
+  --page-max-width: 1200px;
+  --section-gap: 64px;
+  --shadow-sm: rgba(0, 0, 0, 0.2) 0px 4px 12px 0px;
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --duration-fast: 0.15s;
 }

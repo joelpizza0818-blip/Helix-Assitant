@@ -1,8 +1,8 @@
 :root {
-  /* ── Colors ─────────────────────────────────── */
+  /* ── Preserved Core Palette ─────────────────────────────────── */
   --canvas:    #101010;
   --carbon:    #1d1a18;
-  --border:    #3d3a39;
+  --border:    rgba(255, 255, 255, 0.12);
   --graphite:  #4d4947;
   --muted:     #8a8380;
   --secondary: #b8b3b0;
@@ -12,35 +12,50 @@
   --green:     #a0ca92;
   --red:       #d4544a;
 
-  /* ── Typography ──────────────────────────────── */
+  /* ── OpenAI Surface & Border Tokens ─────────────────────────── */
+  --color-hairline: rgba(255, 255, 255, 0.12);
+  --color-whisper:  rgba(255, 255, 255, 0.05);
+
+  /* ── Typography — OpenAI Major Second Scale ─────────────────── */
   --font-sans: 'Geist', 'Inter', system-ui, -apple-system, sans-serif;
-  --font-mono: 'Geist Mono', 'JetBrains Mono', 'Fira Code', monospace;
+  --font-mono: 'Geist Mono', 'JetBrains Mono', monospace;
+
   --text-xs:   12px;
+  --text-caption: 13px;
   --text-sm:   14px;
+  --text-input: 16px;
   --text-base: 16px;
+  --text-body-lg: 18px;
+  --text-subheading: 22px;
   --text-2xl:  24px;
+  --text-heading: 28px;
   --text-4xl:  36px;
   --text-5xl:  44px;
+  --text-display: 48px;
   --text-7xl:  72px;
+
   --weight-normal: 400;
   --weight-medium: 500;
-  --leading-tight: 1.2;
+  --weight-semibold: 600;
+
+  --leading-tight: 1.16;
   --leading-base:  1.5;
   --leading-relaxed: 1.6;
 
   /* ── Spacing ─────────────────────────────────── */
-  --space-1:  8px;
-  --space-2:  16px;
-  --space-3:  24px;
-  --space-4:  32px;
-  --space-6:  48px;
-  --space-12: 96px;
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  16px;
+  --space-4:  24px;
+  --space-6:  32px;
+  --space-12: 64px;
 
-  /* ── Borders & Radii ─────────────────────────── */
-  --radius-btn:   3px;
-  --radius-card:  10px;
-  --radius-panel: 20px;
-  --border-width: 1px;
+  /* ── OpenAI Geometric Border Radii ──────────────────────────── */
+  --radius-btn:     9999px; /* Pill buttons signature */
+  --radius-inputs:  9999px; /* Pill input signature */
+  --radius-card:    6px;    /* Architectural near-zero radius */
+  --radius-panel:   6px;
+  --border-width:   1px;
 
   /* ── Transitions ─────────────────────────────── */
   --ease:          cubic-bezier(0.4, 0, 0.2, 1);

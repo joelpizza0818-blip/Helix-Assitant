@@ -1,94 +1,142 @@
+/* ── OpenAI Style Component Definitions (HELIX Dark Fusion) ── */
+
+/* Filled Action Button — Sole filled chromatic punctuation */
 .btn-primary {
   background-color: var(--orange);
-  color: var(--bone);
-  border-radius: 3px;
-  padding: 12px 24px;
-  font-weight: 500;
-  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  color: var(--chalk);
+  border: 1px solid transparent;
+  border-radius: var(--radius-buttons);
+  padding: 8px 20px;
+  font-size: 14px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: -0.01em;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  gap: 8px;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease);
+  text-decoration: none;
 }
 .btn-primary:hover {
-  filter: brightness(0.9);
+  filter: brightness(1.08);
+  box-shadow: 0 0 16px rgba(238, 96, 24, 0.35);
 }
 
+/* Outlined Pill Button */
 .btn-secondary {
   background-color: transparent;
   color: var(--bone);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 12px 24px;
-  font-weight: 500;
-  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-buttons);
+  padding: 8px 20px;
+  font-size: 14px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: -0.01em;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  gap: 8px;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease);
+  text-decoration: none;
 }
 .btn-secondary:hover {
-  border-color: var(--secondary);
+  background-color: var(--color-whisper);
+  border-color: rgba(255, 255, 255, 0.25);
+  color: var(--chalk);
 }
 
+/* Ghost Text Button */
 .btn-ghost {
   background-color: transparent;
-  color: var(--muted);
+  color: var(--secondary);
   border: none;
-  border-radius: 3px;
+  border-radius: var(--radius-buttons);
   padding: 8px 16px;
-  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
   font-size: 14px;
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--duration-fast) var(--ease);
+  text-decoration: none;
 }
 .btn-ghost:hover {
+  background-color: var(--color-whisper);
   color: var(--bone);
 }
 
+/* Outlined Pill Tag Chip */
+.tag-chip, .pill-chip {
+  background-color: transparent;
+  color: var(--secondary);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-tags);
+  padding: 6px 14px;
+  font-size: var(--text-caption);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: -0.01em;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease);
+  user-select: none;
+}
+.tag-chip:hover, .pill-chip:hover {
+  background-color: var(--color-whisper);
+  color: var(--bone);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+/* Architectural Card */
 .card {
   background-color: var(--carbon);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 24px;
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-cards);
+  padding: var(--spacing-24);
+  transition: border-color var(--duration-fast) var(--ease);
+}
+.card:hover {
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
-.badge {
-  display: inline-flex;
-  font-size: 12px;
-  font-family: 'Geist Mono', monospace;
-  background-color: var(--graphite);
-  color: var(--muted);
-  border-radius: 3px;
-  padding: 4px 8px;
-}
-
+/* Section Rhythm */
 .section {
-  padding: 96px 0;
-  max-width: 1200px;
+  padding: var(--spacing-64) 0;
+  max-width: var(--page-max-width);
   margin: 0 auto;
-  padding-left: 24px;
-  padding-right: 24px;
+  padding-left: var(--spacing-24);
+  padding-right: var(--spacing-24);
 }
 
+/* Editorial Labels & Headings */
 .section-label {
-  font-size: 12px;
-  font-family: 'Geist Mono', monospace;
-  color: var(--orange);
+  font-size: 13px;
+  font-weight: var(--font-weight-medium);
+  color: var(--muted);
   text-transform: uppercase;
-  letter-spacing: 0.1em;
-  margin-bottom: 16px;
+  letter-spacing: 0.08em;
+  margin-bottom: var(--spacing-12);
   display: block;
 }
 
 .section-title {
-  font-size: 44px;
-  color: var(--bone);
-  font-weight: 400;
-  margin-bottom: 24px;
+  font-size: var(--text-heading);
+  line-height: var(--leading-heading);
+  letter-spacing: var(--tracking-heading);
+  color: var(--chalk);
+  font-weight: var(--font-weight-medium);
+  margin-bottom: var(--spacing-16);
 }
 
 .section-subtitle {
-  font-size: 16px;
+  font-size: var(--text-body-lg);
+  line-height: var(--leading-body-lg);
+  letter-spacing: var(--tracking-body-lg);
   color: var(--secondary);
-  max-width: 600px;
-  margin-bottom: 48px;
+  max-width: 680px;
+  margin-bottom: var(--spacing-40);
 }

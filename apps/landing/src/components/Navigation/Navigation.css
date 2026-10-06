@@ -3,9 +3,10 @@
   top: 0;
   left: 0;
   right: 0;
-  height: 60px;
-  background-color: var(--canvas);
-  border-bottom: 1px solid var(--border);
+  height: 64px;
+  background-color: rgba(16, 16, 16, 0.95);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--color-hairline);
   z-index: 100;
   display: flex;
   justify-content: center;
@@ -13,11 +14,11 @@
 
 .nav-container {
   width: 100%;
-  max-width: 1200px;
+  max-width: var(--page-max-width);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 24px;
+  padding: 0 var(--spacing-24);
 }
 
 .nav-left {
@@ -26,14 +27,15 @@
 }
 
 .nav-logo {
-  font-family: 'Geist Mono', monospace;
-  font-size: 16px;
-  color: var(--bone);
-  letter-spacing: 0.1em;
+  font-family: var(--font-mono);
+  font-size: 15px;
+  color: var(--chalk);
+  letter-spacing: 0.12em;
   display: flex;
   align-items: center;
   gap: 6px;
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
 }
 
 .nav-dot {
@@ -41,31 +43,40 @@
   height: 6px;
   background-color: var(--orange);
   border-radius: 50%;
+  display: inline-block;
 }
 
 .nav-center {
   display: flex;
-  gap: 24px;
+  align-items: center;
+  gap: var(--spacing-32);
 }
 
 .nav-link {
   font-size: 14px;
+  font-weight: var(--font-weight-medium);
   color: var(--secondary);
-  transition: color 0.15s ease;
+  transition: color var(--duration-fast) var(--ease);
+  text-decoration: none;
 }
 
 .nav-link:hover {
-  color: var(--bone);
+  color: var(--chalk);
 }
 
 .nav-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--spacing-12);
 }
 
-.nav-download-os {
-  font-weight: 400;
-  opacity: 0.9;
-  margin-left: 4px;
+.nav-cta {
+  font-size: 13px;
+  padding: 8px 18px;
+}
+
+@media (max-width: 768px) {
+  .nav-center {
+    display: none;
+  }
 }

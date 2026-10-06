@@ -8,54 +8,56 @@
 }
 
 .download-page-header {
-  max-width: 1200px;
+  max-width: var(--page-max-width);
   margin: 0 auto;
-  padding: 0 24px 48px;
+  padding: 0 var(--spacing-24) var(--spacing-48);
 }
 
 .download-page-title {
-  font-size: 44px;
-  font-weight: 400;
+  font-size: var(--text-display);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: var(--tracking-display);
   color: var(--chalk);
-  margin-bottom: 12px;
+  margin-bottom: var(--spacing-12);
 }
 
 .download-page-desc {
-  font-size: 16px;
-  color: var(--muted);
-  max-width: 600px;
-  line-height: 1.6;
+  font-size: var(--text-body-lg);
+  color: var(--secondary);
+  max-width: 640px;
+  line-height: var(--leading-body-lg);
 }
 
 .troubleshooting-section {
-  padding: 64px 0 96px;
-  border-top: 1px solid var(--border);
+  padding: var(--spacing-64) 0 var(--spacing-96);
+  border-top: 1px solid var(--color-hairline);
 }
 
 .troubleshooting-container {
-  max-width: 1200px;
+  max-width: var(--page-max-width);
   margin: 0 auto;
-  padding: 0 24px;
+  padding: 0 var(--spacing-24);
 }
 
 .troubleshooting-title {
-  font-size: 20px;
-  font-weight: 400;
+  font-size: var(--text-heading);
+  letter-spacing: var(--tracking-heading);
+  font-weight: var(--font-weight-medium);
   color: var(--bone);
-  margin-bottom: 24px;
+  margin-bottom: var(--spacing-24);
 }
 
 .notes-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 20px;
+  gap: var(--spacing-20);
 }
 
 .note-card {
   background-color: var(--carbon);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 20px;
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-cards);
+  padding: var(--spacing-24);
 }
 
 .note-heading {
@@ -74,10 +76,11 @@
 
 .note-body code {
   background-color: var(--canvas);
-  border: 1px solid var(--border);
-  padding: 2px 4px;
-  border-radius: 2px;
+  border: 1px solid var(--color-hairline);
+  padding: 2px 6px;
+  border-radius: var(--radius-links);
   font-size: 11px;
+  font-family: var(--font-mono);
 }
 
 @media (max-width: 800px) {
