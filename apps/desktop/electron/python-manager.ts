@@ -1,6 +1,6 @@
 import { spawn, ChildProcess } from 'child_process'
-import * as path from 'path'
-import * as fs from 'fs'
+import path from 'path'
+import fs from 'fs'
 
 type StdoutHandler = (line: string) => void
 type ExitHandler = (code: number | null) => void

@@ -1,5 +1,5 @@
 import { BrowserWindow, ipcMain } from 'electron'
-import * as WebSocket from 'ws'
+import WebSocket from 'ws'
 
 interface AgentMessage {
   type: string

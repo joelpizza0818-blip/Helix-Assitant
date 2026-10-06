@@ -9,7 +9,7 @@ import {
   shell,
   Notification
 } from 'electron'
-import * as path from 'path'
+import path from 'path'
 import { PythonManager } from './python-manager'
 import { IPCBridge } from './ipc'
 import { TrayManager } from './tray'

@@ -1,6 +1,6 @@
 import { Tray, Menu, nativeImage } from 'electron'
-import * as path from 'path'
-import * as fs from 'fs'
+import path from 'path'
+import fs from 'fs'
 
 type AgentStatus = 'idle' | 'busy' | 'error' | 'listening' | 'executing'
 
