@@ -30,10 +30,21 @@
   border-color: rgba(255, 255, 255, 0.22);
 }
 
-.security-icon {
-  font-size: 22px;
+.security-icon-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-cards);
+  background-color: rgba(238, 96, 24, 0.08);
+  border: 1px solid rgba(238, 96, 24, 0.2);
   margin-bottom: var(--spacing-16);
   color: var(--orange);
+}
+
+.security-svg-icon {
+  stroke: var(--orange);
 }
 
 .security-title {

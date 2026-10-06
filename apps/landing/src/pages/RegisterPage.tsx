@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { HelixLogo } from '../components/HelixLogo/HelixLogo';
 import './AuthPage.css';
 
 export const RegisterPage: React.FC = () => {
@@ -39,7 +40,9 @@ export const RegisterPage: React.FC = () => {
     <div className="auth-page">
       <div className="auth-box">
         <div className="auth-header">
-          <Link to="/" className="auth-wordmark">HELIX</Link>
+          <Link to="/" className="auth-logo-link">
+            <HelixLogo size="md" showText={true} />
+          </Link>
           <h2 className="auth-title">Register Account</h2>
           <p className="auth-subtitle">Initialize cloud persistence & cross-device settings</p>
         </div>

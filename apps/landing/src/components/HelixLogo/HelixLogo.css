@@ -1,0 +1,36 @@
+.helix-brand-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  text-decoration: none;
+  user-select: none;
+}
+
+.helix-logo-icon {
+  display: block;
+  flex-shrink: 0;
+  transition: transform var(--duration-fast) var(--ease), filter var(--duration-fast) var(--ease);
+}
+
+.helix-brand-logo:hover .helix-logo-icon {
+  transform: scale(1.06);
+  filter: drop-shadow(0 0 8px rgba(255, 183, 3, 0.6));
+}
+
+.helix-logo-wordmark {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-sans);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--chalk);
+  font-size: 1.15em;
+  line-height: 1;
+}
+
+.wordmark-text {
+  background: linear-gradient(180deg, #ffffff 0%, #e0e0e0 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
+}

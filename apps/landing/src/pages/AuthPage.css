@@ -21,6 +21,12 @@
   margin-bottom: var(--spacing-28);
 }
 
+.auth-logo-link {
+  display: inline-flex;
+  margin-bottom: var(--spacing-16);
+  text-decoration: none;
+}
+
 .auth-wordmark {
   font-family: var(--font-mono);
   font-size: 15px;

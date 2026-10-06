@@ -35,14 +35,14 @@ const FEATURES: FeatureItem[] = [
     number: '04',
     title: 'Voice & Optical Gestures',
     subtitle: 'Natural local perceptual pipeline.',
-    description: 'Wake word detection ("Helix") with VAD and speech-to-text. Camera recognizes 6 core gestures (👍 confirm, 👎 reject, 👌 search, ✋ stop, ✊ close, ☝ open) locally via MediaPipe.',
+    description: 'Wake word detection ("Helix") with VAD and speech-to-text. Camera recognizes 6 core gestures (Confirm, Reject, Search, Stop, Close, Open) locally via MediaPipe.',
     tags: ['Wake Word', 'VAD', 'MediaPipe', '6 Gestures']
   },
   {
     number: '05',
     title: 'Autonomous Web Research',
     subtitle: 'Playwright-driven browser agent.',
-    description: 'Navigates search engines, traverses links, extracts structured data, cross-checks facts across multiple sources, and synthesizes answers. Triggered via text, voice, or the 👌 gesture.',
+    description: 'Navigates search engines, traverses links, extracts structured data, cross-checks facts across multiple sources, and synthesizes answers. Triggered via text, voice, or optical gesture.',
     tags: ['Playwright', 'Data Extraction', 'Synthesis', 'Multi-Page']
   },
   {

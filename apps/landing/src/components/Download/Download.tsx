@@ -15,18 +15,20 @@ export const Download: React.FC = () => {
           </div>
 
           <div className="download-actions">
-            <a
-              href="https://github.com"
-              target="_blank"
-              rel="noreferrer"
+            <button
+              type="button"
               className="btn-primary"
+              onClick={() => {
+                const el = document.getElementById('source-code-instructions');
+                if (el) el.scrollIntoView({ behavior: 'smooth' });
+              }}
             >
-              Download Windows Installer (.exe)
-            </a>
-            <span className="build-tag">BUILD: v0.1.0-PREVIEW (x64)</span>
+              Get Started with Windows Setup
+            </button>
+            <span className="build-tag">VERSION: v0.1.0-PREVIEW (x64)</span>
           </div>
 
-          <div className="source-instructions">
+          <div className="source-instructions" id="source-code-instructions">
             <div className="instructions-title">Quickstart from Source</div>
             <pre className="code-block selectable">
               <code>{`# 1. Clone repository

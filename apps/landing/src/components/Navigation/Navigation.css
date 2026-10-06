@@ -26,24 +26,10 @@
   align-items: center;
 }
 
-.nav-logo {
-  font-family: var(--font-mono);
-  font-size: 15px;
-  color: var(--chalk);
-  letter-spacing: 0.12em;
+.nav-logo-link {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-weight: var(--font-weight-medium);
   text-decoration: none;
-}
-
-.nav-dot {
-  width: 6px;
-  height: 6px;
-  background-color: var(--orange);
-  border-radius: 50%;
-  display: inline-block;
 }
 
 .nav-center {

@@ -23,15 +23,8 @@
 .footer-brand {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-}
-
-.footer-wordmark {
-  font-family: var(--font-mono);
-  font-size: 16px;
-  letter-spacing: 0.1em;
-  color: var(--chalk);
-  font-weight: 500;
+  gap: 8px;
+  align-items: flex-start;
 }
 
 .footer-tagline {
