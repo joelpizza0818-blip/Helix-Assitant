@@ -1,42 +1,12 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PythonManager = void 0;
 const child_process_1 = require("child_process");
-const path = __importStar(require("path"));
-const fs = __importStar(require("fs"));
+const path_1 = __importDefault(require("path"));
+const fs_1 = __importDefault(require("fs"));
 const RESTART_DELAYS_MS = [1000, 2000, 5000, 10000, 30000];
 class PythonManager {
     constructor() {
@@ -62,8 +32,8 @@ class PythonManager {
         if (!pythonExe) {
             throw new Error('Python executable not found. Install Python 3.11+ and ensure it is in PATH.');
         }
-        const mainScript = path.join(this.agentDir, 'main.py');
-        if (!fs.existsSync(mainScript)) {
+        const mainScript = path_1.default.join(this.agentDir, 'main.py');
+        if (!fs_1.default.existsSync(mainScript)) {
             throw new Error(`Python agent main.py not found at: ${mainScript}`);
         }
         console.log(`[PythonManager] Spawning: ${pythonExe} main.py --ws-port ${this.wsPort}`);
@@ -153,10 +123,10 @@ class PythonManager {
     _findPython() {
         const candidates = [
             // Check .venv inside agent dir first
-            path.join(this.agentDir, '.venv', 'Scripts', 'python.exe'),
-            path.join(this.agentDir, '.venv', 'bin', 'python'),
+            path_1.default.join(this.agentDir, '.venv', 'Scripts', 'python.exe'),
+            path_1.default.join(this.agentDir, '.venv', 'bin', 'python'),
             // Check workspace-level .venv
-            path.join(this.agentDir, '..', '..', '.venv', 'Scripts', 'python.exe'),
+            path_1.default.join(this.agentDir, '..', '..', '.venv', 'Scripts', 'python.exe'),
             // System Python
             'python',
             'python3',
@@ -165,7 +135,7 @@ class PythonManager {
         for (const candidate of candidates) {
             if (!candidate.includes('python') && !candidate.includes('py'))
                 continue;
-            if (fs.existsSync(candidate)) {
+            if (fs_1.default.existsSync(candidate)) {
                 return candidate;
             }
         }

@@ -10,6 +10,9 @@ export default defineConfig({
     electron([
       {
         entry: resolve(__dirname, 'electron/main.ts'),
+        onstart(options) {
+          options.startup()
+        },
         vite: {
           build: {
             outDir: resolve(__dirname, 'dist-electron'),
@@ -21,6 +24,9 @@ export default defineConfig({
       },
       {
         entry: resolve(__dirname, 'electron/preload.ts'),
+        onstart(options) {
+          options.reload()
+        },
         vite: {
           build: {
             outDir: resolve(__dirname, 'dist-electron'),

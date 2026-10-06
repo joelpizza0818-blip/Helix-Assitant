@@ -10,12 +10,13 @@ import {
   Notification
 } from 'electron'
 import path from 'path'
+import fs from 'fs'
 import { PythonManager } from './python-manager'
 import { IPCBridge } from './ipc'
 import { TrayManager } from './tray'
 
-const isDev = process.env.NODE_ENV === 'development'
-const RENDERER_URL = isDev ? 'http://localhost:5173' : `file://${path.join(__dirname, '../dist/index.html')}`
+const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
+const RENDERER_URL = isDev ? 'http://127.0.0.1:5173' : `file://${path.join(__dirname, '../dist/index.html')}`
 const WS_PORT = parseInt(process.env.AGENT_WS_PORT || '8765', 10)
 
 let floatingWindow: BrowserWindow | null = null
@@ -24,21 +25,34 @@ let trayManager: TrayManager | null = null
 let pythonManager: PythonManager | null = null
 let ipcBridge: IPCBridge | null = null
 
-// Single instance lock
-const gotLock = app.requestSingleInstanceLock()
-if (!gotLock) {
-  app.quit()
-  process.exit(0)
+// Single instance lock for packaged builds
+if (app.isPackaged) {
+  const gotLock = app.requestSingleInstanceLock()
+  if (!gotLock) {
+    app.quit()
+    process.exit(0)
+  }
+
+  app.on('second-instance', () => {
+    if (floatingWindow) {
+      if (floatingWindow.isMinimized()) floatingWindow.restore()
+      floatingWindow.show()
+      floatingWindow.focus()
+    }
+  })
 }
 
-app.on('second-instance', () => {
-  // Someone tried to run a second instance — focus our window
-  if (floatingWindow) {
-    if (floatingWindow.isMinimized()) floatingWindow.restore()
-    floatingWindow.show()
-    floatingWindow.focus()
-  }
-})
+function loadWithRetry(win: BrowserWindow, url: string, maxRetries = 10, intervalMs = 800) {
+  win.loadURL(url).catch(() => {
+    if (maxRetries > 0) {
+      setTimeout(() => {
+        if (!win.isDestroyed()) {
+          loadWithRetry(win, url, maxRetries - 1, intervalMs)
+        }
+      }, intervalMs)
+    }
+  })
+}
 
 function createFloatingWindow(): BrowserWindow {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize
@@ -63,7 +77,7 @@ function createFloatingWindow(): BrowserWindow {
     }
   })
 
-  win.loadURL(`${RENDERER_URL}#floating`)
+  loadWithRetry(win, `${RENDERER_URL}#floating`)
 
   // Prevent closing — hide instead
   win.on('close', (e) => {
@@ -93,7 +107,7 @@ function createToolboxWindow(): BrowserWindow {
     }
   })
 
-  win.loadURL(`${RENDERER_URL}#toolbox`)
+  loadWithRetry(win, `${RENDERER_URL}#toolbox`)
   win.setMenuBarVisibility(false)
 
   win.on('close', (e) => {

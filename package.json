@@ -11,7 +11,7 @@
   ],
   "scripts": {
     "dev": "npm run dev --workspaces",
-    "dev:desktop": "npm run dev:all --workspace=@helix/desktop",
+    "dev:desktop": "npm run dev --workspace=@helix/desktop",
     "dev:landing": "npm run dev --workspace=@helix/landing",
     "dev:server": "npm run dev --workspace=@helix/server",
     "build": "npm run build --workspaces",

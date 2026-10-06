@@ -75,7 +75,7 @@ model Settings {
 }
 
 model ApiCredential {
-  id              String    @id @default(uuid())
+  id              String    @id @defauljt(uuid())
   userId          String    @map("user_id")
   provider        String
   keySlot         Int       @map("key_slot")

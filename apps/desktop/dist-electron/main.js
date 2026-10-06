@@ -1,3 +1,244 @@
-"use strict";Object.defineProperty(exports,Symbol.toStringTag,{value:"Module"});const i=require("electron"),l=require("path"),E=require("child_process"),g=require("fs"),y=require("ws"),f=[1e3,2e3,5e3,1e4,3e4];class P{constructor(){this.process=null,this.agentDir="",this.wsPort=8765,this.restartCount=0,this.maxRestarts=5,this.stopping=!1,this.stdoutHandlers=[],this.stderrHandlers=[],this.exitHandlers=[]}async start(t,e){return this.agentDir=t,this.wsPort=e,this.stopping=!1,this.restartCount=0,this._spawn()}async _spawn(){var s,d;const t=this._findPython();if(!t)throw new Error("Python executable not found. Install Python 3.11+ and ensure it is in PATH.");const e=l.join(this.agentDir,"main.py");if(!g.existsSync(e))throw new Error(`Python agent main.py not found at: ${e}`);console.log(`[PythonManager] Spawning: ${t} main.py --ws-port ${this.wsPort}`),console.log(`[PythonManager] Working dir: ${this.agentDir}`),this.process=E.spawn(t,["main.py","--ws-port",String(this.wsPort)],{cwd:this.agentDir,stdio:["pipe","pipe","pipe"],windowsHide:!0});let n="";(s=this.process.stdout)==null||s.on("data",h=>{n+=h.toString();const c=n.split(`
-`);n=c.pop()??"",c.forEach(u=>{u.trim()&&this.stdoutHandlers.forEach(w=>w(u))})});let o="";(d=this.process.stderr)==null||d.on("data",h=>{o+=h.toString();const c=o.split(`
-`);o=c.pop()??"",c.forEach(u=>{u.trim()&&this.stderrHandlers.forEach(w=>w(u))})}),this.process.on("exit",h=>{if(this.exitHandlers.forEach(c=>c(h)),this.process=null,!this.stopping&&this.restartCount<this.maxRestarts){const c=f[Math.min(this.restartCount,f.length-1)];console.warn(`[PythonManager] Process exited (code ${h}). Restarting in ${c}ms... (attempt ${this.restartCount+1}/${this.maxRestarts})`),this.restartCount++,setTimeout(()=>this._spawn(),c)}else this.stopping||console.error("[PythonManager] Max restarts reached. Agent is permanently down.")}),this.process.on("error",h=>{console.error("[PythonManager] Spawn error:",h.message)})}async stop(){if(this.stopping=!0,!!this.process)return new Promise(t=>{if(!this.process){t();return}const e=setTimeout(()=>{var n;(n=this.process)==null||n.kill("SIGKILL"),t()},5e3);this.process.once("exit",()=>{clearTimeout(e),t()}),this.process.kill("SIGTERM")})}async restart(){await this.stop(),this.stopping=!1,this.restartCount=0,await this._spawn()}isRunning(){return this.process!==null&&!this.process.killed}onStdout(t){this.stdoutHandlers.push(t)}onStderr(t){this.stderrHandlers.push(t)}onExit(t){this.exitHandlers.push(t)}_findPython(){const t=[l.join(this.agentDir,".venv","Scripts","python.exe"),l.join(this.agentDir,".venv","bin","python"),l.join(this.agentDir,"..","..",".venv","Scripts","python.exe"),"python","python3","py"];for(const e of t)if(!(!e.includes("python")&&!e.includes("py"))&&g.existsSync(e))return e;return"python"}}const m=3e3,W=10;class b{constructor(){this.ws=null,this.mainWindow=null,this.toolboxWindow=null,this.pendingRequests=new Map,this.reconnectAttempts=0,this.wsUrl="",this.reconnecting=!1}setupHandlers(t,e){this.mainWindow=t,this.toolboxWindow=e,i.ipcMain.on("helix:send-message",(n,o)=>{this._sendToPython({type:"USER_TEXT",payload:{text:o},timestamp:new Date().toISOString()})}),i.ipcMain.on("helix:cancel-task",(n,o)=>{this._sendToPython({type:"TASK_CANCEL",payload:{task_id:o},timestamp:new Date().toISOString()})}),i.ipcMain.on("helix:confirm-action",(n,o)=>{this._sendToPython({type:"CONFIRMATION_GRANTED",payload:{request_id:o},timestamp:new Date().toISOString()})}),i.ipcMain.on("helix:reject-action",(n,o)=>{this._sendToPython({type:"CONFIRMATION_REJECTED",payload:{request_id:o},timestamp:new Date().toISOString()})}),i.ipcMain.handle("helix:get-tasks",async()=>this._request({type:"GET_TASKS",payload:{}})),i.ipcMain.handle("helix:get-providers",async()=>this._request({type:"GET_PROVIDERS",payload:{}})),i.ipcMain.handle("helix:get-models",async(n,o)=>this._request({type:"GET_MODELS",payload:{requirements:o??{}}})),i.ipcMain.handle("helix:get-settings",async()=>this._request({type:"GET_SETTINGS",payload:{}})),i.ipcMain.handle("helix:save-settings",async(n,o)=>this._request({type:"SAVE_SETTINGS",payload:{settings:o}})),i.ipcMain.handle("helix:validate-key",async(n,o,s,d)=>this._request({type:"VALIDATE_KEY",payload:{provider:o,slot:s,key:d}}))}async connectToPython(t){return this.wsUrl=t,this._connect()}_connect(){return new Promise((t,e)=>{try{const n=new y(this.wsUrl);this.ws=n,n.on("open",()=>{console.log("[IPCBridge] Connected to Python agent WebSocket"),this.reconnectAttempts=0,this.reconnecting=!1,t()}),n.on("message",o=>{try{const s=JSON.parse(o.toString());if(s.request_id&&this.pendingRequests.has(s.request_id)){const d=this.pendingRequests.get(s.request_id);this.pendingRequests.delete(s.request_id),d(s.payload);return}this._forwardToRenderer(s)}catch(s){console.error("[IPCBridge] Failed to parse message from Python:",s)}}),n.on("error",o=>{console.error("[IPCBridge] WebSocket error:",o.message),this.reconnecting||e(o)}),n.on("close",()=>{console.warn("[IPCBridge] WebSocket connection closed"),this.ws=null,this._scheduleReconnect()})}catch(n){e(n)}})}_scheduleReconnect(){if(!this.reconnecting){if(this.reconnectAttempts>=W){console.error("[IPCBridge] Max reconnect attempts reached."),this._sendToAll("helix:error",{message:"Lost connection to HELIX agent. Please restart."});return}this.reconnecting=!0,this.reconnectAttempts++,console.log(`[IPCBridge] Reconnecting in ${m}ms (attempt ${this.reconnectAttempts})...`),setTimeout(async()=>{try{await this._connect()}catch{this.reconnecting=!1,this._scheduleReconnect()}},m)}}_sendToPython(t){this.ws&&this.ws.readyState===y.OPEN?this.ws.send(JSON.stringify(t)):console.warn("[IPCBridge] Cannot send: WebSocket not connected")}_request(t,e=1e4){return new Promise((n,o)=>{const s=`req_${Date.now()}_${Math.random().toString(36).slice(2)}`,d={...t,request_id:s},h=setTimeout(()=>{this.pendingRequests.delete(s),o(new Error(`Request timeout: ${t.type}`))},e);this.pendingRequests.set(s,c=>{clearTimeout(h),n(c)}),this._sendToPython(d)})}_forwardToRenderer(t){var o;const n={agent_message:"helix:agent-message",task_update:"helix:task-update",status_update:"helix:status-update",fallback_event:"helix:fallback-event",confirmation_request:"helix:confirmation-request",error:"helix:error",provider_update:"helix:provider-update",model_update:"helix:model-update"}[t.type]??`helix:${t.type}`;["helix:agent-message","helix:confirmation-request"].includes(n)&&((o=this.mainWindow)==null||o.webContents.send(n,t.payload)),this._sendToAll(n,t.payload)}_sendToAll(t,e){var n;(n=this.mainWindow)==null||n.webContents.send(t,e),this.toolboxWindow&&!this.toolboxWindow.isDestroyed()&&this.toolboxWindow.webContents.send(t,e)}}class I{constructor(){this.tray=null,this.onLeftClickHandler=null}create(t){let e;g.existsSync(t)?(e=i.nativeImage.createFromPath(t),e=e.resize({width:16,height:16})):e=i.nativeImage.createEmpty(),this.tray=new i.Tray(e),this.tray.setToolTip("HELIX — AI Computer Agent"),this.tray.on("click",()=>{var n;(n=this.onLeftClickHandler)==null||n.call(this)})}destroy(){var t;(t=this.tray)==null||t.destroy(),this.tray=null}updateStatus(t){var n;const e={idle:"HELIX — Ready",busy:"HELIX — Working...",error:"HELIX — Error (click to open)",listening:"HELIX — Listening...",executing:"HELIX — Executing task..."};(n=this.tray)==null||n.setToolTip(e[t]??"HELIX")}setOnLeftClick(t){this.onLeftClickHandler=t}setContextMenu(t){var e;(e=this.tray)==null||e.setContextMenu(t)}setTooltip(t){var e;(e=this.tray)==null||e.setToolTip(t)}}const _=process.env.NODE_ENV==="development",x=_?"http://localhost:5173":`file://${l.join(__dirname,"../dist/index.html")}`,S=parseInt(process.env.AGENT_WS_PORT||"8765",10);exports.floatingWindow=null;exports.toolboxWindow=null;let a=null,p=null;exports.ipcBridge=null;const C=i.app.requestSingleInstanceLock();C||(i.app.quit(),process.exit(0));i.app.on("second-instance",()=>{exports.floatingWindow&&(exports.floatingWindow.isMinimized()&&exports.floatingWindow.restore(),exports.floatingWindow.show(),exports.floatingWindow.focus())});function M(){const{width:r,height:t}=i.screen.getPrimaryDisplay().workAreaSize,e=new i.BrowserWindow({width:420,height:640,x:r-440,y:t-660,frame:!1,transparent:!1,alwaysOnTop:!0,skipTaskbar:!0,resizable:!1,show:!1,backgroundColor:"#101010",webPreferences:{preload:l.join(__dirname,"preload.js"),contextIsolation:!0,nodeIntegration:!1,sandbox:!1}});return e.loadURL(`${x}#floating`),e.on("close",n=>{n.preventDefault(),e.hide()}),e}function k(){const r=new i.BrowserWindow({width:1200,height:800,minWidth:900,minHeight:600,frame:!0,titleBarStyle:"default",show:!1,backgroundColor:"#101010",title:"HELIX Toolbox",webPreferences:{preload:l.join(__dirname,"preload.js"),contextIsolation:!0,nodeIntegration:!1,sandbox:!1}});return r.loadURL(`${x}#toolbox`),r.setMenuBarVisibility(!1),r.on("close",t=>{t.preventDefault(),r.hide()}),r}async function R(){let r=_?l.resolve(__dirname,"../../services/agent"):l.join(process.resourcesPath,"agent");if(!fs.existsSync(l.join(r,"main.py"))){const t=l.resolve(process.cwd(),"services/agent");fs.existsSync(l.join(t,"main.py"))&&(r=t)}p=new P,p.onStdout(t=>{console.log(`[Python] ${t}`)}),p.onStderr(t=>{console.error(`[Python:err] ${t}`)}),p.onExit(t=>{console.warn(`[Python] Process exited with code: ${t}`),a==null||a.updateStatus("error")});try{await p.start(r,S),console.log("[Main] Python agent started")}catch(t){console.error("[Main] Failed to start Python agent:",t)}}async function T(){if(!(!exports.floatingWindow||!exports.toolboxWindow)){exports.ipcBridge=new b,exports.ipcBridge.setupHandlers(exports.floatingWindow,exports.toolboxWindow),await new Promise(r=>setTimeout(r,2e3));try{await exports.ipcBridge.connectToPython(`ws://localhost:${S}`),console.log("[Main] Connected to Python agent WebSocket"),a==null||a.updateStatus("idle")}catch(r){console.error("[Main] Could not connect to Python WebSocket:",r),a==null||a.updateStatus("error"),setTimeout(()=>T(),5e3)}}}i.app.whenReady().then(async()=>{var e,n;process.platform==="win32"&&i.app.setAppUserModelId("com.helix.agent"),i.Menu.setApplicationMenu(null),exports.floatingWindow=M(),exports.toolboxWindow=k();const r=l.join(__dirname,"../assets/tray-icon.png");a=new I,a.create(r),a.setOnLeftClick(()=>{exports.floatingWindow&&(exports.floatingWindow.isVisible()?exports.floatingWindow.hide():(exports.floatingWindow.show(),exports.floatingWindow.focus()))});const t=()=>i.Menu.buildFromTemplate([{label:"Open HELIX",click:()=>{var o,s;(o=exports.floatingWindow)==null||o.show(),(s=exports.floatingWindow)==null||s.focus()}},{label:"Toolbox",click:()=>{var o,s;(o=exports.toolboxWindow)==null||o.show(),(s=exports.toolboxWindow)==null||s.focus()}},{label:"Task Manager",click:()=>{var o,s;(o=exports.floatingWindow)==null||o.show(),(s=exports.floatingWindow)==null||s.webContents.send("helix:show-tasks")}},{type:"separator"},{label:"Settings",click:()=>{var o,s;(o=exports.toolboxWindow)==null||o.show(),(s=exports.toolboxWindow)==null||s.focus()}},{type:"separator"},{label:"Quit HELIX",click:()=>{i.app.quit()}}]);a.setContextMenu(t()),await R(),await T(),(e=exports.floatingWindow)==null||e.show(),(n=exports.floatingWindow)==null||n.focus(),a.updateStatus("idle")});i.app.on("before-quit",async()=>{var r,t;console.log("[Main] Quitting HELIX..."),(r=exports.floatingWindow)==null||r.removeAllListeners("close"),(t=exports.toolboxWindow)==null||t.removeAllListeners("close"),await(p==null?void 0:p.stop())});i.app.on("window-all-closed",()=>{});i.ipcMain.on("helix:open-toolbox",()=>{var r,t;(r=exports.toolboxWindow)==null||r.show(),(t=exports.toolboxWindow)==null||t.focus()});i.ipcMain.on("helix:open-external",(r,t)=>{(t.startsWith("https://")||t.startsWith("http://"))&&i.shell.openExternal(t)});
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.ipcBridge = exports.toolboxWindow = exports.floatingWindow = void 0;
+const electron_1 = require("electron");
+const path_1 = __importDefault(require("path"));
+const fs_1 = __importDefault(require("fs"));
+const python_manager_1 = require("./python-manager");
+const ipc_1 = require("./ipc");
+const tray_1 = require("./tray");
+const isDev = process.env.NODE_ENV === 'development' || !electron_1.app.isPackaged;
+const RENDERER_URL = isDev ? 'http://127.0.0.1:5173' : `file://${path_1.default.join(__dirname, '../dist/index.html')}`;
+const WS_PORT = parseInt(process.env.AGENT_WS_PORT || '8765', 10);
+let floatingWindow = null;
+exports.floatingWindow = floatingWindow;
+let toolboxWindow = null;
+exports.toolboxWindow = toolboxWindow;
+let trayManager = null;
+let pythonManager = null;
+let ipcBridge = null;
+exports.ipcBridge = ipcBridge;
+// Single instance lock for packaged builds
+if (electron_1.app.isPackaged) {
+    const gotLock = electron_1.app.requestSingleInstanceLock();
+    if (!gotLock) {
+        electron_1.app.quit();
+        process.exit(0);
+    }
+    electron_1.app.on('second-instance', () => {
+        if (floatingWindow) {
+            if (floatingWindow.isMinimized())
+                floatingWindow.restore();
+            floatingWindow.show();
+            floatingWindow.focus();
+        }
+    });
+}
+function loadWithRetry(win, url, maxRetries = 10, intervalMs = 800) {
+    win.loadURL(url).catch(() => {
+        if (maxRetries > 0) {
+            setTimeout(() => {
+                if (!win.isDestroyed()) {
+                    loadWithRetry(win, url, maxRetries - 1, intervalMs);
+                }
+            }, intervalMs);
+        }
+    });
+}
+function createFloatingWindow() {
+    const { width, height } = electron_1.screen.getPrimaryDisplay().workAreaSize;
+    const win = new electron_1.BrowserWindow({
+        width: 420,
+        height: 640,
+        x: width - 440,
+        y: height - 660,
+        frame: false,
+        transparent: false,
+        alwaysOnTop: true,
+        skipTaskbar: true,
+        resizable: false,
+        show: false,
+        backgroundColor: '#101010',
+        webPreferences: {
+            preload: path_1.default.join(__dirname, 'preload.js'),
+            contextIsolation: true,
+            nodeIntegration: false,
+            sandbox: false
+        }
+    });
+    loadWithRetry(win, `${RENDERER_URL}#floating`);
+    // Prevent closing — hide instead
+    win.on('close', (e) => {
+        e.preventDefault();
+        win.hide();
+    });
+    return win;
+}
+function createToolboxWindow() {
+    const win = new electron_1.BrowserWindow({
+        width: 1200,
+        height: 800,
+        minWidth: 900,
+        minHeight: 600,
+        frame: true,
+        titleBarStyle: 'default',
+        show: false,
+        backgroundColor: '#101010',
+        title: 'HELIX Toolbox',
+        webPreferences: {
+            preload: path_1.default.join(__dirname, 'preload.js'),
+            contextIsolation: true,
+            nodeIntegration: false,
+            sandbox: false
+        }
+    });
+    loadWithRetry(win, `${RENDERER_URL}#toolbox`);
+    win.setMenuBarVisibility(false);
+    win.on('close', (e) => {
+        e.preventDefault();
+        win.hide();
+    });
+    return win;
+}
+async function startPythonAgent() {
+    let agentDir = isDev
+        ? path_1.default.resolve(__dirname, '../../services/agent')
+        : path_1.default.join(process.resourcesPath, 'agent');
+    if (!fs_1.default.existsSync(path_1.default.join(agentDir, 'main.py'))) {
+        const fallbackDir = path_1.default.resolve(process.cwd(), 'services/agent');
+        if (fs_1.default.existsSync(path_1.default.join(fallbackDir, 'main.py'))) {
+            agentDir = fallbackDir;
+        }
+    }
+    pythonManager = new python_manager_1.PythonManager();
+    pythonManager.onStdout((line) => {
+        console.log(`[Python] ${line}`);
+    });
+    pythonManager.onStderr((line) => {
+        console.error(`[Python:err] ${line}`);
+    });
+    pythonManager.onExit((code) => {
+        console.warn(`[Python] Process exited with code: ${code}`);
+        trayManager?.updateStatus('error');
+    });
+    try {
+        await pythonManager.start(agentDir, WS_PORT);
+        console.log('[Main] Python agent started');
+    }
+    catch (err) {
+        console.error('[Main] Failed to start Python agent:', err);
+    }
+}
+async function connectIPC() {
+    if (!floatingWindow || !toolboxWindow)
+        return;
+    exports.ipcBridge = ipcBridge = new ipc_1.IPCBridge();
+    ipcBridge.setupHandlers(floatingWindow, toolboxWindow);
+    // Give Python a moment to start the WebSocket server
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    try {
+        await ipcBridge.connectToPython(`ws://localhost:${WS_PORT}`);
+        console.log('[Main] Connected to Python agent WebSocket');
+        trayManager?.updateStatus('idle');
+    }
+    catch (err) {
+        console.error('[Main] Could not connect to Python WebSocket:', err);
+        trayManager?.updateStatus('error');
+        // Retry after 5 seconds
+        setTimeout(() => connectIPC(), 5000);
+    }
+}
+electron_1.app.whenReady().then(async () => {
+    // Set app user model ID for Windows notifications
+    if (process.platform === 'win32') {
+        electron_1.app.setAppUserModelId('com.helix.agent');
+    }
+    // Disable default menu
+    electron_1.Menu.setApplicationMenu(null);
+    // Create windows
+    exports.floatingWindow = floatingWindow = createFloatingWindow();
+    exports.toolboxWindow = toolboxWindow = createToolboxWindow();
+    // Create tray
+    const iconPath = path_1.default.join(__dirname, '../assets/tray-icon.png');
+    trayManager = new tray_1.TrayManager();
+    trayManager.create(iconPath);
+    trayManager.setOnLeftClick(() => {
+        if (!floatingWindow)
+            return;
+        if (floatingWindow.isVisible()) {
+            floatingWindow.hide();
+        }
+        else {
+            floatingWindow.show();
+            floatingWindow.focus();
+        }
+    });
+    // Build tray context menu
+    const buildContextMenu = () => {
+        return electron_1.Menu.buildFromTemplate([
+            {
+                label: 'Open HELIX',
+                click: () => { floatingWindow?.show(); floatingWindow?.focus(); }
+            },
+            {
+                label: 'Toolbox',
+                click: () => { toolboxWindow?.show(); toolboxWindow?.focus(); }
+            },
+            {
+                label: 'Task Manager',
+                click: () => {
+                    floatingWindow?.show();
+                    floatingWindow?.webContents.send('helix:show-tasks');
+                }
+            },
+            { type: 'separator' },
+            {
+                label: 'Settings',
+                click: () => { toolboxWindow?.show(); toolboxWindow?.focus(); }
+            },
+            { type: 'separator' },
+            {
+                label: 'Quit HELIX',
+                click: () => {
+                    electron_1.app.quit();
+                }
+            }
+        ]);
+    };
+    trayManager.setContextMenu(buildContextMenu());
+    // Start Python agent
+    await startPythonAgent();
+    // Connect IPC bridge
+    await connectIPC();
+    // Show floating window on startup
+    floatingWindow?.show();
+    floatingWindow?.focus();
+    trayManager.updateStatus('idle');
+});
+electron_1.app.on('before-quit', async () => {
+    console.log('[Main] Quitting HELIX...');
+    // Allow windows to close
+    floatingWindow?.removeAllListeners('close');
+    toolboxWindow?.removeAllListeners('close');
+    // Stop Python agent
+    await pythonManager?.stop();
+});
+electron_1.app.on('window-all-closed', () => {
+    // Do NOT quit — HELIX lives in the tray
+    // Only quit when user explicitly selects Quit from tray menu
+});
+// Handle IPC for opening toolbox
+electron_1.ipcMain.on('helix:open-toolbox', () => {
+    toolboxWindow?.show();
+    toolboxWindow?.focus();
+});
+// Handle IPC for opening external URLs safely
+electron_1.ipcMain.on('helix:open-external', (_event, url) => {
+    if (url.startsWith('https://') || url.startsWith('http://')) {
+        electron_1.shell.openExternal(url);
+    }
+});
+//# sourceMappingURL=main.js.map
