@@ -2,7 +2,10 @@ import logging
 from typing import Callable, Any
 from .model_router import RouteCandidate, TaskRequirements, ModelRouter
 from .key_manager import KeyManager
-from ..core.event_bus import EventBus
+try:
+    from core.event_bus import EventBus
+except ImportError:
+    from ..core.event_bus import EventBus
 from .base_provider import AgentError
 
 logger = logging.getLogger(__name__)

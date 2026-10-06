@@ -105,9 +105,16 @@ function createToolboxWindow(): BrowserWindow {
 }
 
 async function startPythonAgent(): Promise<void> {
-  const agentDir = isDev
-    ? path.join(__dirname, '../../../services/agent')
+  let agentDir = isDev
+    ? path.resolve(__dirname, '../../services/agent')
     : path.join(process.resourcesPath, 'agent')
+
+  if (!fs.existsSync(path.join(agentDir, 'main.py'))) {
+    const fallbackDir = path.resolve(process.cwd(), 'services/agent')
+    if (fs.existsSync(path.join(fallbackDir, 'main.py'))) {
+      agentDir = fallbackDir
+    }
+  }
 
   pythonManager = new PythonManager()
 

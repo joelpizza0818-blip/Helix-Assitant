@@ -64,15 +64,15 @@ async def main():
     )
     logger.info(f"HELIX Agent WebSocket server started on ws://localhost:{args.ws_port}")
     
-    stop = asyncio.Future()
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, stop.set_result, None)
-        
-    await stop
-    server.close()
-    await server.wait_closed()
-    logger.info("HELIX Agent shut down gracefully.")
+    try:
+        # Keep server running until cancelled or interrupted
+        await asyncio.Future()
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        pass
+    finally:
+        server.close()
+        await server.wait_closed()
+        logger.info("HELIX Agent shut down gracefully.")
 
 if __name__ == "__main__":
     asyncio.run(main())

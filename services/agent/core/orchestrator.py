@@ -4,7 +4,10 @@ from typing import Optional
 from .planner import Planner, Plan
 from .task_manager import TaskManager, TaskStatus
 from .event_bus import EventBus
-from ..ai.fallback_manager import FallbackManager
+try:
+    from ai.fallback_manager import FallbackManager
+except ImportError:
+    from ..ai.fallback_manager import FallbackManager
 
 logger = logging.getLogger(__name__)
 
