@@ -59,10 +59,10 @@ async def main():
     
     server = await websockets.serve(
         lambda ws: ws_handler(ws, event_bus), 
-        "localhost", 
+        "127.0.0.1", 
         args.ws_port
     )
-    logger.info(f"HELIX Agent WebSocket server started on ws://localhost:{args.ws_port}")
+    logger.info(f"HELIX Agent WebSocket server started on ws://127.0.0.1:{args.ws_port}")
     
     try:
         # Keep server running until cancelled or interrupted

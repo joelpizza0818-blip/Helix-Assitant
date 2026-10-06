@@ -37,7 +37,7 @@ if (electron_1.app.isPackaged) {
         }
     });
 }
-function loadWithRetry(win, url, maxRetries = 10, intervalMs = 800) {
+function loadWithRetry(win, url, maxRetries = 30, intervalMs = 1500) {
     win.loadURL(url).catch(() => {
         if (maxRetries > 0) {
             setTimeout(() => {
@@ -45,6 +45,9 @@ function loadWithRetry(win, url, maxRetries = 10, intervalMs = 800) {
                     loadWithRetry(win, url, maxRetries - 1, intervalMs);
                 }
             }, intervalMs);
+        }
+        else {
+            console.error(`[Main] Failed to load ${url} after all retries`);
         }
     });
 }
@@ -132,23 +135,34 @@ async function startPythonAgent() {
         console.error('[Main] Failed to start Python agent:', err);
     }
 }
-async function connectIPC() {
+function setupIPC() {
     if (!floatingWindow || !toolboxWindow)
         return;
     exports.ipcBridge = ipcBridge = new ipc_1.IPCBridge();
     ipcBridge.setupHandlers(floatingWindow, toolboxWindow);
-    // Give Python a moment to start the WebSocket server
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+}
+async function connectWebSocket(retryCount = 0, maxRetries = 15) {
+    if (!ipcBridge)
+        return;
+    // Give Python a moment to start the WebSocket server on first attempt
+    if (retryCount === 0) {
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+    }
     try {
-        await ipcBridge.connectToPython(`ws://localhost:${WS_PORT}`);
+        await ipcBridge.connectToPython(`ws://127.0.0.1:${WS_PORT}`);
         console.log('[Main] Connected to Python agent WebSocket');
         trayManager?.updateStatus('idle');
     }
     catch (err) {
-        console.error('[Main] Could not connect to Python WebSocket:', err);
+        console.error(`[Main] Could not connect to Python WebSocket (attempt ${retryCount + 1}/${maxRetries}):`, err.message);
         trayManager?.updateStatus('error');
-        // Retry after 5 seconds
-        setTimeout(() => connectIPC(), 5000);
+        if (retryCount < maxRetries) {
+            const delay = Math.min(2000 + retryCount * 1000, 10000);
+            setTimeout(() => connectWebSocket(retryCount + 1, maxRetries), delay);
+        }
+        else {
+            console.error('[Main] Exhausted WebSocket reconnect attempts. Python agent may not be running.');
+        }
     }
 }
 electron_1.app.whenReady().then(async () => {
@@ -211,8 +225,9 @@ electron_1.app.whenReady().then(async () => {
     trayManager.setContextMenu(buildContextMenu());
     // Start Python agent
     await startPythonAgent();
-    // Connect IPC bridge
-    await connectIPC();
+    // Register IPC handlers (once) and connect WebSocket (with retries)
+    setupIPC();
+    connectWebSocket();
     // Show floating window on startup
     floatingWindow?.show();
     floatingWindow?.focus();
