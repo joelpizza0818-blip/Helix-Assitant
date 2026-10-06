@@ -26,7 +26,7 @@ modelsRouter.get('/', requireAuth, async (req: AuthenticatedRequest, res: Respon
     },
   });
 
-  const configuredProviders = Array.from(new Set(credentials.map((c) => c.provider.toLowerCase())));
+  const configuredProviders: string[] = Array.from(new Set(credentials.map((c: any) => (c.provider as string).toLowerCase())));
 
   // Compile available models based ONLY on configured providers
   const availableModels: Array<{ id: string; provider: string }> = [];

@@ -7,7 +7,7 @@ export const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
-  const { signIn, loading } = useAuth();
+  const { signIn, isLoading } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -61,8 +61,8 @@ export const LoginPage: React.FC = () => {
             />
           </div>
 
-          <button type="submit" className="btn-primary auth-submit" disabled={loading}>
-            {loading ? 'Authenticating...' : 'Sign In'}
+          <button type="submit" className="btn-primary auth-submit" disabled={isLoading}>
+            {isLoading ? 'Authenticating...' : 'Sign In'}
           </button>
         </form>
 

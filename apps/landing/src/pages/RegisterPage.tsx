@@ -9,7 +9,7 @@ export const RegisterPage: React.FC = () => {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
-  const { signUp, loading } = useAuth();
+  const { signUp, isLoading } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -86,8 +86,8 @@ export const RegisterPage: React.FC = () => {
             />
           </div>
 
-          <button type="submit" className="btn-primary auth-submit" disabled={loading}>
-            {loading ? 'Creating Account...' : 'Register'}
+          <button type="submit" className="btn-primary auth-submit" disabled={isLoading}>
+            {isLoading ? 'Creating Account...' : 'Register'}
           </button>
         </form>
 
