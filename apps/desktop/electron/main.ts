@@ -71,10 +71,6 @@ function createFloatingWindow(): BrowserWindow {
     win.hide()
   })
 
-  if (isDev) {
-    win.webContents.openDevTools({ mode: 'detach' })
-  }
-
   return win
 }
 

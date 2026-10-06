@@ -36,7 +36,7 @@ export interface HelixAPI {
 
 // ── Shared types ──────────────────────────────────────────────────────────────
 
-export type ProviderID = 'openai' | 'anthropic' | 'google'
+export type ProviderID = 'openai' | 'anthropic' | 'google' | 'custom' | string
 export type KeySlot = 1 | 2 | 3
 export type KeyHealth = 'healthy' | 'rate_limited' | 'quota_exceeded' | 'auth_error' | 'unavailable' | 'unconfigured'
 export type AgentStatus = 'idle' | 'busy' | 'listening' | 'executing' | 'waiting_confirmation' | 'error'
@@ -168,9 +168,13 @@ export interface HelixSettings {
   voice_enabled: boolean
   wake_word: string
   wake_word_provider: 'openwakeword' | 'porcupine'
+  custom_wake_words?: string[]
+  voice_stt_provider?: string
+  voice_tts_provider?: string
   camera_enabled: boolean
   camera_device_index: number
   gesture_sensitivity: number
+  gesture_mappings?: Record<string, { action: string; label: string; customCommand?: string }>
   start_with_windows: boolean
   default_model: string | null
   preferred_provider: ProviderID | null
@@ -183,4 +187,6 @@ export interface HelixSettings {
   protected_paths: string[]
   protected_apps: string[]
   agent_ws_port: number
+  custom_models?: ModelDefinition[]
+  custom_endpoints?: Array<{ id: string; name: string; baseUrl: string; apiKey?: string; enabled: boolean }>
 }
