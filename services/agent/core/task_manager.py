@@ -1,4 +1,5 @@
 import asyncio
+from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -33,15 +34,28 @@ class Task:
 class TaskManager:
     def __init__(self, event_bus):
         self.tasks: Dict[str, Task] = {}
+        self._task_contexts: Dict[str, dict] = {}
         self.lock = asyncio.Lock()
         self.event_bus = event_bus
 
-    async def create_task(self, task_id: str, description: str, priority: int = 0) -> Task:
+    async def create_task(
+        self,
+        task_id: str,
+        description: str,
+        priority: int = 0,
+        context: Optional[dict] = None,
+    ) -> Task:
         async with self.lock:
             task = Task(id=task_id, description=description, priority=priority)
             self.tasks[task_id] = task
+            self._task_contexts[task_id] = deepcopy(context or {})
         await self.event_bus.publish("TASK_CREATED", {"task_id": task_id})
         return task
+
+    async def get_task_context(self, task_id: str) -> Optional[dict]:
+        async with self.lock:
+            context = self._task_contexts.get(task_id)
+            return deepcopy(context) if context is not None else None
 
     async def update_status(self, task_id: str, status: TaskStatus):
         async with self.lock:

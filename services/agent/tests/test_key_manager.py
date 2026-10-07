@@ -53,15 +53,18 @@ def test_three_keys_fallback(monkeypatch, clean_env):
     # Simulate Key 2 hit quota exceeded
     km.mark_key_failure("google", slot=1, error_code="QUOTA_EXCEEDED")
     assert km.key_states["google"][1]["health"] == KeyHealth.QUOTA_EXCEEDED
+    assert km.key_states["google"][1]["cooldown_until"] == 0
 
-    # Should fall over to slot 2 (key-3)
+    # Quota can be model-specific, so keep this key usable for other models.
+    slot, key = km.get_available_key("google")
+    assert slot == 1
+    assert key == "key-2"
+
+    # Rate-limited keys still observe their cooldown.
+    km.mark_key_failure("google", slot=1, error_code="RATE_LIMIT")
     slot, key = km.get_available_key("google")
     assert slot == 2
     assert key == "key-3"
-
-    # If key 3 also fails, no keys available
-    km.mark_key_failure("google", slot=2, error_code="RATE_LIMIT")
-    assert km.get_available_key("google") is None
 
 def test_auth_error_permanent(monkeypatch, clean_env):
     monkeypatch.setenv("OPENAI_API_KEY_1", "bad-key")

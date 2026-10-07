@@ -34,6 +34,10 @@ class ModelRouter:
         self.capability_registry = capability_registry
         self.provider_registry = provider_registry
         self.key_manager = key_manager
+        self.unavailable_models: set[Tuple[str, str]] = set()
+
+    def mark_model_unavailable(self, provider_id: str, model_id: str) -> None:
+        self.unavailable_models.add((provider_id, model_id))
 
     def get_best_candidate(self, requirements: TaskRequirements) -> Optional[RouteCandidate]:
         candidates = self._get_all_candidates(requirements)
@@ -54,26 +58,35 @@ class ModelRouter:
         for attr in ['text', 'vision', 'audio', 'computer_use', 'tool_calling', 'streaming', 'low_latency', 'coding', 'reasoning']:
             if getattr(reqs, attr): required_caps[attr] = True
 
-        providers_to_check = [reqs.preferred_provider] if reqs.preferred_provider else self.key_manager.get_configured_providers()
+        providers_to_check = [
+            provider
+            for provider in self.key_manager.get_configured_providers()
+            if self.provider_registry.is_provider_available(provider)
+        ]
         
         models = self.capability_registry.filter_by_capabilities(required_caps, provider_filter=providers_to_check)
         
         candidates = []
         for model in models:
-            key_info = self.key_manager.get_available_key(model.provider)
-            if not key_info: continue
-            slot, _ = key_info
-            
+            if (model.provider, model.id) in self.unavailable_models:
+                continue
             score = 100
-            if reqs.preferred_model == model.id: score += 500
-            if reqs.preferred_provider == model.provider: score += 100
-            if reqs.cost_preference == model.capabilities.cost_tier: score += 50
-            
-            candidates.append(RouteCandidate(
-                provider_id=model.provider,
-                model_id=model.id,
-                key_slot=slot,
-                score=score,
-                fallback_available=True
-            ))
-        return candidates
+            if reqs.preferred_model == model.id:
+                score += 500
+            if reqs.preferred_provider == model.provider:
+                score += 100
+            if reqs.cost_preference == model.capabilities.cost_tier:
+                score += 50
+
+            for slot, _key in self.key_manager.get_available_keys(model.provider):
+                candidates.append(RouteCandidate(
+                    provider_id=model.provider,
+                    model_id=model.id,
+                    key_slot=slot,
+                    score=score,
+                    fallback_available=True
+                ))
+        return sorted(
+            candidates,
+            key=lambda candidate: (-candidate.score, candidate.provider_id, candidate.model_id, candidate.key_slot),
+        )

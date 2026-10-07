@@ -9,7 +9,7 @@ from typing import Any
 
 DEFAULT_SETTINGS = {
     "voice_enabled": True,
-    "wake_word": "helix",
+    "wake_word": "hey helix",
     "wake_word_provider": "openwakeword",
     "camera_enabled": False,
     "camera_device_index": 0,
@@ -87,7 +87,31 @@ class DesktopRequestHandler:
             text = payload.get("text")
             if not isinstance(text, str) or not text.strip():
                 raise ValueError("USER_TEXT requires a non-empty text value")
-            await self.task_manager.event_bus.publish("USER_TEXT", {"text": text})
+            event_payload = {"text": text}
+            conversation_id = payload.get("conversation_id")
+            conversation_history = payload.get("conversation_history")
+            if conversation_id is not None:
+                if not isinstance(conversation_id, str) or not conversation_id:
+                    raise ValueError("USER_TEXT conversation_id must be a non-empty string")
+                if not isinstance(conversation_history, list):
+                    raise ValueError("USER_TEXT conversation_history must be a list")
+                history = []
+                for message in conversation_history:
+                    if (
+                        not isinstance(message, dict)
+                        or message.get("role") not in {"user", "assistant"}
+                        or not isinstance(message.get("content"), str)
+                    ):
+                        raise ValueError("USER_TEXT conversation_history has an invalid message")
+                    history.append({
+                        "role": message["role"],
+                        "content": message["content"],
+                    })
+                event_payload.update({
+                    "conversation_id": conversation_id,
+                    "conversation_history": history,
+                })
+            await self.task_manager.event_bus.publish("USER_TEXT", event_payload)
         elif message_type == "TASK_CANCEL":
             task_id = payload.get("task_id")
             if not isinstance(task_id, str) or not task_id:
@@ -147,8 +171,17 @@ class DesktopRequestHandler:
         )
         return [_serialize(model) for model in models]
 
-    def _read_settings(self) -> dict:
+    def get_settings(self) -> dict:
         settings = dict(DEFAULT_SETTINGS)
+        settings["camera_enabled"] = os.environ.get("CAMERA_ENABLED", "false").lower() == "true"
+        try:
+            settings["camera_device_index"] = int(os.environ.get("CAMERA_DEVICE_INDEX", "0"))
+        except ValueError:
+            raise ValueError("CAMERA_DEVICE_INDEX must be an integer") from None
+        try:
+            settings["gesture_sensitivity"] = float(os.environ.get("GESTURE_SENSITIVITY", "0.8"))
+        except ValueError:
+            raise ValueError("GESTURE_SENSITIVITY must be a number") from None
         if self.settings_path.exists():
             with self.settings_path.open("r", encoding="utf-8") as settings_file:
                 saved = json.load(settings_file)
@@ -158,18 +191,21 @@ class DesktopRequestHandler:
         return settings
 
     async def _get_settings(self) -> dict:
-        return self._read_settings()
+        return self.get_settings()
 
     async def _save_settings(self, settings: dict) -> dict:
         if not isinstance(settings, dict):
             raise ValueError("SAVE_SETTINGS requires a settings object")
-        merged = self._read_settings()
+        merged = self.get_settings()
         merged.update(settings)
         self.settings_path.parent.mkdir(parents=True, exist_ok=True)
         temporary_path = self.settings_path.with_suffix(f"{self.settings_path.suffix}.tmp")
         with temporary_path.open("w", encoding="utf-8") as settings_file:
             json.dump(merged, settings_file, indent=2)
         temporary_path.replace(self.settings_path)
+        
+        await self.task_manager.event_bus.publish("SETTINGS_UPDATED", merged)
+        
         return merged
 
     async def _validate_key(self, payload: dict) -> str:

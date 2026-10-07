@@ -9,7 +9,7 @@ def test_registry_contains_core_providers(capability_registry):
     assert "google" in providers
 
 def test_claude_computer_use_capability(capability_registry):
-    sonnet = capability_registry.get_model("claude-3-5-sonnet-20241022")
+    sonnet = capability_registry.get_model("claude-sonnet-5-5")
     assert sonnet is not None
     assert sonnet.capabilities.computer_use is True
     assert sonnet.capabilities.vision is True

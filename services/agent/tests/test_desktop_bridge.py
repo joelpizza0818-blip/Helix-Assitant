@@ -71,6 +71,22 @@ async def test_settings_are_saved_and_loaded(request_handler):
     assert saved["payload"]["voice_enabled"] is True
     assert loaded["payload"] == saved["payload"]
 
+@pytest.mark.asyncio
+async def test_camera_settings_default_to_environment(request_handler, monkeypatch):
+    monkeypatch.setenv("CAMERA_ENABLED", "true")
+    monkeypatch.setenv("CAMERA_DEVICE_INDEX", "2")
+    monkeypatch.setenv("GESTURE_SENSITIVITY", "0.65")
+
+    response = await request_handler.dispatch({
+        "type": "GET_SETTINGS",
+        "request_id": "camera-settings-1",
+        "payload": {},
+    })
+
+    assert response["payload"]["camera_enabled"] is True
+    assert response["payload"]["camera_device_index"] == 2
+    assert response["payload"]["gesture_sensitivity"] == 0.65
+
 
 @pytest.mark.asyncio
 async def test_provider_models_require_a_configured_key(request_handler, monkeypatch):
@@ -96,3 +112,27 @@ async def test_unknown_request_is_reported(request_handler):
             "request_id": "unknown-1",
             "payload": {},
         })
+@pytest.mark.asyncio
+async def test_user_text_forwards_conversation_context(request_handler):
+    events = []
+
+    async def capture(event_name, payload):
+        events.append((event_name, payload))
+
+    await request_handler.task_manager.event_bus.subscribe("USER_TEXT", capture)
+    payload = {
+        "text": "Continue",
+        "conversation_id": "conversation-1",
+        "conversation_history": [
+            {"role": "user", "content": "Hi"},
+            {"role": "assistant", "content": "Hello"},
+            {"role": "user", "content": "Continue"},
+        ],
+    }
+
+    await request_handler.dispatch({
+        "type": "USER_TEXT",
+        "payload": payload,
+    })
+
+    assert events == [("USER_TEXT", payload)]

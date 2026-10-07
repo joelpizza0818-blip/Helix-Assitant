@@ -1,7 +1,8 @@
 import logging
 import asyncio
+import os
+import uuid
 from enum import Enum
-import pyaudio
 
 logger = logging.getLogger(__name__)
 
@@ -10,59 +11,132 @@ class VoiceState(Enum):
     WAKE_DETECTED = "WAKE_DETECTED"
     LISTENING = "LISTENING"
     TRANSCRIBING = "TRANSCRIBING"
+    WAITING_RESPONSE = "WAITING_RESPONSE"
     SPEAKING = "SPEAKING"
     ERROR = "ERROR"
 
 class VoiceEngine:
-    def __init__(self, config: dict, event_bus, key_manager):
+    def __init__(self, config: dict, event_bus, key_manager, state_manager=None):
         self.config = config
         self.event_bus = event_bus
         self.key_manager = key_manager
+        self.state_manager = state_manager
         self.enabled = config.get('VOICE_ENABLED', 'false').lower() == 'true'
         self.state = VoiceState.IDLE
         self._is_active = False
+        self._audio_device = None
         self._task = None
+        self._stt_warmup_task = None
+        self._conversation_id = None
+        self._conversation_history = []
         
         if not self.enabled:
             logger.info("VoiceEngine is disabled in config.")
             return
             
-        from services.agent.perception.wake_word import WakeWordDetector
-        from services.agent.perception.vad import VADDetector
-        from services.agent.perception.speech_to_text import SpeechToText
-        from services.agent.perception.text_to_speech import TextToSpeech
+        if __package__ == "perception":
+            from .wake_word import WakeWordDetector
+            from .vad import VADDetector
+            from .speech_to_text import SpeechToText
+            from .text_to_speech import TextToSpeech
+        else:
+            from services.agent.perception.wake_word import WakeWordDetector
+            from services.agent.perception.vad import VADDetector
+            from services.agent.perception.speech_to_text import SpeechToText
+            from services.agent.perception.text_to_speech import TextToSpeech
         
-        openai_key = key_manager.get_key('OPENAI_API_KEY')
+        key_info = key_manager.get_available_key('openai')
+        openai_key = key_info[1] if key_info else None
+        wake_word_threshold = float(
+            config.get(
+                'WAKE_WORD_THRESHOLD',
+                os.environ.get('WAKE_WORD_THRESHOLD', '0.05'),
+            )
+        )
         
         self.wake_detector = WakeWordDetector(
-            wake_word=config.get('WAKE_WORD', 'hey helix'),
-            provider=config.get('WAKE_PROVIDER', 'openwakeword'),
-            event_bus=self.event_bus
+            wake_word=config.get('WAKE_WORD', os.environ.get('WAKE_WORD', 'hey helix')),
+            provider=config.get('WAKE_WORD_PROVIDER', os.environ.get('WAKE_WORD_PROVIDER', 'openwakeword')),
+            model_path=config.get('WAKE_WORD_MODEL_PATH', os.environ.get('WAKE_WORD_MODEL_PATH')),
+            event_bus=self.event_bus,
+            threshold=wake_word_threshold,
         )
         self.vad = VADDetector()
         self.stt = SpeechToText(
-            provider=config.get('STT_PROVIDER', 'openai'),
+            provider=config.get('STT_PROVIDER', 'whisper_local'),
+            model=config.get('STT_MODEL', 'base'),
             api_key=openai_key
         )
         self.tts = TextToSpeech(
-            provider=config.get('TTS_PROVIDER', 'openai'),
+            provider=config.get('TTS_PROVIDER', 'system'),
             api_key=openai_key
         )
         
-        self.event_bus.on("VOICE_WAKE", lambda data: self._on_wake_word(data.get("phrase", "")))
+        self._subscriptions = [
+            asyncio.create_task(
+                self.event_bus.subscribe("VOICE_WAKE", self._handle_wake_event)
+            ),
+            asyncio.create_task(
+                self.event_bus.subscribe(
+                    "ORCHESTRATION_COMPLETED", self._handle_response_event
+                )
+            ),
+            asyncio.create_task(
+                self.event_bus.subscribe(
+                    "ORCHESTRATION_FAILED", self._handle_response_event
+                )
+            ),
+            asyncio.create_task(
+                self.event_bus.subscribe("VOICE_STOP", self._handle_stop_event)
+            ),
+        ]
 
     async def start(self):
         if not self.enabled or self._is_active:
             return
+        await asyncio.gather(*self._subscriptions)
         self._is_active = True
         await self.wake_detector.start()
+        if not self.wake_detector.is_running():
+            self._is_active = False
+            logger.error("VoiceEngine could not start wake-word microphone input.")
+            return
+        self._audio_device = getattr(self.wake_detector, "input_device", None)
         logger.info("VoiceEngine started.")
+        if self.stt.provider == "whisper_local":
+            self._stt_warmup_task = asyncio.create_task(self.stt.warmup())
+            self._stt_warmup_task.add_done_callback(self._log_stt_warmup_result)
+
+    @staticmethod
+    def _log_stt_warmup_result(task):
+        if task.cancelled():
+            return
+        error = task.exception()
+        if error is not None:
+            logger.error("Background STT model warm-up failed: %s", error)
 
     async def stop(self):
         self._is_active = False
         await self.wake_detector.stop()
+        if self.state_manager:
+            await self.state_manager.update_state(voice_active=False)
+        await self.event_bus.unsubscribe("VOICE_WAKE", self._handle_wake_event)
+        await self.event_bus.unsubscribe(
+            "ORCHESTRATION_COMPLETED", self._handle_response_event
+        )
+        await self.event_bus.unsubscribe(
+            "ORCHESTRATION_FAILED", self._handle_response_event
+        )
+        await self.event_bus.unsubscribe("VOICE_STOP", self._handle_stop_event)
+        for subscription in self._subscriptions:
+            if not subscription.done():
+                subscription.cancel()
         if self._task:
             self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
         logger.info("VoiceEngine stopped.")
 
     def is_active(self) -> bool:
@@ -80,58 +154,247 @@ class VoiceEngine:
         finally:
             self.state = VoiceState.IDLE
 
+    async def _handle_wake_event(self, _event_name: str, payload: dict):
+        if self.state != VoiceState.IDLE:
+            logger.info(
+                "VOICE_WAKE_EVENT_IGNORED state=%s phrase=%r",
+                self.state.value,
+                payload.get("phrase", ""),
+            )
+            return
+        logger.info("VOICE_WAKE_EVENT_RECEIVED phrase=%r", payload.get("phrase", ""))
+        self._conversation_id = str(uuid.uuid4())
+        self._conversation_history = []
+        if self.state_manager:
+            await self.state_manager.update_state(voice_active=True)
+        self._on_wake_word(payload.get("phrase", ""))
+
     def _on_wake_word(self, phrase: str):
         if self.state != VoiceState.IDLE:
             return
         self.state = VoiceState.WAKE_DETECTED
-        logger.info(f"Wake word '{phrase}' detected. Transitioning to LISTENING.")
-        self._task = asyncio.create_task(self._handle_interaction())
+        logger.info("VOICE_STATE transition=%s phrase=%r", self.state.value, phrase)
+        self._task = asyncio.create_task(self._handle_interaction(initial=True))
 
-    async def _handle_interaction(self):
+    async def _handle_interaction(self, initial: bool):
         try:
+            await self.wake_detector.stop()
             self.state = VoiceState.LISTENING
-            transcription = await self._listen_and_transcribe()
+            transcription = await self._listen_and_transcribe(
+                start_timeout_s=8.0 if initial else 10.0
+            )
             if transcription:
-                self._on_transcription(transcription)
+                self._conversation_history.append(
+                    {"role": "user", "content": transcription}
+                )
+                self.state = VoiceState.WAITING_RESPONSE
+                logger.info(
+                    "VOICE_USER_TEXT_EMITTED source=voice characters=%d conversation_id=%s",
+                    len(transcription),
+                    self._conversation_id,
+                )
+                await self.event_bus.publish(
+                    "USER_TEXT",
+                    {
+                        "text": transcription,
+                        "input_source": "voice",
+                        "conversation_id": self._conversation_id,
+                        "conversation_history": list(self._conversation_history),
+                    },
+                )
+            else:
+                await self._end_conversation()
         except Exception as e:
-            logger.error(f"Error during interaction: {e}")
+            logger.exception("Voice interaction failed: %s", e)
             self.state = VoiceState.ERROR
+            await self._end_conversation()
         finally:
-            self.state = VoiceState.IDLE
+            if self.state not in {
+                VoiceState.WAITING_RESPONSE,
+                VoiceState.LISTENING,
+            }:
+                self.state = VoiceState.IDLE
 
-    async def _audio_generator(self, p, stream, frame_size):
+    async def _audio_generator(self, stream, frame_size):
+        loop = asyncio.get_running_loop()
+        frames_received = 0
+        last_report = loop.time()
         while self.state == VoiceState.LISTENING:
             try:
-                data = await asyncio.to_thread(stream.read, frame_size, exception_on_overflow=False)
+                data, overflowed = await asyncio.to_thread(stream.read, frame_size)
+                frames_received += 1
+                now = loop.time()
+                if frames_received == 1:
+                    logger.info(
+                        "VOICE_AUDIO_FRAME_RECEIVED stage=capture frames_total=1 "
+                        "samples=%d bytes=%d",
+                        len(data) // 2,
+                        len(data),
+                    )
+                elif now - last_report >= 5.0:
+                    logger.info(
+                        "VOICE_AUDIO_FRAME_RECEIVED stage=capture "
+                        "frames_total=%d interval_seconds=%.1f",
+                        frames_received,
+                        now - last_report,
+                    )
+                    last_report = now
+                if overflowed:
+                    logger.warning("Audio input overflowed while recording speech.")
                 yield data
             except Exception as e:
-                logger.error(f"Audio stream read error: {e}")
+                logger.exception("Audio stream read error: %s", e)
                 break
 
-    async def _listen_and_transcribe(self) -> str:
-        p = pyaudio.PyAudio()
+    async def _listen_and_transcribe(self, start_timeout_s: float | None = None) -> str:
+        import sounddevice as sd
+
+        stream = None
+        audio_bytes = b""
+        capture_started = False
         try:
-            stream = p.open(format=pyaudio.paInt16, channels=1, rate=16000, input=True, frames_per_buffer=self.vad.frame_size)
-            logger.info("Listening for speech...")
+            frame_count = self.vad.frame_size // 2
+            stream = sd.RawInputStream(
+                device=getattr(self, "_audio_device", None),
+                channels=1,
+                samplerate=self.vad.sample_rate,
+                dtype="int16",
+                blocksize=frame_count,
+            )
+            stream.start()
+            capture_started = True
+            logger.info(
+                "AUDIO_CAPTURE_STARTED device=%s sample_rate=%s channels=1 "
+                "format=int16 frame_samples=%d frame_bytes=%d",
+                getattr(stream, "device", getattr(self, "_audio_device", None)),
+                self.vad.sample_rate,
+                frame_count,
+                self.vad.frame_size,
+            )
             
-            gen = self._audio_generator(p, stream, self.vad.frame_size)
-            audio_bytes = await self.vad.collect_speech(gen)
-            
-            stream.stop_stream()
-            stream.close()
+            gen = self._audio_generator(stream, frame_count)
+            audio_bytes = await self.vad.collect_speech(
+                gen,
+                start_timeout_s=start_timeout_s,
+            )
+            logger.info(
+                "AUDIO_CAPTURE_STOPPED reason=%s bytes=%d",
+                getattr(self.vad, "last_capture_stop_reason", "unknown"),
+                len(audio_bytes),
+            )
+            capture_started = False
+            captured_stream = stream
+            stream = None
+            try:
+                captured_stream.stop()
+            finally:
+                captured_stream.close()
             
             if not audio_bytes:
-                logger.info("No speech detected.")
+                logger.info("STT_SKIPPED reason=no_audio")
                 return ""
-                
+
             self.state = VoiceState.TRANSCRIBING
-            logger.info("Transcribing audio...")
-            text = await self.stt.transcribe(audio_bytes)
+            logger.info(
+                "VOICE_STATE transition=%s",
+                self.state.value,
+            )
+            logger.info(
+                "STT_STARTED provider=%s bytes=%d sample_rate=%d channels=1 format=int16",
+                getattr(self.stt, "provider", "unknown"),
+                len(audio_bytes),
+                self.vad.sample_rate,
+            )
+            try:
+                text = await self.stt.transcribe(audio_bytes)
+            except Exception as exc:
+                logger.exception(
+                    "STT_FAILED provider=%s exception_type=%s",
+                    getattr(self.stt, "provider", "unknown"),
+                    type(exc).__name__,
+                )
+                raise
+            logger.info(
+                "STT_COMPLETED empty=%s characters=%d",
+                not bool(text.strip()),
+                len(text),
+            )
             return text
         finally:
-            p.terminate()
+            if capture_started:
+                logger.info(
+                    "AUDIO_CAPTURE_STOPPED reason=error bytes=%d",
+                    len(audio_bytes),
+                )
+            if stream is not None:
+                try:
+                    stream.stop()
+                finally:
+                    stream.close()
 
-    def _on_transcription(self, text: str):
-        logger.info(f"Transcription: {text}")
-        if self.event_bus:
-            self.event_bus.emit("VOICE_COMMAND", {"text": text})
+    async def _handle_stop_event(self, _event_name: str, _payload: dict):
+        if self.state == VoiceState.IDLE:
+            return
+        logger.info("VOICE_STOP received; ending active conversation.")
+        active_task = self._task
+        if active_task and active_task is not asyncio.current_task() and not active_task.done():
+            active_task.cancel()
+            try:
+                await active_task
+            except asyncio.CancelledError:
+                pass
+        await self._end_conversation()
+
+    async def _handle_response_event(self, _event_name: str, payload: dict):
+        if (
+            payload.get("input_source") != "voice"
+            or payload.get("conversation_id") != self._conversation_id
+            or self.state != VoiceState.WAITING_RESPONSE
+        ):
+            return
+
+        response = (
+            "No pude completar eso. Inténtalo de nuevo."
+            if _event_name == "ORCHESTRATION_FAILED"
+            else payload.get("response")
+        )
+        if not isinstance(response, str) or not response.strip():
+            logger.error("Voice conversation completed without a speakable response.")
+            await self._end_conversation()
+            return
+
+        response = response.strip()
+        self._conversation_history.append({"role": "assistant", "content": response})
+        self._conversation_history = self._conversation_history[-20:]
+        self.state = VoiceState.SPEAKING
+        logger.info(
+            "TTS_STARTED provider=%s characters=%d conversation_id=%s",
+            getattr(self.tts, "provider", "unknown"),
+            len(response),
+            self._conversation_id,
+        )
+        try:
+            await self.tts.speak(response)
+        except Exception:
+            logger.exception("Failed to speak the voice response.")
+            await self._end_conversation()
+            return
+        logger.info(
+            "TTS_COMPLETED provider=%s",
+            getattr(self.tts, "provider", "unknown"),
+        )
+
+        if self._is_active:
+            self.state = VoiceState.LISTENING
+            self._task = asyncio.create_task(self._handle_interaction(initial=False))
+        else:
+            await self._end_conversation()
+
+    async def _end_conversation(self):
+        self._conversation_id = None
+        self._conversation_history = []
+        self.state = VoiceState.IDLE
+        if self.state_manager:
+            await self.state_manager.update_state(voice_active=False)
+        if self._is_active:
+            await self.wake_detector.start()

@@ -2,8 +2,10 @@ import mss
 from PIL import Image
 import io
 import base64
-from typing import Any, Dict
+from typing import Any, Dict, Optional, List
 from .base_tool import BaseTool, ToolResult
+import win32gui
+import win32con
 
 class ScreenshotTool(BaseTool):
     @property
@@ -12,7 +14,7 @@ class ScreenshotTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return "Tool for capturing screen regions and windows."
+        return "Tool for capturing screen regions, full screen, and specific windows."
 
     @property
     def permission_level(self) -> str:
@@ -28,7 +30,17 @@ class ScreenshotTool(BaseTool):
     def get_schema(self) -> Dict[str, Any]:
         return {
             "type": "object",
-            "properties": {"operation": {"type": "string"}},
+            "properties": {
+                "operation": {
+                    "type": "string",
+                    "enum": ["capture_screen", "capture_region", "capture_window", "list_windows"]
+                },
+                "x": {"type": "integer"},
+                "y": {"type": "integer"},
+                "width": {"type": "integer"},
+                "height": {"type": "integer"},
+                "window_title": {"type": "string"}
+            },
             "required": ["operation"]
         }
 
@@ -48,8 +60,32 @@ class ScreenshotTool(BaseTool):
             img.save(img_byte_arr, format='PNG')
             return img_byte_arr.getvalue()
 
+    async def list_windows(self) -> List[str]:
+        windows = []
+        def callback(hwnd, extra):
+            if win32gui.IsWindowVisible(hwnd) and win32gui.GetWindowText(hwnd):
+                windows.append(win32gui.GetWindowText(hwnd))
+            return True
+        win32gui.EnumWindows(callback, None)
+        return windows
+
     async def capture_window(self, window_title: str) -> bytes:
-        return await self.capture_screen()
+        hwnd = win32gui.FindWindow(None, window_title)
+        if not hwnd:
+            raise RuntimeError(f"Window not found: {window_title}")
+        
+        if win32gui.IsIconic(hwnd):
+            raise RuntimeError(f"Window is minimized: {window_title}")
+            
+        rect = win32gui.GetWindowRect(hwnd)
+        left, top, right, bottom = rect
+        width = right - left
+        height = bottom - top
+        
+        if width <= 0 or height <= 0:
+            raise RuntimeError(f"Window has zero-size dimensions: {width}x{height}")
+            
+        return await self.capture_region(left, top, width, height)
 
     def save_to_file(self, image_bytes: bytes, path: str) -> str:
         with open(path, 'wb') as f:
@@ -66,6 +102,12 @@ class ScreenshotTool(BaseTool):
                 return ToolResult(success=True, output=await self.capture_screen())
             elif op == "capture_region":
                 return ToolResult(success=True, output=await self.capture_region(params["x"], params["y"], params["width"], params["height"]))
+            elif op == "capture_window":
+                if "window_title" not in params:
+                    return ToolResult(success=False, output=None, error="window_title is required for capture_window")
+                return ToolResult(success=True, output=await self.capture_window(params["window_title"]))
+            elif op == "list_windows":
+                return ToolResult(success=True, output=await self.list_windows())
             return ToolResult(success=False, output=None, error=f"Unknown operation {op}")
         except Exception as e:
             return ToolResult(success=False, output=None, error=str(e))

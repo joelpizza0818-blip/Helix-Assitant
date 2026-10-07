@@ -14,6 +14,7 @@ class AgentState:
     last_command: Optional[str] = None
     last_response: Optional[str] = None
     current_confirmation_pending: bool = False
+    active_confirmation_id: Optional[str] = None
     uptime: float = 0.0
     error_state: Optional[str] = None
 

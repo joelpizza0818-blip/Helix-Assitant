@@ -1,8 +1,8 @@
 import logging
 import asyncio
-import tempfile
-import os
 import importlib.util
+import io
+import wave
 from dataclasses import dataclass
 from typing import List
 
@@ -35,12 +35,13 @@ class TextToSpeech:
                 response = await client.audio.speech.create(
                     model=self.model,
                     voice=self.voice_id or "alloy",
-                    input=text
+                    input=text,
+                    response_format="wav",
                 )
                 return response.read()
             except Exception as e:
                 logger.error(f"OpenAI TTS error: {e}")
-                return b""
+                raise RuntimeError("OpenAI text-to-speech failed") from e
                 
         elif self.provider == 'elevenlabs':
             try:
@@ -54,10 +55,12 @@ class TextToSpeech:
                             return await response.read()
                         else:
                             logger.error(f"ElevenLabs TTS error: {await response.text()}")
-                            return b""
+                            raise RuntimeError(
+                                f"ElevenLabs text-to-speech returned HTTP {response.status}"
+                            )
             except Exception as e:
                 logger.error(f"ElevenLabs TTS exception: {e}")
-                return b""
+                raise RuntimeError("ElevenLabs text-to-speech failed") from e
                 
         elif self.provider == 'system':
             return b"" # System TTS typically speaks directly rather than returning bytes easily
@@ -65,22 +68,43 @@ class TextToSpeech:
 
     async def speak(self, text: str):
         if self.provider == 'system':
-            try:
-                await asyncio.to_thread(self._speak_system, text)
-            except Exception as e:
-                logger.error(f"System TTS speak error: {e}")
+            await asyncio.to_thread(self._speak_system, text)
             return
 
         audio_bytes = await self.synthesize(text)
         if not audio_bytes:
-            return
-            
-        with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
-            tmp.write(audio_bytes)
-            tmp_path = tmp.name
+            raise RuntimeError("Text-to-speech returned empty audio.")
 
-        try:
-            if importlib.util.find_spec('pygame') is not None:
+        if self.provider == "openai":
+            import numpy as np
+            import sounddevice as sd
+
+            with wave.open(io.BytesIO(audio_bytes), "rb") as audio:
+                sample_width = audio.getsampwidth()
+                dtypes = {1: np.uint8, 2: np.int16, 4: np.int32}
+                if sample_width not in dtypes:
+                    raise RuntimeError(
+                        f"Unsupported OpenAI TTS WAV sample width: {sample_width}"
+                    )
+                frames = np.frombuffer(
+                    audio.readframes(audio.getnframes()),
+                    dtype=dtypes[sample_width],
+                )
+                if audio.getnchannels() > 1:
+                    frames = frames.reshape(-1, audio.getnchannels())
+                sample_rate = audio.getframerate()
+
+            await asyncio.to_thread(sd.play, frames, sample_rate, blocking=True)
+            return
+
+        if importlib.util.find_spec('pygame') is not None:
+            import tempfile
+            import os
+
+            with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
+                tmp.write(audio_bytes)
+                tmp_path = tmp.name
+            try:
                 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
                 import pygame
                 pygame.mixer.init()
@@ -89,11 +113,13 @@ class TextToSpeech:
                 while pygame.mixer.music.get_busy():
                     await asyncio.sleep(0.1)
                 pygame.mixer.quit()
-            else:
-                logger.warning("pygame not installed. Cannot play TTS audio bytes.")
-        finally:
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
+            finally:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+        else:
+            raise RuntimeError(
+                "pygame is required to play ElevenLabs audio; install it or use OpenAI TTS."
+            )
 
     def _speak_system(self, text: str):
         if importlib.util.find_spec('pyttsx3') is not None:

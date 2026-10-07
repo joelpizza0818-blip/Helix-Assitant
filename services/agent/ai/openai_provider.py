@@ -1,9 +1,11 @@
 try:
     import openai
+    from openai import AsyncOpenAI
 except ImportError:
     openai = None
 from typing import AsyncIterator, List, Dict
-from .base_provider import BaseAIProvider, ChatMessage, ChatResponse, StreamChunk, ToolCallResponse, Usage, ModelDefinition, ModelCapabilities, AgentError, KeyHealth
+import json
+from .base_provider import BaseAIProvider, ChatMessage, ChatResponse, StreamChunk, ToolCallResponse, Usage, ModelDefinition, ModelCapabilities, AgentError, KeyHealth, ToolCall
 
 class OpenAIProvider(BaseAIProvider):
     @property
@@ -14,17 +16,119 @@ class OpenAIProvider(BaseAIProvider):
     def provider_name(self) -> str:
         return "OpenAI"
 
+    def _convert_messages(self, messages: List[ChatMessage]) -> List[Dict]:
+        converted = []
+        for message in messages:
+            item = {"role": message.role, "content": message.content or None}
+            if message.tool_calls:
+                item["tool_calls"] = [
+                    {
+                        "id": call["id"],
+                        "type": "function",
+                        "function": {
+                            "name": call["name"],
+                            "arguments": json.dumps(call["arguments"]),
+                        },
+                    }
+                    for call in message.tool_calls
+                ]
+            if message.tool_call_id:
+                item["tool_call_id"] = message.tool_call_id
+            converted.append(item)
+        return converted
+
+    @staticmethod
+    def _convert_tools(tools: List[Dict]) -> List[Dict]:
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": tool["name"],
+                    "description": tool["description"],
+                    "parameters": tool["parameters"],
+                },
+            }
+            for tool in tools
+        ]
+
     async def chat(self, messages: List[ChatMessage], model: str, **kwargs) -> ChatResponse:
-        return ChatResponse(content="mock", model=model, provider=self.provider_id, usage=Usage(0,0,0), finish_reason="stop")
+        if not openai: raise RuntimeError("openai SDK not installed")
+        api_key = kwargs.get("api_key")
+        client = AsyncOpenAI(api_key=api_key)
+        try:
+            response = await client.chat.completions.create(
+                model=model,
+                messages=self._convert_messages(messages)
+            )
+            usage = Usage(
+                prompt_tokens=response.usage.prompt_tokens if response.usage else 0,
+                completion_tokens=response.usage.completion_tokens if response.usage else 0,
+                total_tokens=response.usage.total_tokens if response.usage else 0
+            )
+            return ChatResponse(
+                content=response.choices[0].message.content or "",
+                model=model,
+                provider=self.provider_id,
+                usage=usage,
+                finish_reason=response.choices[0].finish_reason or "stop"
+            )
+        except Exception as e:
+            raise self.normalize_error(e)
 
     async def stream(self, messages: List[ChatMessage], model: str, **kwargs) -> AsyncIterator[StreamChunk]:
-        yield StreamChunk(delta="mock", done=True, model=model, provider=self.provider_id)
+        if not openai: raise RuntimeError("openai SDK not installed")
+        api_key = kwargs.get("api_key")
+        client = AsyncOpenAI(api_key=api_key)
+        try:
+            response = await client.chat.completions.create(
+                model=model,
+                messages=self._convert_messages(messages),
+                stream=True
+            )
+            async for chunk in response:
+                delta = chunk.choices[0].delta.content if chunk.choices and chunk.choices[0].delta.content else ""
+                yield StreamChunk(delta=delta, done=False, model=model, provider=self.provider_id)
+            yield StreamChunk(delta="", done=True, model=model, provider=self.provider_id)
+        except Exception as e:
+            raise self.normalize_error(e)
 
     async def tool_call(self, messages: List[ChatMessage], tools: List[Dict], model: str, **kwargs) -> ToolCallResponse:
-        return ToolCallResponse(tool_calls=[], content="", model=model, provider=self.provider_id)
+        if not openai: raise RuntimeError("openai SDK not installed")
+        api_key = kwargs.get("api_key")
+        client = AsyncOpenAI(api_key=api_key)
+        try:
+            response = await client.chat.completions.create(
+                model=model,
+                messages=self._convert_messages(messages),
+                tools=self._convert_tools(tools)
+            )
+            msg = response.choices[0].message
+            tool_calls = []
+            if msg.tool_calls:
+                for tc in msg.tool_calls:
+                    tool_calls.append(ToolCall(id=tc.id, name=tc.function.name, arguments=json.loads(tc.function.arguments)))
+            return ToolCallResponse(
+                tool_calls=tool_calls,
+                content=msg.content or "",
+                model=model,
+                provider=self.provider_id
+            )
+        except Exception as e:
+            raise self.normalize_error(e)
 
     async def structured_output(self, messages: List[ChatMessage], schema: Dict, model: str, **kwargs) -> dict:
-        return {}
+        if not openai: raise RuntimeError("openai SDK not installed")
+        api_key = kwargs.get("api_key")
+        client = AsyncOpenAI(api_key=api_key)
+        try:
+            response = await client.chat.completions.create(
+                model=model,
+                messages=self._convert_messages(messages),
+                response_format={"type": "json_schema", "json_schema": {"name": "schema", "schema": schema}}
+            )
+            return json.loads(response.choices[0].message.content or "{}")
+        except Exception as e:
+            raise self.normalize_error(e)
 
     def get_available_models(self) -> List[ModelDefinition]:
         from .capability_registry import CapabilityRegistry
@@ -34,7 +138,17 @@ class OpenAIProvider(BaseAIProvider):
         return ModelCapabilities()
 
     async def validate_key(self, api_key: str) -> KeyHealth:
-        return KeyHealth.HEALTHY
+        if not openai: return KeyHealth.UNCONFIGURED
+        try:
+            client = AsyncOpenAI(api_key=api_key)
+            await client.models.list()
+            return KeyHealth.HEALTHY
+        except Exception as e:
+            err = self.normalize_error(e)
+            if err.code == "AUTH_ERROR": return KeyHealth.AUTH_ERROR
+            elif err.code == "QUOTA_EXCEEDED": return KeyHealth.QUOTA_EXCEEDED
+            elif err.code == "RATE_LIMIT": return KeyHealth.RATE_LIMITED
+            return KeyHealth.UNAVAILABLE
 
     def normalize_error(self, exception: Exception) -> AgentError:
         msg = str(exception)
@@ -44,7 +158,13 @@ class OpenAIProvider(BaseAIProvider):
             code, retryable = "AUTH_ERROR", False
         elif isinstance(exception, openai.RateLimitError):
             code, retryable = "RATE_LIMIT", True
-            if "quota" in msg.lower(): code = "QUOTA_EXCEEDED"
+            if any(term in msg.lower() for term in ("quota", "billing", "credit balance", "insufficient funds")):
+                code, retryable = "QUOTA_EXCEEDED", False
+        elif any(
+            term in msg.lower()
+            for term in ("credit balance", "insufficient credit", "billing", "payment required", "insufficient funds")
+        ):
+            code = "QUOTA_EXCEEDED"
         elif isinstance(exception, openai.InternalServerError):
             code, retryable = "TEMPORARY_PROVIDER_ERROR", True
         elif isinstance(exception, openai.APIConnectionError):

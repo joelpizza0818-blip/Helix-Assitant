@@ -4,6 +4,9 @@ from unittest.mock import AsyncMock, MagicMock
 from services.agent.ai.key_manager import KeyManager
 from services.agent.ai.capability_registry import CapabilityRegistry
 from services.agent.ai.provider_registry import ProviderRegistry
+from services.agent.ai.openai_provider import OpenAIProvider
+from services.agent.ai.anthropic_provider import AnthropicProvider
+from services.agent.ai.google_provider import GoogleProvider
 from services.agent.ai.model_router import ModelRouter
 from services.agent.ai.fallback_manager import FallbackManager
 from services.agent.security.permission_manager import PermissionManager
@@ -53,7 +56,10 @@ def key_manager():
 
 @pytest.fixture
 def provider_registry(key_manager):
-    return ProviderRegistry(key_manager)
+    registry = ProviderRegistry(key_manager)
+    for provider in (OpenAIProvider(), AnthropicProvider(), GoogleProvider()):
+        registry.register_provider(provider)
+    return registry
 
 @pytest.fixture
 def model_router(capability_registry, provider_registry, key_manager):

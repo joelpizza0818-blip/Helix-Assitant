@@ -1,40 +1,182 @@
 import asyncio
 import logging
-from typing import Optional
-from .planner import Planner, Plan
-from .task_manager import TaskManager, TaskStatus
-from .event_bus import EventBus
+import json
+from datetime import datetime, timezone
+from typing import Dict
+
 try:
-    from ai.fallback_manager import FallbackManager
+    from services.agent.core.task_manager import TaskStatus
+    from services.agent.core.planner import PlanStep
+    from services.agent.ai.base_provider import ChatMessage
 except ImportError:
-    from ..ai.fallback_manager import FallbackManager
+    pass
 
 logger = logging.getLogger(__name__)
 
 class Orchestrator:
-    def __init__(self, planner: Planner, task_manager: TaskManager, event_bus: EventBus, fallback_manager: FallbackManager):
+    def __init__(self, planner, task_manager, event_bus, react_loop, 
+                 agent_manager, tool_registry, role_config):
         self.planner = planner
         self.task_manager = task_manager
         self.event_bus = event_bus
-        self.fallback_manager = fallback_manager
+        self.react_loop = react_loop
+        self.agent_manager = agent_manager
+        self.tool_registry = tool_registry
+        self.role_config = role_config
 
-    async def execute_task(self, task_id: str, description: str):
+    async def execute_task(self, task_id: str, description: str, context: dict = None):
         await self.task_manager.update_status(task_id, TaskStatus.RUNNING)
-        try:
-            plan = await self.planner.create_plan(description, {})
-            for step in plan.steps:
-                task = await self.task_manager.get_task(task_id)
-                if task and task.cancelled:
-                    logger.info(f"Task {task_id} cancelled.")
-                    break
-                
-                if step.requires_confirmation:
-                    await self.task_manager.update_status(task_id, TaskStatus.WAITING_CONFIRMATION)
-                    await self.event_bus.publish("WAIT_CONFIRMATION", {"task_id": task_id, "step": step.description})
+        await self.event_bus.publish("ORCHESTRATION_STARTED", {"task_id": task_id})
+        
+        context = context or {}
 
-                await asyncio.sleep(0.1)
+        if context.get("input_source") in {"voice", "text"}:
+            input_source = context["input_source"]
+            conversation_type = (
+                "spoken conversation" if input_source == "voice" else "conversation"
+            )
+            history = context.get("conversation_history") or [
+                {"role": "user", "content": description}
+            ]
+            messages = [
+                ChatMessage(
+                    role="system",
+                    content=(
+                        "You are HELIX, a conversational desktop assistant. Reply "
+                        "naturally and clearly in the user's language, keep the "
+                        f"context of this {conversation_type}, and use available "
+                        "tools when needed. "
+                        "Never claim to have performed an action unless a tool "
+                        "reported that it succeeded."
+                    ),
+                )
+            ]
+            messages.extend(
+                ChatMessage(role=message["role"], content=message["content"])
+                for message in history
+                if message.get("role") in {"user", "assistant"}
+                and isinstance(message.get("content"), str)
+            )
+            try:
+                response = await self.react_loop.execute(
+                    messages,
+                    role="main",
+                    task_id=task_id,
+                )
+            except Exception as error:
+                logger.exception("Conversation task %s failed", task_id)
+                await self.task_manager.update_status(task_id, TaskStatus.FAILED)
+                await self.event_bus.publish(
+                    "AGENT_MESSAGE",
+                    {
+                        "task_id": task_id,
+                        "role": "assistant",
+                        "content": "No pude completar la solicitud. Revisa la configuración del proveedor de IA y vuelve a intentarlo.",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+                await self.event_bus.publish(
+                    "ORCHESTRATION_FAILED",
+                    {
+                        "task_id": task_id,
+                        "input_source": input_source,
+                        "conversation_id": context.get("conversation_id"),
+                        "error": type(error).__name__,
+                    },
+                )
+                return
+
+            if not isinstance(response.content, str) or not response.content.strip():
+                logger.error("Conversation task %s completed with an empty model response.", task_id)
+                await self.task_manager.update_status(task_id, TaskStatus.FAILED)
+                await self.event_bus.publish(
+                    "AGENT_MESSAGE",
+                    {
+                        "task_id": task_id,
+                        "role": "assistant",
+                        "content": "El modelo no devolvió una respuesta. Inténtalo de nuevo o revisa el proveedor configurado.",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+                await self.event_bus.publish(
+                    "ORCHESTRATION_FAILED",
+                    {
+                        "task_id": task_id,
+                        "input_source": input_source,
+                        "conversation_id": context.get("conversation_id"),
+                        "error": "EMPTY_MODEL_RESPONSE",
+                    },
+                )
+                return
 
             await self.task_manager.update_status(task_id, TaskStatus.COMPLETED)
-        except Exception as e:
-            logger.error(f"Task {task_id} failed: {e}")
-            await self.task_manager.update_status(task_id, TaskStatus.FAILED)
+            await self.event_bus.publish(
+                "AGENT_MESSAGE",
+                {
+                    "task_id": task_id,
+                    "role": "assistant",
+                    "content": response.content,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "model": getattr(response, "model", None),
+                    "provider": getattr(response, "provider", None),
+                },
+            )
+            await self.event_bus.publish(
+                "ORCHESTRATION_COMPLETED",
+                {
+                    "task_id": task_id,
+                    "response": response.content,
+                    "input_source": input_source,
+                    "conversation_id": context.get("conversation_id"),
+                },
+            )
+            return
+        
+        plan = await self.planner.create_plan(description, context)
+        
+        completed_steps = set()
+        in_progress: Dict[str, asyncio.Task] = {}
+        results = {}
+        
+        async def execute_step(step):
+            try:
+                if step.action == 'delegate':
+                    role = step.params.get('role', 'main')
+                    task_desc = step.params.get('task', str(step.params))
+                    agent_task = await self.agent_manager.delegate_task(task_desc, role=role, parent_id=task_id)
+                    res = await agent_task
+                    results[step.id] = res
+                else:
+                    tool = self.tool_registry.get_tool(step.action)
+                    if tool:
+                        res = await tool.execute(step.params)
+                        results[step.id] = res.output if res.success else f"Error: {res.error}"
+                    else:
+                        msgs = [ChatMessage(role="user", content=json.dumps(step.params))]
+                        res = await self.react_loop.execute(msgs, role="main", task_id=task_id)
+                        results[step.id] = res.content
+                completed_steps.add(step.id)
+            except Exception as e:
+                logger.error(f"Step {step.id} failed: {e}")
+                results[step.id] = f"Failed: {e}"
+                completed_steps.add(step.id)
+
+        while len(completed_steps) < len(plan.steps):
+            for step in plan.steps:
+                if step.id not in completed_steps and step.id not in in_progress:
+                    if all(dep in completed_steps for dep in step.dependencies):
+                        in_progress[step.id] = asyncio.create_task(execute_step(step))
+            
+            if in_progress:
+                done, _ = await asyncio.wait(in_progress.values(), return_when=asyncio.FIRST_COMPLETED)
+                for d in done:
+                    for k, v in list(in_progress.items()):
+                        if v == d:
+                            del in_progress[k]
+                            break
+            else:
+                if len(completed_steps) < len(plan.steps):
+                    break
+                    
+        await self.task_manager.update_status(task_id, TaskStatus.COMPLETED)
+        await self.event_bus.publish("ORCHESTRATION_COMPLETED", {"task_id": task_id, "results": results})

@@ -15,19 +15,14 @@ _MODELS = [
     ModelDefinition("tts-1-hd", "openai", "TTS 1 HD", ModelCapabilities(text_to_speech=True, cost_tier="medium")),
 
     # Anthropic
-    ModelDefinition("claude-3-5-sonnet-20241022", "anthropic", "Claude 3.5 Sonnet", ModelCapabilities(text=True, vision=True, tool_calling=True, computer_use=True, coding=True, reasoning=True, streaming=True, context_window=200000, cost_tier="high")),
-    ModelDefinition("claude-3-5-haiku-20241022", "anthropic", "Claude 3.5 Haiku", ModelCapabilities(text=True, vision=True, tool_calling=True, coding=True, streaming=True, context_window=200000, cost_tier="low")),
-    ModelDefinition("claude-3-opus-20240229", "anthropic", "Claude 3 Opus", ModelCapabilities(text=True, vision=True, tool_calling=True, coding=True, reasoning=True, streaming=True, context_window=200000, cost_tier="premium")),
-    ModelDefinition("claude-3-sonnet-20240229", "anthropic", "Claude 3 Sonnet", ModelCapabilities(text=True, vision=True, tool_calling=True, streaming=True, context_window=200000, cost_tier="medium")),
-    ModelDefinition("claude-3-haiku-20240307", "anthropic", "Claude 3 Haiku", ModelCapabilities(text=True, vision=True, tool_calling=True, streaming=True, context_window=200000, cost_tier="low")),
+    ModelDefinition("claude-sonnet-5-5", "anthropic", "Claude Sonnet 5.5", ModelCapabilities(text=True, vision=True, tool_calling=True, computer_use=True, coding=True, reasoning=True, streaming=True, context_window=200000, cost_tier="high")),
+    ModelDefinition("claude-opus-5-5", "anthropic", "Claude Opus 5.5", ModelCapabilities(text=True, vision=True, tool_calling=True, computer_use=True, coding=True, reasoning=True, streaming=True, context_window=200000, cost_tier="premium")),
+    ModelDefinition("claude-haiku-4-5-20251001", "anthropic", "Claude Haiku 4.5", ModelCapabilities(text=True, vision=True, tool_calling=True, coding=True, streaming=True, context_window=200000, cost_tier="low")),
 
     # Google
-    ModelDefinition("gemini-2.0-flash", "google", "Gemini 2.0 Flash", ModelCapabilities(text=True, vision=True, tool_calling=True, coding=True, streaming=True, context_window=1048576, cost_tier="low")),
-    ModelDefinition("gemini-2.0-flash-lite", "google", "Gemini 2.0 Flash Lite", ModelCapabilities(text=True, vision=True, streaming=True, context_window=1048576, cost_tier="low")),
-    ModelDefinition("gemini-1.5-pro", "google", "Gemini 1.5 Pro", ModelCapabilities(text=True, vision=True, audio=True, tool_calling=True, coding=True, reasoning=True, streaming=True, long_context=True, context_window=2097152, cost_tier="high")),
-    ModelDefinition("gemini-1.5-flash", "google", "Gemini 1.5 Flash", ModelCapabilities(text=True, vision=True, audio=True, tool_calling=True, streaming=True, context_window=1048576, cost_tier="low")),
-    ModelDefinition("gemini-1.5-flash-8b", "google", "Gemini 1.5 Flash 8B", ModelCapabilities(text=True, vision=True, streaming=True, context_window=1048576, cost_tier="low")),
-    ModelDefinition("gemini-2.0-flash-thinking-exp", "google", "Gemini 2.0 Flash Thinking", ModelCapabilities(text=True, reasoning=True, coding=True, streaming=True, context_window=32768, cost_tier="medium")),
+    ModelDefinition("gemini-3-flash-preview", "google", "Gemini 3 Flash Preview", ModelCapabilities(text=True, tool_calling=True, context_window=1048576, cost_tier="low")),
+    ModelDefinition("gemini-3.5-flash-lite", "google", "Gemini 3.5 Flash-Lite", ModelCapabilities(text=True, vision=True, tool_calling=True, streaming=True, context_window=1048576, cost_tier="low")),
+    ModelDefinition("gemini-3.1-pro-preview", "google", "Gemini 3.1 Pro Preview", ModelCapabilities(text=True, vision=True, tool_calling=True, coding=True, reasoning=True, streaming=True, long_context=True, context_window=1048576, cost_tier="high")),
 ]
 
 class CapabilityRegistry:
@@ -37,11 +32,13 @@ class CapabilityRegistry:
     def filter_by_capabilities(self, required: dict, provider_filter: Optional[List[str]] = None) -> List[ModelDefinition]:
         results = []
         for m in self.models.values():
+            if not m.enabled:
+                continue
             if provider_filter and m.provider not in provider_filter:
                 continue
             match = True
             for req_cap, req_val in required.items():
-                if hasattr(m.capabilities, req_cap) and getattr(m.capabilities, req_cap) != req_val:
+                if not hasattr(m.capabilities, req_cap) or getattr(m.capabilities, req_cap) != req_val:
                     match = False
                     break
             if match:

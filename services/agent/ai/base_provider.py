@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import AsyncIterator, List, Optional, Dict
+from typing import Any, AsyncIterator, List, Optional, Dict
 from enum import Enum
 
 class KeyHealth(Enum):
@@ -17,7 +17,9 @@ class ChatMessage:
     content: str
     tool_calls: Optional[List[Dict]] = None
     tool_call_id: Optional[str] = None
+    tool_name: Optional[str] = None
     image_bytes: Optional[bytes] = None
+    provider_data: Any = None
 
 @dataclass
 class Usage:
@@ -52,6 +54,7 @@ class ToolCallResponse:
     content: str
     model: str
     provider: str
+    provider_data: Any = None
 
 @dataclass
 class ModelCapabilities:
@@ -92,6 +95,9 @@ class AgentError(Exception):
     model: str
     retryable: bool
     original_exception: Optional[Exception] = None
+
+    def __str__(self) -> str:
+        return self.message
 
 class BaseAIProvider(ABC):
     @property
