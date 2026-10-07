@@ -21,12 +21,15 @@ class GestureType(Enum):
     POINTING_UP = "POINTING_UP"
 
 class GestureEngine:
+    CAMERA_READ_FAILURE_LIMIT = 5
+    CAMERA_RETRY_SECONDS = 2.0
+
     def __init__(
         self,
         event_bus,
         camera_index: int = 0,
         sensitivity: float = 0.8,
-        min_detection_confidence: float = 0.7,
+        min_detection_confidence: float | None = None,
         state_manager=None,
         confidence_threshold: float | None = None,
         stability_frames: int | None = None,
@@ -34,12 +37,20 @@ class GestureEngine:
     ):
         self.event_bus = event_bus
         self.camera_index = camera_index
+        if not 0.5 <= sensitivity <= 1.0:
+            raise ValueError("Gesture sensitivity must be between 0.5 and 1.0")
         self.sensitivity = sensitivity
-        self.min_detection_confidence = min_detection_confidence
+        self.min_detection_confidence = (
+            self._confidence_threshold(sensitivity)
+            if min_detection_confidence is None
+            else min_detection_confidence
+        )
         self.state_manager = state_manager
         self.confidence_threshold = self._config_float(
             "GESTURE_CONFIDENCE_THRESHOLD",
-            min_detection_confidence if confidence_threshold is None else confidence_threshold,
+            self.min_detection_confidence
+            if confidence_threshold is None
+            else confidence_threshold,
         )
         self.stability_frames = max(
             1,
@@ -83,6 +94,8 @@ class GestureEngine:
     async def start(self):
         if self._is_active:
             return
+        if self._thread and self._thread.is_alive():
+            raise RuntimeError("Gesture camera thread is still shutting down")
         
         try:
             import cv2  # noqa: F401
@@ -96,6 +109,7 @@ class GestureEngine:
         self._loop = asyncio.get_running_loop()
         self._startup_error = None
         self._ready.clear()
+        self._is_active = True
         self._thread = threading.Thread(target=self._capture_loop, daemon=True)
         self._thread.start()
         ready = await asyncio.to_thread(self._ready.wait, 10)
@@ -109,25 +123,80 @@ class GestureEngine:
     async def stop(self):
         self._is_active = False
         if self._thread:
-            self._thread.join(timeout=2.0)
+            await asyncio.to_thread(self._thread.join, 2.0)
+            if not self._thread.is_alive():
+                self._thread = None
         logger.info("GestureEngine stopped.")
+
+    async def configure(
+        self, camera_index: int, sensitivity: float, enabled: bool
+    ) -> None:
+        if isinstance(camera_index, bool) or not isinstance(camera_index, int) or camera_index < 0:
+            raise ValueError("Camera device index must be a non-negative integer")
+        if isinstance(sensitivity, bool) or not 0.5 <= sensitivity <= 1.0:
+            raise ValueError("Gesture sensitivity must be between 0.5 and 1.0")
+        changed = (
+            self.camera_index != camera_index or self.sensitivity != sensitivity
+        )
+        self.camera_index = camera_index
+        self.sensitivity = sensitivity
+        self.min_detection_confidence = self._confidence_threshold(sensitivity)
+        self.confidence_threshold = self._confidence_threshold(sensitivity)
+        if not enabled:
+            await self.stop()
+        elif changed and self._is_active:
+            await self.stop()
+            await self.start()
+        elif not self._is_active:
+            await self.start()
+
+    @staticmethod
+    def _confidence_threshold(sensitivity: float) -> float:
+        return 0.9 - 0.6 * sensitivity
+
+    @staticmethod
+    def _camera_backends(cv2):
+        if os.name == "nt":
+            return (
+                ("DirectShow", cv2.CAP_DSHOW),
+                ("Media Foundation", cv2.CAP_MSMF),
+                ("automatic", cv2.CAP_ANY),
+            )
+        return (("automatic", cv2.CAP_ANY),)
+
+    def _open_camera(self, cv2):
+        for backend_name, backend in self._camera_backends(cv2):
+            cap = cv2.VideoCapture(self.camera_index, backend)
+            if not cap.isOpened():
+                cap.release()
+                continue
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            for _ in range(10):
+                success, image = cap.read()
+                if success and image is not None:
+                    logger.info(
+                        "Gesture camera %s opened with %s backend",
+                        self.camera_index,
+                        backend_name,
+                    )
+                    return cap, image
+                time.sleep(0.1)
+            logger.warning(
+                "Gesture camera %s opened with %s but produced no frames",
+                self.camera_index,
+                backend_name,
+            )
+            cap.release()
+        return None, None
 
     def is_active(self) -> bool:
         return self._is_active
 
     def _capture_loop(self):
-        cap = None
         detector = None
         try:
             import cv2
             import mediapipe as mp
-
-            cap = cv2.VideoCapture(self.camera_index)
-            if not cap.isOpened():
-                raise RuntimeError(
-                    f"Cannot open camera device {self.camera_index}; "
-                    "check CAMERA_DEVICE_INDEX and camera permissions."
-                )
 
             if hasattr(mp, "solutions"):
                 detector = mp.solutions.hands.Hands(
@@ -163,40 +232,74 @@ class GestureEngine:
                     )
                     return detector.detect_for_video(task_image, timestamp)
 
-            self._is_active = True
-            self._ready.set()
+            last_camera_error_log = 0.0
             while self._is_active:
-                success, image = cap.read()
-                if not success:
-                    time.sleep(0.1)
+                cap, image = self._open_camera(cv2)
+                if cap is None:
+                    if not self._ready.is_set():
+                        raise RuntimeError(
+                            f"Cannot read frames from camera device {self.camera_index}; "
+                            "check camera permissions and close other applications using it."
+                        )
+                    now = time.monotonic()
+                    if now - last_camera_error_log >= 10:
+                        logger.error(
+                            "Unable to read frames from camera %s; retrying",
+                            self.camera_index,
+                        )
+                        last_camera_error_log = now
+                    time.sleep(self.CAMERA_RETRY_SECONDS)
                     continue
 
-                image.flags.writeable = False
-                image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-                results = detect(image, int(time.monotonic() * 1000))
+                self._is_active = True
+                self._ready.set()
+                failed_reads = 0
+                try:
+                    while self._is_active:
+                        if image is None:
+                            success, image = cap.read()
+                            if not success or image is None:
+                                failed_reads += 1
+                                if failed_reads >= self.CAMERA_READ_FAILURE_LIMIT:
+                                    now = time.monotonic()
+                                    if now - last_camera_error_log >= 10:
+                                        logger.warning(
+                                            "Gesture camera %s stopped providing frames; reopening",
+                                            self.camera_index,
+                                        )
+                                        last_camera_error_log = now
+                                    break
+                                time.sleep(0.1)
+                                continue
+                            failed_reads = 0
 
-                hand_landmarks = getattr(
-                    results,
-                    "multi_hand_landmarks",
-                    getattr(results, "hand_landmarks", None),
-                )
-                if hand_landmarks:
-                    for index, landmarks in enumerate(hand_landmarks):
-                        gesture = self._detect_gesture(landmarks)
-                        confidence = self._hand_confidence(results, index)
-                        self._observe_gesture(gesture, confidence)
-                else:
-                    self._observe_gesture(None, 0.0)
-
-                time.sleep(0.05)
+                        image.flags.writeable = False
+                        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                        results = detect(image, int(time.monotonic() * 1000))
+                        image = None
+                        hand_landmarks = getattr(
+                            results,
+                            "multi_hand_landmarks",
+                            getattr(results, "hand_landmarks", None),
+                        )
+                        if hand_landmarks:
+                            for index, landmarks in enumerate(hand_landmarks):
+                                gesture = self._detect_gesture(landmarks)
+                                confidence = self._hand_confidence(results, index)
+                                self._observe_gesture(gesture, confidence)
+                        else:
+                            self._observe_gesture(None, 0.0)
+                        time.sleep(0.05)
+                finally:
+                    cap.release()
+                if self._is_active:
+                    time.sleep(self.CAMERA_RETRY_SECONDS)
         except Exception as error:
             self._startup_error = error
             self._is_active = False
             logger.exception("Gesture capture failed")
         finally:
             self._ready.set()
-            if cap:
-                cap.release()
             if detector:
                 detector.close()
 
@@ -365,12 +468,12 @@ class GestureEngine:
 
     async def _gesture_is_allowed(self, gesture: GestureType) -> bool:
         state = await self.state_manager.get_state()
+        if gesture in {GestureType.FIST, GestureType.POINTING_UP}:
+            return True
         if gesture in {GestureType.THUMBS_UP, GestureType.THUMBS_DOWN}:
             return state.current_confirmation_pending
         if gesture == GestureType.OPEN_PALM:
             return state.current_task_id is not None
-        if gesture == GestureType.FIST:
-            return state.voice_active
         return state.agent_status not in {"closing", "closed", "error"}
 
     @staticmethod

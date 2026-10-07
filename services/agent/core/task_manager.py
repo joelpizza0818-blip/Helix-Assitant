@@ -30,6 +30,7 @@ class Task:
     model: Optional[str] = None
     provider: Optional[str] = None
     required_permissions: List[str] = field(default_factory=list)
+    model_requests: List[dict] = field(default_factory=list)
 
 class TaskManager:
     def __init__(self, event_bus):
@@ -83,6 +84,30 @@ class TaskManager:
     async def get_task(self, task_id: str) -> Optional[Task]:
         async with self.lock:
             return self.tasks.get(task_id)
+
+    async def record_model_request(self, task_id: str, request_detail: dict) -> None:
+        async with self.lock:
+            task = self.tasks.get(task_id)
+            if task is None:
+                return
+            request_id = request_detail.get("request_id")
+            existing_index = next(
+                (
+                    index
+                    for index, entry in enumerate(task.model_requests)
+                    if entry.get("request_id") == request_id
+                ),
+                None,
+            )
+            if existing_index is None:
+                task.model_requests.append(deepcopy(request_detail))
+                task.model_requests = task.model_requests[-50:]
+            else:
+                task.model_requests[existing_index] = deepcopy(request_detail)
+        await self.event_bus.publish(
+            "TASK_DETAILS_CHANGED",
+            {"task_id": task_id},
+        )
 
     async def get_running_tasks(self) -> List[Task]:
         async with self.lock:

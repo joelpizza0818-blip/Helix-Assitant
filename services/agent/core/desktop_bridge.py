@@ -19,6 +19,7 @@ DEFAULT_SETTINGS = {
     "preferred_provider": None,
     "fallback_enabled": True,
     "cross_provider_fallback": False,
+    "auto_approve_up_to": "LOW_RISK",
     "cost_preference": "balanced",
     "speed_preference": "balanced",
     "quality_preference": "balanced",
@@ -51,12 +52,16 @@ class DesktopRequestHandler:
         capability_registry,
         key_manager,
         settings_path: Path,
+        fallback_manager=None,
+        react_loop=None,
     ):
         self.task_manager = task_manager
         self.provider_registry = provider_registry
         self.capability_registry = capability_registry
         self.key_manager = key_manager
         self.settings_path = settings_path
+        self.fallback_manager = fallback_manager
+        self.react_loop = react_loop
 
     async def dispatch(self, message: dict) -> dict:
         message_type = message.get("type")
@@ -188,7 +193,31 @@ class DesktopRequestHandler:
             if not isinstance(saved, dict):
                 raise ValueError("Saved settings must be a JSON object")
             settings.update(saved)
+        self._apply_runtime_settings(settings)
         return settings
+
+    def _apply_runtime_settings(self, settings: dict) -> None:
+        sensitivity = settings.get("gesture_sensitivity", 0.8)
+        if (
+            isinstance(sensitivity, bool)
+            or not isinstance(sensitivity, (int, float))
+            or not 0.5 <= sensitivity <= 1.0
+        ):
+            raise ValueError("gesture_sensitivity must be between 0.5 and 1.0")
+        if self.fallback_manager is not None:
+            self.fallback_manager.fallback_enabled = bool(
+                settings.get("fallback_enabled", True)
+            )
+            self.fallback_manager.cross_provider_fallback = bool(
+                settings.get("cross_provider_fallback", False)
+            )
+        if self.react_loop is not None:
+            ceiling = settings.get("auto_approve_up_to", "LOW_RISK")
+            if ceiling not in {"READ_ONLY", "LOW_RISK", "MODIFY"}:
+                raise ValueError(
+                    "auto_approve_up_to must be READ_ONLY, LOW_RISK, or MODIFY"
+                )
+            self.react_loop.auto_approve_up_to = ceiling
 
     async def _get_settings(self) -> dict:
         return self.get_settings()
@@ -196,8 +225,17 @@ class DesktopRequestHandler:
     async def _save_settings(self, settings: dict) -> dict:
         if not isinstance(settings, dict):
             raise ValueError("SAVE_SETTINGS requires a settings object")
+        if "auto_approve_up_to" in settings and settings["auto_approve_up_to"] not in {
+            "READ_ONLY",
+            "LOW_RISK",
+            "MODIFY",
+        }:
+            raise ValueError(
+                "auto_approve_up_to must be READ_ONLY, LOW_RISK, or MODIFY"
+            )
         merged = self.get_settings()
         merged.update(settings)
+        self._apply_runtime_settings(merged)
         self.settings_path.parent.mkdir(parents=True, exist_ok=True)
         temporary_path = self.settings_path.with_suffix(f"{self.settings_path.suffix}.tmp")
         with temporary_path.open("w", encoding="utf-8") as settings_file:
@@ -223,4 +261,6 @@ class DesktopRequestHandler:
         if provider is None:
             raise ValueError(f"Provider is not registered: {provider_id}")
         health = await provider.validate_key(api_key)
+        if getattr(health, "value", health).casefold() == "healthy":
+            self.key_manager.save_key(provider_id, slot - 1, api_key)
         return health.value.lower()

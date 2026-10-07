@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import type { HelixSettings } from '../../../types/global'
 import '../Toolbox.css'
 
@@ -110,6 +110,7 @@ const CORE_GESTURES = [
 ]
 
 export default function VisionSection({ settings, onSave }: Props) {
+  const [sensitivityDraft, setSensitivityDraft] = useState(settings.gesture_sensitivity)
   const [activeMappings, setActiveMappings] = useState<Record<string, { action: string; customCommand?: string }>>(
     settings.gesture_mappings || {
       GESTURE_CONFIRM: { action: 'CONFIRM' },
@@ -122,6 +123,16 @@ export default function VisionSection({ settings, onSave }: Props) {
   )
 
   const [testGestureState, setTestGestureState] = useState<string | null>(null)
+
+  useEffect(() => {
+    setSensitivityDraft(settings.gesture_sensitivity)
+  }, [settings.gesture_sensitivity])
+
+  const saveSensitivity = () => {
+    if (sensitivityDraft !== settings.gesture_sensitivity) {
+      void onSave({ gesture_sensitivity: sensitivityDraft })
+    }
+  }
 
   const handleActionChange = async (gestureId: string, actionId: string) => {
     const updated = {
@@ -186,17 +197,24 @@ export default function VisionSection({ settings, onSave }: Props) {
         </div>
 
         <div className="form-row">
-          <label className="form-label">Detection Sensitivity ({(settings.gesture_sensitivity * 100).toFixed(0)}%)</label>
+          <label className="form-label">
+            Detection Sensitivity ({(sensitivityDraft * 100).toFixed(0)}%; higher = easier detection)
+          </label>
           <input
             type="range"
             min="0.5"
             max="1.0"
             step="0.05"
-            value={settings.gesture_sensitivity}
-            onChange={(e) => onSave({ gesture_sensitivity: parseFloat(e.target.value) })}
+            value={sensitivityDraft}
+            onChange={(e) => setSensitivityDraft(parseFloat(e.target.value))}
+            onPointerUp={saveSensitivity}
+            onKeyUp={saveSensitivity}
             style={{ accentColor: 'var(--orange)', flex: 1 }}
           />
         </div>
+        <p className="text-xs text-muted" style={{ margin: '0 0 8px' }}>
+          Changes are saved when you finish adjusting and applied to the active camera.
+        </p>
       </div>
 
       {/* ── Gesture Action Mapping Engine ─────────────────────── */}

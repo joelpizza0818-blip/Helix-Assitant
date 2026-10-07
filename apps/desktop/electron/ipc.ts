@@ -11,7 +11,6 @@ interface AgentMessage {
 type ResponseResolver = (data: unknown, error?: string) => void
 
 const RECONNECT_DELAY_MS = 3000
-const MAX_RECONNECT_ATTEMPTS = 10
 
 export class IPCBridge {
   private ws: WebSocket | null = null
@@ -142,6 +141,11 @@ export class IPCBridge {
               return
             }
 
+            if (message.type === 'window_action') {
+              this._handleWindowAction(message.payload)
+              return
+            }
+
             // Forward event messages to renderer windows
             this._forwardToRenderer(message)
           } catch (err) {
@@ -176,18 +180,6 @@ export class IPCBridge {
 
   private _scheduleReconnect(): void {
     if (this.reconnecting) return
-    if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-      console.error('[IPCBridge] Max reconnect attempts reached.')
-      this._sendToAll('helix:error', { message: 'Lost connection to HELIX agent. Please restart.' })
-      for (const [requestId] of this.queuedRequests) {
-        const resolver = this.pendingRequests.get(requestId)
-        this.queuedRequests.delete(requestId)
-        this.pendingRequests.delete(requestId)
-        resolver?.(undefined, 'Lost connection to HELIX agent. Please restart.')
-      }
-      return
-    }
-
     this.reconnecting = true
     this.reconnectAttempts++
     console.log(`[IPCBridge] Reconnecting in ${RECONNECT_DELAY_MS}ms (attempt ${this.reconnectAttempts})...`)
@@ -270,6 +262,27 @@ export class IPCBridge {
 
     // Everything else goes to both windows
     this._sendToAll(channel, message.payload)
+  }
+
+  private _handleWindowAction(payload: Record<string, unknown>): void {
+    const floatingWindow = this.mainWindow
+    const toolboxWindow = this.toolboxWindow
+    const floatingVisible = floatingWindow && !floatingWindow.isDestroyed() && floatingWindow.isVisible()
+    const toolboxVisible = toolboxWindow && !toolboxWindow.isDestroyed() && toolboxWindow.isVisible()
+
+    if (payload.action === 'HIDE_FLOATING_OR_TOOLBOX') {
+      const windowToHide = floatingVisible ? floatingWindow : toolboxVisible ? toolboxWindow : null
+      windowToHide?.hide()
+      return
+    }
+
+    if (payload.action === 'SHOW_FLOATING_OR_TOOLBOX') {
+      const windowToShow = floatingVisible ? toolboxWindow : floatingWindow
+      if (!windowToShow || windowToShow.isDestroyed()) return
+      if (windowToShow.isMinimized()) windowToShow.restore()
+      windowToShow.show()
+      windowToShow.focus()
+    }
   }
 
   private _sendToAll(channel: string, data: unknown): void {

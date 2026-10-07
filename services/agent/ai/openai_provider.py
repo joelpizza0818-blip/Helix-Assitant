@@ -1,3 +1,4 @@
+import base64
 try:
     import openai
     from openai import AsyncOpenAI
@@ -19,7 +20,19 @@ class OpenAIProvider(BaseAIProvider):
     def _convert_messages(self, messages: List[ChatMessage]) -> List[Dict]:
         converted = []
         for message in messages:
-            item = {"role": message.role, "content": message.content or None}
+            content = message.content or None
+            if message.image_bytes:
+                content = []
+                if message.content:
+                    content.append({"type": "text", "text": message.content})
+                content.append({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": "data:image/jpeg;base64,"
+                        + base64.b64encode(message.image_bytes).decode("ascii"),
+                    },
+                })
+            item = {"role": message.role, "content": content}
             if message.tool_calls:
                 item["tool_calls"] = [
                     {

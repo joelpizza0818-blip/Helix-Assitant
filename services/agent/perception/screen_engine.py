@@ -48,6 +48,32 @@ class ScreenEngine:
             logger.error(f"Error capturing window {hwnd}: {e}")
         return b""
 
+    def capture_context(self, ocr_engine=None, ocr_error=None) -> dict:
+        image = self.capture_full()
+        from PIL import Image
+
+        screenshot = Image.open(io.BytesIO(image))
+        screenshot.thumbnail((1600, 1600))
+        screenshot_buffer = io.BytesIO()
+        screenshot.save(screenshot_buffer, format="JPEG", quality=75, optimize=True)
+        context = {
+            "screenshot_bytes": screenshot_buffer.getvalue(),
+            "active_window": self.get_active_window_info(),
+            "ui_tree": {},
+            "ocr_text": None,
+            "ocr_error": ocr_error,
+        }
+        window = context["active_window"]
+        if window:
+            context["ui_tree"] = self.get_ui_tree(window["hwnd"])
+        if ocr_engine is not None:
+            try:
+                context["ocr_text"] = ocr_engine.extract_text(image)[:6000]
+            except Exception as error:
+                logger.exception("OCR failed while building screen context")
+                context["ocr_error"] = str(error)
+        return context
+
     def get_screen_resolution(self) -> tuple[int, int]:
         import mss
         with mss.mss() as sct:
@@ -109,20 +135,58 @@ class ScreenEngine:
                 root = auto.GetRootControl()
                 
             def traverse(control, depth=0):
-                if depth > 3: # limit depth to prevent massive trees
-                    return {"name": control.Name, "type": control.ControlTypeName}
+                nonlocal visited
+                if visited >= 100:
+                    return None
+                visited += 1
+                rect = control.BoundingRectangle
+                bounds = {
+                    "x": rect.left,
+                    "y": rect.top,
+                    "width": rect.right - rect.left,
+                    "height": rect.bottom - rect.top,
+                }
+                if depth > 3:
+                    return {
+                        "name": (control.Name or "")[:200],
+                        "type": control.ControlTypeName,
+                        "bounds": bounds,
+                    }
                 children = []
                 for child in control.GetChildren():
-                    children.append(traverse(child, depth + 1))
+                    child_node = traverse(child, depth + 1)
+                    if child_node is not None:
+                        children.append(child_node)
+                    if visited >= 100:
+                        break
                 return {
-                    "name": control.Name,
+                    "name": (control.Name or "")[:200],
                     "type": control.ControlTypeName,
+                    "bounds": bounds,
                     "children": children
                 }
-            return traverse(root)
+            visited = 0
+            return traverse(root) or {}
         except ImportError:
             logger.warning("uiautomation not installed. Accessibility tree not available.")
             return {}
         except Exception as e:
             logger.error(f"Error getting UI tree: {e}")
             return {}
+
+    def click_ui_element(self, name: str, hwnd: int = None) -> bool:
+        import uiautomation as auto
+
+        root = auto.ControlFromHandle(hwnd) if hwnd else auto.GetRootControl()
+        pending = [root]
+        target = name.casefold()
+        while pending:
+            control = pending.pop()
+            if target in (control.Name or "").casefold():
+                try:
+                    control.GetInvokePattern().Invoke()
+                except Exception:
+                    control.Click()
+                return True
+            pending.extend(control.GetChildren())
+        return False

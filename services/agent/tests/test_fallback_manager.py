@@ -2,7 +2,37 @@ import pytest
 import asyncio
 from services.agent.ai.model_router import TaskRequirements
 from services.agent.ai.base_provider import AgentError, KeyHealth
-from services.agent.ai.fallback_manager import FallbackManager
+from services.agent.ai.fallback_manager import FallbackManager, _request_snapshot
+
+
+def test_model_request_snapshot_redacts_secrets_and_omits_image_bytes():
+    snapshot = _request_snapshot({
+        "messages": [{
+            "role": "user",
+            "content": "Check the document",
+            "image_bytes": b"pixels",
+            "api_key": "must-not-be-shown",
+        }],
+        "_execution_failed_keys": {("google", 0)},
+    })
+
+    message = snapshot["messages"][0]
+    assert message["api_key"] == "[REDACTED]"
+    assert message["image_bytes"] == "[binary image omitted: 6 bytes]"
+    assert "must-not-be-shown" not in str(snapshot)
+    assert "_execution_failed_keys" not in snapshot
+
+@pytest.mark.asyncio
+async def test_missing_provider_key_reports_ai_settings_guidance(
+    clean_env, fallback_manager
+):
+    with pytest.raises(RuntimeError, match="No AI provider API keys are configured"):
+        await fallback_manager.execute_with_fallback(
+            lambda *_args: None,
+            TaskRequirements(text=True),
+            {},
+        )
+
 
 @pytest.mark.asyncio
 async def test_fallback_stays_within_same_provider(all_providers_env, fallback_manager, monkeypatch):
@@ -40,6 +70,59 @@ async def test_fallback_stays_within_same_provider(all_providers_env, fallback_m
     # Verify BOTH attempts were within the same provider (Google)
     for prov, model, slot in call_history:
         assert prov == "google"
+
+
+@pytest.mark.asyncio
+async def test_disabled_fallback_makes_only_one_provider_attempt(
+    all_providers_env, fallback_manager, monkeypatch
+):
+    fallback_manager.fallback_enabled = False
+    calls = []
+
+    async def fail(candidate, _context):
+        calls.append(candidate)
+        raise AgentError(
+            code="RATE_LIMIT",
+            message="Rate limit exceeded",
+            provider=candidate.provider_id,
+            model=candidate.model_id,
+            retryable=True,
+        )
+
+    with pytest.raises(RuntimeError, match="fallback is disabled"):
+        await fallback_manager.execute_with_fallback(fail, TaskRequirements(text=True), {})
+
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_cross_provider_fallback_setting_is_respected(
+    all_providers_env, fallback_manager
+):
+    fallback_manager.cross_provider_fallback = False
+    calls = []
+
+    async def fail_google_then_succeed(candidate, _context):
+        calls.append(candidate.provider_id)
+        if candidate.provider_id == "google":
+            raise AgentError(
+                code="RATE_LIMIT",
+                message="Rate limit exceeded",
+                provider=candidate.provider_id,
+                model=candidate.model_id,
+                retryable=True,
+            )
+        return "unexpected cross-provider success"
+
+    with pytest.raises(RuntimeError, match="ProviderExhaustedError"):
+        await fallback_manager.execute_with_fallback(
+            fail_google_then_succeed,
+            TaskRequirements(text=True, preferred_provider="google"),
+            {},
+        )
+
+    assert calls
+    assert set(calls) == {"google"}
 
 @pytest.mark.asyncio
 async def test_all_provider_models_exhausted_raises_error(google_only_env, fallback_manager):

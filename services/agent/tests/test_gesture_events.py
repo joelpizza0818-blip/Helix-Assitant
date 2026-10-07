@@ -124,8 +124,34 @@ async def test_low_confidence_gesture_is_ignored():
     assert published == []
 
 
+def test_gesture_sensitivity_controls_detection_confidence():
+    less_sensitive = GestureEngine(EventBus(), sensitivity=0.5)
+    more_sensitive = GestureEngine(EventBus(), sensitivity=1.0)
+
+    assert less_sensitive.min_detection_confidence == pytest.approx(0.6)
+    assert more_sensitive.min_detection_confidence == pytest.approx(0.3)
+
+
 @pytest.mark.asyncio
-async def test_fist_is_ignored_until_a_voice_interaction_is_active():
+async def test_configuring_sensitivity_restarts_active_camera():
+    engine = GestureEngine(EventBus(), sensitivity=0.8)
+    engine._is_active = True
+    engine.stop = AsyncMock(side_effect=lambda: setattr(engine, "_is_active", False))
+    engine.start = AsyncMock(side_effect=lambda: setattr(engine, "_is_active", True))
+
+    await engine.configure(camera_index=1, sensitivity=1.0, enabled=True)
+
+    engine.stop.assert_awaited_once()
+    engine.start.assert_awaited_once()
+    assert engine.camera_index == 1
+    assert engine.sensitivity == 1.0
+    assert engine.min_detection_confidence == pytest.approx(0.3)
+    assert engine.confidence_threshold == pytest.approx(0.3)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("gesture", [GestureType.FIST, GestureType.POINTING_UP])
+async def test_window_gestures_are_allowed_without_voice_interaction(gesture):
     event_bus = EventBus()
     published = []
     state_manager = StateManager()
@@ -133,7 +159,11 @@ async def test_fist_is_ignored_until_a_voice_interaction_is_active():
     async def capture(event_name, payload):
         published.append((event_name, payload))
 
-    await event_bus.subscribe("GESTURE_CLOSE", capture)
+    event_name = {
+        GestureType.FIST: "GESTURE_CLOSE",
+        GestureType.POINTING_UP: "GESTURE_OPEN",
+    }[gesture]
+    await event_bus.subscribe(event_name, capture)
     engine = GestureEngine(
         event_bus,
         state_manager=state_manager,
@@ -142,14 +172,31 @@ async def test_fist_is_ignored_until_a_voice_interaction_is_active():
     )
     engine._loop = asyncio.get_running_loop()
 
-    await asyncio.to_thread(engine._on_gesture, GestureType.FIST)
+    await asyncio.to_thread(engine._on_gesture, gesture)
     await asyncio.sleep(0.01)
-    assert published == []
+    assert published == [(event_name, {"gesture": gesture.name})]
 
-    await state_manager.update_state(voice_active=True)
-    await asyncio.to_thread(engine._on_gesture, GestureType.FIST)
-    await asyncio.sleep(0.01)
-    assert published == [("GESTURE_CLOSE", {"gesture": "FIST"})]
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("handler_name", "action"),
+    [
+        ("handle_gesture_close", "HIDE_FLOATING_OR_TOOLBOX"),
+        ("handle_gesture_open", "SHOW_FLOATING_OR_TOOLBOX"),
+    ],
+)
+async def test_window_gesture_handlers_publish_native_window_actions(handler_name, action):
+    from services.agent.core.agent import Agent
+
+    agent = Agent.__new__(Agent)
+    agent.event_bus = AsyncMock()
+
+    await getattr(agent, handler_name)("gesture", {})
+
+    agent.event_bus.publish.assert_awaited_once_with(
+        "WINDOW_ACTION",
+        {"action": action},
+    )
 def test_gesture_validation_timeout_ignores_gesture_and_cancels_check():
     event_bus = EventBus()
     engine = GestureEngine(event_bus, state_manager=StateManager())

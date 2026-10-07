@@ -81,6 +81,9 @@ contextBridge.exposeInMainWorld('helix', {
   onFallbackEvent: (fn: (event: unknown) => void): (() => void) =>
     createEventListener('helix:fallback-event', fn),
 
+  onModelRequest: (fn: (request: unknown) => void): (() => void) =>
+    createEventListener('helix:model_request', fn),
+
   onConfirmationRequest: (fn: (req: unknown) => void): (() => void) =>
     createEventListener('helix:confirmation-request', fn),
 

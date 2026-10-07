@@ -202,9 +202,9 @@ export default function FloatingUI() {
 
 function GearIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M10 2h4l.5 3a7.5 7.5 0 0 1 1.8 1l2.8-1 2 3.5-2.2 2a7.5 7.5 0 0 1 0 2l2.2 2-2 3.5-2.8-1a7.5 7.5 0 0 1-1.8 1L14 22h-4l-.5-3a7.5 7.5 0 0 1-1.8-1l-2.8 1-2-3.5 2.2-2a7.5 7.5 0 0 1 0-2l-2.2-2 2-3.5 2.8 1a7.5 7.5 0 0 1 1.8-1L10 2Z" />
       <circle cx="12" cy="12" r="3" />
-      <path d="M12 1v3M12 20v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M1 12h3M20 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12" />
     </svg>
   )
 }

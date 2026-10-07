@@ -136,8 +136,15 @@ class Agent:
             await self.task_manager.cancel(state.current_task_id)
 
     async def handle_gesture_close(self, event_name: str, payload: dict):
-        logger.info("Ending active interaction via gesture")
-        await self.event_bus.publish("VOICE_STOP", {"gesture": "FIST"})
+        logger.info("Closing HELIX floating window or Toolbox via gesture")
+        await self.event_bus.publish(
+            "WINDOW_ACTION",
+            {"action": "HIDE_FLOATING_OR_TOOLBOX"},
+        )
 
     async def handle_gesture_open(self, event_name: str, payload: dict):
-        logger.info("Activating HELIX via gesture")
+        logger.info("Opening HELIX floating window or Toolbox via gesture")
+        await self.event_bus.publish(
+            "WINDOW_ACTION",
+            {"action": "SHOW_FLOATING_OR_TOOLBOX"},
+        )

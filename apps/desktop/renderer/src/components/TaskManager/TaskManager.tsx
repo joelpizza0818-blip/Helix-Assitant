@@ -124,6 +124,35 @@ export default function TaskManager() {
                         </div>
                       ))
                     )}
+                    <div className="task-requests">
+                      <div className="task-logs-header">Model Requests</div>
+                      {task.model_requests?.length ? task.model_requests.map((request) => (
+                        <details className="task-request" key={request.request_id}>
+                          <summary>
+                            <span>{request.provider} / {request.model}</span>
+                            <span>Key {request.key_slot}</span>
+                            <span className={`task-request__status task-request__status--${request.status}`}>
+                              {request.status}
+                            </span>
+                            <span>{new Date(request.timestamp).toLocaleTimeString()}</span>
+                          </summary>
+                          <div className="task-request__body">
+                            <pre className="task-request__payload">
+                              {JSON.stringify(request.request, null, 2)}
+                            </pre>
+                            {request.error && (
+                              <div className="task-request__error">
+                                {request.error.code}: {request.error.message}
+                              </div>
+                            )}
+                          </div>
+                        </details>
+                      )) : (
+                        <div className="text-xs text-muted">
+                          Request details will appear here when recorded.
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

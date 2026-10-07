@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import type {
   AgentMessage, AgentStatus, AgentStatusUpdate, TaskDefinition,
   ConfirmationRequest, FallbackEvent, ProviderStatus, ModelDefinition,
-  ProviderID
+  ProviderID, ModelRequestEvent
 } from '../types/global'
 
 interface UseAgentReturn {
@@ -40,8 +40,8 @@ export function useAgent(): UseAgentReturn {
   const [fallbackEvent, setFallbackEvent] = useState<FallbackEvent | null>(null)
   const [providers, setProviders] = useState<ProviderStatus[]>([])
   const [models, setModels] = useState<ModelDefinition[]>([])
-
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const modelRequestsByTaskRef = useRef<Record<string, ModelRequestEvent[]>>({})
 
   useEffect(() => {
     // Subscribe to all agent events
@@ -86,11 +86,39 @@ export function useAgent(): UseAgentReturn {
       window.helix.onTaskUpdate((task) => {
         setTasks((prev) => {
           const idx = prev.findIndex((t) => t.id === task.id)
-          if (idx === -1) return [...prev, task]
+          const mergedTask = {
+            ...task,
+            model_requests: modelRequestsByTaskRef.current[task.id] ?? task.model_requests ?? [],
+          }
+          if (idx === -1) return [...prev, mergedTask]
           const updated = [...prev]
-          updated[idx] = task
+          updated[idx] = mergedTask
           return updated
         })
+      })
+    )
+
+    cleanups.push(
+      window.helix.onModelRequest((request) => {
+        const requests = modelRequestsByTaskRef.current[request.task_id] ?? []
+        const index = requests.findIndex((item) => item.request_id === request.request_id)
+        const nextRequests = [...requests]
+        if (index === -1) nextRequests.push(request)
+        else {
+          const current = nextRequests[index]
+          const rank = { attempting: 0, succeeded: 1, failed: 1 }
+          nextRequests[index] = rank[request.status] >= rank[current.status]
+            ? { ...current, ...request }
+            : current
+        }
+        modelRequestsByTaskRef.current = {
+          ...modelRequestsByTaskRef.current,
+          [request.task_id]: nextRequests,
+        }
+        setTasks((prev) => prev.map((task) => {
+          if (task.id !== request.task_id) return task
+          return { ...task, model_requests: nextRequests }
+        }))
       })
     )
 
@@ -144,12 +172,15 @@ export function useAgent(): UseAgentReturn {
     }
     setMessages((prev) => [...prev, userMessage])
     setIsLoading(true)
-    const conversationHistory = [
-      ...messages
-        .filter((message) => message.role === 'user' || message.role === 'assistant')
-        .map(({ role, content }) => ({ role, content })),
-      { role: 'user' as const, content: text }
-    ]
+    const conversationHistory = messages.reduce<
+      Array<{ role: 'user' | 'assistant'; content: string }>
+    >((history, message) => {
+      if (message.role === 'user' || message.role === 'assistant') {
+        history.push({ role: message.role, content: message.content })
+      }
+      return history
+    }, [])
+    conversationHistory.push({ role: 'user', content: text })
     window.helix?.sendMessage({
       text,
       conversation_id: conversationId,

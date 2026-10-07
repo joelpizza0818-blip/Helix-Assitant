@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import json
+import re
 from datetime import datetime, timezone
 from typing import Dict
 
@@ -12,6 +13,13 @@ except ImportError:
     pass
 
 logger = logging.getLogger(__name__)
+_SCREEN_ACTION_INTENT = re.compile(
+    r"\b(screen|screenshot|pantalla|ventana|window|desktop|escritorio|"
+    r"click|clic|cursor|mouse|teclado|keyboard|word|excel|notepad|"
+    r"abre|abrir|open\s+(?:the\s+)?(?:app|application|word|excel)|"
+    r"escribe\s+en|type\s+(?:into|in)|paste|pega|drag|arrastra)\b",
+    re.IGNORECASE,
+)
 
 class Orchestrator:
     def __init__(self, planner, task_manager, event_bus, react_loop, 
@@ -45,7 +53,9 @@ class Orchestrator:
                         "You are HELIX, a conversational desktop assistant. Reply "
                         "naturally and clearly in the user's language, keep the "
                         f"context of this {conversation_type}, and use available "
-                        "tools when needed. "
+                        "tools when needed. For desktop actions, inspect the provided "
+                        "screen observation before acting; after using a computer or "
+                        "keyboard tool, inspect its captured result. "
                         "Never claim to have performed an action unless a tool "
                         "reported that it succeeded."
                     ),
@@ -57,6 +67,38 @@ class Orchestrator:
                 if message.get("role") in {"user", "assistant"}
                 and isinstance(message.get("content"), str)
             )
+            if _SCREEN_ACTION_INTENT.search(description):
+                observe_tool = self.tool_registry.get_tool("computer.observe_screen")
+                observation = await observe_tool.execute({}) if observe_tool else None
+                if observation is not None and observation.success:
+                    observed = observation.output
+                    screenshot = observed.pop("screenshot_bytes", None)
+                    screen_summary = json.dumps(
+                        observed,
+                        ensure_ascii=False,
+                        default=str,
+                    )
+                    messages.append(ChatMessage(
+                        role="user",
+                        content=(
+                            "Screen observation before acting (structured window, "
+                            f"accessibility, and OCR context):\n{screen_summary}"
+                        ),
+                        image_bytes=screenshot,
+                    ))
+                else:
+                    error = (
+                        observation.error
+                        if observation is not None
+                        else "Screen observation tool is unavailable."
+                    )
+                    messages.append(ChatMessage(
+                        role="user",
+                        content=(
+                            "Screen observation before acting failed. Do not claim "
+                            f"to know what is visible. Error: {error}"
+                        ),
+                    ))
             try:
                 response = await self.react_loop.execute(
                     messages,

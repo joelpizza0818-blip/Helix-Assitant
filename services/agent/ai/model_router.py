@@ -70,7 +70,7 @@ class ModelRouter:
         for model in models:
             if (model.provider, model.id) in self.unavailable_models:
                 continue
-            score = 100
+            score = 100 + model.priority
             if reqs.preferred_model == model.id:
                 score += 500
             if reqs.preferred_provider == model.provider:

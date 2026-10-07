@@ -51,6 +51,30 @@ export default function SecuritySection({ settings, onSave }: Props) {
         HELIX enforces strict privilege separation. The AI model never receives unfettered system access; all actions traverse the policy engine and permission manager.
       </p>
 
+      <div className="toolbox-card">
+        <div className="toolbox-card__header">
+          <span className="toolbox-card__title">Confirmation Policy</span>
+        </div>
+        <p className="text-xs text-muted" style={{ marginBottom: 12 }}>
+          Actions above this risk tier require approval. Execute, system, and critical actions always require explicit confirmation.
+        </p>
+        <label className="form-label" htmlFor="auto-approve-up-to">
+          Allow without confirmation up to
+        </label>
+        <select
+          id="auto-approve-up-to"
+          className="form-input"
+          value={settings.auto_approve_up_to}
+          onChange={(event) => onSave({
+            auto_approve_up_to: event.target.value as HelixSettings['auto_approve_up_to']
+          })}
+        >
+          <option value="READ_ONLY">Read only</option>
+          <option value="LOW_RISK">Low risk</option>
+          <option value="MODIFY">Modify</option>
+        </select>
+      </div>
+
       {/* ── Permission Hierarchy ──────────────────────────────── */}
       <div className="toolbox-card">
         <div className="toolbox-card__header">

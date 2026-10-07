@@ -1,5 +1,6 @@
 import pytest
 import asyncio
+import keyring
 from unittest.mock import AsyncMock, MagicMock
 from services.agent.ai.key_manager import KeyManager
 from services.agent.ai.capability_registry import CapabilityRegistry
@@ -12,6 +13,11 @@ from services.agent.ai.fallback_manager import FallbackManager
 from services.agent.security.permission_manager import PermissionManager
 from services.agent.security.confirmation_manager import ConfirmationManager
 from services.agent.core.event_bus import EventBus
+
+@pytest.fixture(autouse=True)
+def isolate_system_keyring(monkeypatch):
+    monkeypatch.setattr(keyring, "get_password", lambda *_args: None)
+    monkeypatch.setattr(keyring, "set_password", lambda *_args: None)
 
 @pytest.fixture
 def mock_event_bus():

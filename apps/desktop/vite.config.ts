@@ -9,7 +9,7 @@ const desktopDevHealth = {
   configureServer(server) {
     server.middlewares.use('/__helix_desktop_dev_health', (_request, response) => {
       response.statusCode = 200
-      response.end('HELIX_DESKTOP_DEV')
+      response.end(resolve(__dirname, '../..'))
     })
   }
 }

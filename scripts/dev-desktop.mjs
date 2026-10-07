@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { createConnection } from 'node:net'
+import { createServer } from 'node:net'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -8,32 +8,44 @@ const require = createRequire(import.meta.url)
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const desktopDirectory = path.join(repoRoot, 'apps', 'desktop')
 const viteCli = path.join(repoRoot, 'node_modules', 'vite', 'bin', 'vite.js')
-const rendererPort = Number(process.env.HELIX_RENDERER_PORT || 5173)
-const rendererUrl = `http://127.0.0.1:${rendererPort}`
+const requestedRendererPort = Number(process.env.HELIX_RENDERER_PORT || 5173)
+let rendererPort = requestedRendererPort
+const rendererUrl = () => `http://127.0.0.1:${rendererPort}`
 
 async function isHelixDevServer() {
   try {
-    const response = await fetch(`${rendererUrl}/__helix_desktop_dev_health`, {
+    const response = await fetch(`${rendererUrl()}/__helix_desktop_dev_health`, {
       signal: AbortSignal.timeout(1500)
     })
-    return response.ok && (await response.text()) === 'HELIX_DESKTOP_DEV'
+    return response.ok && path.resolve(await response.text()) === repoRoot
   } catch {
     return false
   }
 }
 
-function isPortInUse(port) {
-  return new Promise((resolve) => {
-    const socket = createConnection({ host: '127.0.0.1', port })
-    socket.once('connect', () => {
-      socket.destroy()
-      resolve(true)
+function findAvailablePort(preferredPort) {
+  return new Promise((resolve, reject) => {
+    const server = createServer()
+    server.once('error', (error) => {
+      if (error.code !== 'EADDRINUSE') {
+        reject(error)
+        return
+      }
+      server.listen(0, '127.0.0.1')
     })
-    socket.once('error', () => resolve(false))
-    socket.setTimeout(1500, () => {
-      socket.destroy()
-      resolve(false)
+    server.once('listening', () => {
+      const address = server.address()
+      if (!address || typeof address === 'string') {
+        server.close()
+        reject(new Error('Could not determine an available HELIX renderer port.'))
+        return
+      }
+      server.close((error) => {
+        if (error) reject(error)
+        else resolve(address.port)
+      })
     })
+    server.listen(preferredPort, '127.0.0.1')
   })
 }
 
@@ -41,7 +53,11 @@ function runElectronToFocusExistingInstance() {
   const electronPath = require('electron')
   const electron = spawn(electronPath, ['.', '--no-sandbox'], {
     cwd: desktopDirectory,
-    env: { ...process.env, NODE_ENV: 'development' },
+    env: {
+      ...process.env,
+      NODE_ENV: 'development',
+      HELIX_RENDERER_PORT: String(rendererPort)
+    },
     stdio: 'inherit'
   })
 
@@ -55,15 +71,21 @@ function runElectronToFocusExistingInstance() {
 }
 
 if (await isHelixDevServer()) {
-  console.log(`Reusing HELIX renderer at ${rendererUrl}; focusing its existing desktop instance.`)
+  console.log(`Reusing this checkout's HELIX renderer at ${rendererUrl()}.`)
   runElectronToFocusExistingInstance()
-} else if (await isPortInUse(rendererPort)) {
-  console.error(
-    `Port ${rendererPort} is occupied by a process that is not the HELIX desktop dev server. ` +
-    'Close that process or set HELIX_RENDERER_PORT to a free port before starting HELIX.'
-  )
-  process.exitCode = 1
 } else {
+  try {
+    rendererPort = await findAvailablePort(requestedRendererPort)
+  } catch (error) {
+    console.error(`Could not select a HELIX renderer port: ${error.message}`)
+    process.exitCode = 1
+    process.exit()
+  }
+  if (rendererPort !== requestedRendererPort) {
+    console.warn(
+      `Renderer port ${requestedRendererPort} is occupied by another checkout; using ${rendererPort}.`
+    )
+  }
   const vite = spawn(process.execPath, [viteCli], {
     cwd: desktopDirectory,
     env: { ...process.env, HELIX_RENDERER_PORT: String(rendererPort) },

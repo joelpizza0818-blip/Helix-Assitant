@@ -129,6 +129,8 @@ export class PythonManager {
       windowsHide: true,
       env: {
         ...process.env,
+        PYTHONIOENCODING: 'utf-8',
+        PYTHONUTF8: '1',
         PYTHONPATH: [
           path.resolve(this.agentDir, '../..'),
           process.env.PYTHONPATH

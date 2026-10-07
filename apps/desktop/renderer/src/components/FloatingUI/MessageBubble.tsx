@@ -1,4 +1,6 @@
 import React from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import type { AgentMessage } from '../../types/global'
 import './MessageBubble.css'
 
@@ -38,7 +40,9 @@ export default function MessageBubble({ message }: Props) {
   return (
     <div className={`message-bubble message-bubble--${role}`}>
       <div className={`bubble bubble--${role}`}>
-        <p className="bubble__content selectable">{content}</p>
+        <div className="bubble__content selectable">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+        </div>
         <div className="bubble__meta">
           {role === 'assistant' && model && (
             <span className="bubble__model">{model}</span>

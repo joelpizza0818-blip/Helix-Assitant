@@ -1,3 +1,4 @@
+import base64
 try:
     import anthropic
     from anthropic import AsyncAnthropic
@@ -35,6 +36,15 @@ class AnthropicProvider(BaseAIProvider):
             content = []
             if message.content:
                 content.append({"type": "text", "text": message.content})
+            if message.image_bytes:
+                content.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/jpeg",
+                        "data": base64.b64encode(message.image_bytes).decode("ascii"),
+                    },
+                })
             if message.tool_calls:
                 content.extend({
                     "type": "tool_use",

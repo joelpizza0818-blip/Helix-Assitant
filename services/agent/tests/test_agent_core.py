@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from services.agent.core.role_config import RoleConfig, RoleAssignment
 from services.agent.core.tool_registry import ToolRegistry
@@ -19,6 +21,16 @@ def test_tool_registry():
     registry = ToolRegistry()
     tools = registry.get_all_tools()
     assert isinstance(tools, list)
+
+
+def test_tool_registry_discovers_desktop_tools():
+    registry = ToolRegistry()
+    tools_dir = Path(__file__).resolve().parents[1] / "tools"
+
+    registry.auto_discover(str(tools_dir))
+
+    assert registry.get_tool("computer.click_element") is not None
+    assert registry.get_tool("keyboard.press_key") is not None
 
 def test_context_manager():
     cm = ContextManager(max_tokens=1000)

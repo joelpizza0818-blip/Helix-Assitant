@@ -7,7 +7,8 @@ import {
   ipcMain,
   screen,
   shell,
-  Notification
+  Notification,
+  dialog
 } from 'electron'
 import path from 'path'
 import fs from 'fs'
@@ -16,9 +17,18 @@ import { IPCBridge } from './ipc'
 import { TrayManager } from './tray'
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
-const RENDERER_URL = isDev ? 'http://127.0.0.1:5173' : `file://${path.join(__dirname, '../dist/index.html')}`
+const rendererPort = Number(process.env.HELIX_RENDERER_PORT || 5173)
+const RENDERER_URL = isDev ? `http://127.0.0.1:${rendererPort}` : `file://${path.join(__dirname, '../dist/index.html')}`
 const DEFAULT_WS_PORT = parseInt(process.env.AGENT_WS_PORT || '8765', 10)
 let wsPort = DEFAULT_WS_PORT
+
+if (isDev) {
+  const checkoutName = path.basename(path.resolve(app.getAppPath(), '..', '..'))
+  app.setPath(
+    'userData',
+    path.join(app.getPath('appData'), `@helix-desktop-dev-${checkoutName}`)
+  )
+}
 
 let floatingWindow: BrowserWindow | null = null
 let toolboxWindow: BrowserWindow | null = null
@@ -121,35 +131,14 @@ function createToolboxWindow(): BrowserWindow {
 }
 
 async function startPythonAgent(): Promise<void> {
-  // Resolve agent directory — try multiple strategies
-  const candidates = isDev
-    ? [
-        // process.cwd() is typically the workspace root (apps/desktop)
-        path.resolve(process.cwd(), '../../services/agent'),
-        // From dist-electron/ go up to monorepo root
-        path.resolve(__dirname, '../../../services/agent'),
-        // From apps/desktop/ go up to monorepo root
-        path.resolve(__dirname, '../../services/agent'),
-        // Absolute fallback
-        path.resolve(process.cwd(), 'services/agent'),
-      ]
-    : [path.join(process.resourcesPath, 'agent')]
-
-  let agentDir = ''
-  for (const candidate of candidates) {
-    if (fs.existsSync(path.join(candidate, 'main.py'))) {
-      agentDir = candidate
-      break
-    }
+  const agentDir = isDev
+    ? path.resolve(app.getAppPath(), '..', '..', 'services', 'agent')
+    : path.join(process.resourcesPath, 'agent')
+  if (!fs.existsSync(path.join(agentDir, 'main.py'))) {
+    throw new Error(`Python agent main.py not found at expected path: ${agentDir}`)
   }
 
-  if (!agentDir) {
-    console.error('[Main] Python agent main.py not found in any candidate path:')
-    candidates.forEach((c) => console.error(`  - ${c}`))
-    console.error('[Main] Python agent will NOT start. The app will run without backend.')
-    return
-  }
-
+  console.log(`[Main] Desktop app root: ${app.getAppPath()}`)
   console.log(`[Main] Found Python agent at: ${agentDir}`)
 
   pythonManager = new PythonManager()
@@ -167,16 +156,12 @@ async function startPythonAgent(): Promise<void> {
     trayManager?.updateStatus('error')
   })
 
-  try {
-    wsPort = await pythonManager.start(
-      agentDir,
-      DEFAULT_WS_PORT,
-      path.join(app.getPath('userData'), 'settings.json')
-    )
-    console.log('[Main] Python agent started')
-  } catch (err) {
-    console.error('[Main] Failed to start Python agent:', err)
-  }
+  wsPort = await pythonManager.start(
+    agentDir,
+    DEFAULT_WS_PORT,
+    path.join(app.getPath('userData'), 'settings.json')
+  )
+  console.log('[Main] Python agent started')
 }
 
 function setupIPC(): void {
@@ -278,6 +263,14 @@ app.whenReady().then(async () => {
   floatingWindow?.show()
   floatingWindow?.focus()
   trayManager.updateStatus('idle')
+}).catch((error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error)
+  console.error('[Main] HELIX failed to start:', error)
+  dialog.showErrorBox(
+    'HELIX could not start its agent',
+    `${message}\n\nCheck services/agent/requirements.txt and the Python environment, then start HELIX again.`
+  )
+  app.quit()
 })
 
 app.on('before-quit', (event) => {

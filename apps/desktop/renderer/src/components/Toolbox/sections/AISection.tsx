@@ -23,6 +23,7 @@ const KEY_HEALTH_LABELS: Record<KeyHealth, { label: string; className: string }>
   healthy:        { label: 'Connected',     className: 'status-badge--healthy' },
   rate_limited:   { label: 'Rate Limited',  className: 'status-badge--rate-limited' },
   quota_exceeded: { label: 'Quota Exceeded',className: 'status-badge--error' },
+  billing_exhausted: { label: 'Billing Exhausted', className: 'status-badge--error' },
   auth_error:     { label: 'Invalid Key',   className: 'status-badge--error' },
   unavailable:    { label: 'Unavailable',   className: 'status-badge--error' },
   unconfigured:   { label: 'Not Configured',className: 'status-badge--unconfigured' }
@@ -46,6 +47,7 @@ export default function AISection({ providers, models, settings, onSave, onRefre
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({})
   const [validating, setValidating] = useState<Record<string, boolean>>({})
   const [validationResults, setValidationResults] = useState<Record<string, KeyHealth>>({})
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({})
 
   // Custom Endpoint state
   const [customEndpointName, setCustomEndpointName] = useState('')
@@ -89,12 +91,17 @@ export default function AISection({ providers, models, settings, onSave, onRefre
     if (!key?.trim()) return
     const resultKey = `${provider}_${slot}`
     setValidating((prev) => ({ ...prev, [resultKey]: true }))
+    setValidationErrors((prev) => ({ ...prev, [resultKey]: '' }))
     try {
       // SECURITY: key goes directly to Python via IPC, never logged on renderer side
       const health = await window.helix?.validateKey(provider, slot, key)
       setValidationResults((prev) => ({ ...prev, [resultKey]: health as KeyHealth }))
-    } catch {
+    } catch (error) {
       setValidationResults((prev) => ({ ...prev, [resultKey]: 'unavailable' }))
+      setValidationErrors((prev) => ({
+        ...prev,
+        [resultKey]: error instanceof Error ? error.message : String(error),
+      }))
     } finally {
       setValidating((prev) => ({ ...prev, [resultKey]: false }))
       onRefresh()
@@ -203,27 +210,34 @@ export default function AISection({ providers, models, settings, onSave, onRefre
               const displayHealth = valResult ?? health
 
               return (
-                <div key={slot} className="key-row">
-                  <span className="key-row__slot">SLOT {slot}</span>
-                  <input
-                    className="form-input key-row__input"
-                    type="password"
-                    placeholder={keyStatus?.configured ? '••••••••••••••••••••••••••••••••' : `Enter ${PROVIDER_NAMES[providerId]} API Key (Slot ${slot})...`}
-                    value={keyInputs[inputKey] ?? ''}
-                    onChange={(e) => handleKeyInput(providerId, slot, e.target.value)}
-                    autoComplete="off"
-                  />
-                  <span className={`status-badge ${KEY_HEALTH_LABELS[displayHealth].className}`} style={{ flexShrink: 0 }}>
-                    {KEY_HEALTH_LABELS[displayHealth].label}
-                  </span>
-                  <button
-                    className="validate-btn"
-                    onClick={() => handleValidateKey(providerId, slot)}
-                    disabled={!keyInputs[inputKey]?.trim() || isValidating}
-                  >
-                    {isValidating ? 'Testing...' : 'Save & Validate'}
-                  </button>
-                </div>
+                <React.Fragment key={slot}>
+                  <div className="key-row">
+                    <span className="key-row__slot">SLOT {slot}</span>
+                    <input
+                      className="form-input key-row__input"
+                      type="password"
+                      placeholder={keyStatus?.configured ? '••••••••••••••••••••••••••••••••' : `Enter ${PROVIDER_NAMES[providerId]} API Key (Slot ${slot})...`}
+                      value={keyInputs[inputKey] ?? ''}
+                      onChange={(e) => handleKeyInput(providerId, slot, e.target.value)}
+                      autoComplete="off"
+                    />
+                    <span className={`status-badge ${KEY_HEALTH_LABELS[displayHealth].className}`} style={{ flexShrink: 0 }}>
+                      {KEY_HEALTH_LABELS[displayHealth].label}
+                    </span>
+                    <button
+                      className="validate-btn"
+                      onClick={() => handleValidateKey(providerId, slot)}
+                      disabled={!keyInputs[inputKey]?.trim() || isValidating}
+                    >
+                      {isValidating ? 'Testing...' : 'Save & Validate'}
+                    </button>
+                  </div>
+                  {validationErrors[inputKey] && (
+                    <p role="alert" className="text-xs text-muted" style={{ color: 'var(--red)', margin: '4px 0 8px' }}>
+                      {validationErrors[inputKey]}
+                    </p>
+                  )}
+                </React.Fragment>
               )
             })}
           </div>

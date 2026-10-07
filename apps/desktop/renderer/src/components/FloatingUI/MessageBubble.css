@@ -19,7 +19,97 @@
 .bubble__content {
   font-size: var(--text-sm);
   line-height: var(--leading-relaxed);
-  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.bubble__content > :first-child {
+  margin-top: 0;
+}
+
+.bubble__content > :last-child {
+  margin-bottom: 0;
+}
+
+.bubble__content p,
+.bubble__content ul,
+.bubble__content ol,
+.bubble__content blockquote,
+.bubble__content pre,
+.bubble__content table {
+  margin: 0 0 0.75em;
+}
+
+.bubble__content ul,
+.bubble__content ol {
+  padding-left: 1.5em;
+}
+
+.bubble__content li + li {
+  margin-top: 0.25em;
+}
+
+.bubble__content h1,
+.bubble__content h2,
+.bubble__content h3,
+.bubble__content h4 {
+  margin: 1em 0 0.45em;
+  color: var(--bone);
+  line-height: 1.3;
+}
+
+.bubble__content h1 { font-size: 1.35em; }
+.bubble__content h2 { font-size: 1.2em; }
+.bubble__content h3,
+.bubble__content h4 { font-size: 1.05em; }
+
+.bubble__content blockquote {
+  padding-left: 0.8em;
+  border-left: 2px solid var(--orange);
+  color: var(--muted);
+}
+
+.bubble__content pre {
+  max-width: 100%;
+  padding: 10px 12px;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-btn);
+  background: var(--canvas);
+  white-space: pre;
+}
+
+.bubble__content pre code {
+  display: block;
+  color: var(--bone);
+  white-space: pre;
+  overflow-wrap: normal;
+}
+
+.bubble__content :not(pre) > code {
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: var(--canvas);
+  color: var(--orange);
+  overflow-wrap: anywhere;
+}
+
+.bubble__content table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+.bubble__content th,
+.bubble__content td {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+
+.bubble__content th {
+  color: var(--bone);
+  background: var(--canvas);
 }
 
 .bubble__meta {

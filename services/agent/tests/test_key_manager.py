@@ -17,6 +17,26 @@ def test_empty_environment_keys_are_not_configured(clean_env, monkeypatch):
     assert not km.is_provider_configured("openai")
     assert "openai" not in km.get_configured_providers()
 
+def test_save_key_persists_and_activates_provider(monkeypatch, clean_env):
+    saved = {}
+    monkeypatch.setattr(
+        "services.agent.ai.key_manager.keyring.set_password",
+        lambda service, name, value: saved.__setitem__((service, name), value),
+    )
+    monkeypatch.setattr(
+        "services.agent.ai.key_manager.keyring.get_password",
+        lambda service, name: saved.get((service, name)),
+    )
+    km = KeyManager()
+
+    km.save_key("google", 0, "  validated-key  ")
+
+    assert saved == {("helix_agent", "google_api_key_1"): "validated-key"}
+    assert km.get_key("google", 0) == "validated-key"
+    assert km.get_configured_providers() == ["google"]
+    assert km.get_available_key("google") == (0, "validated-key")
+    assert KeyManager().get_key("google", 0) == "validated-key"
+
 def test_single_provider_configured(google_only_env):
     km = KeyManager()
     assert km.get_configured_providers() == ["google"]

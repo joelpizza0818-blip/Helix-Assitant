@@ -13,6 +13,7 @@ const DEFAULT_SETTINGS: HelixSettings = {
   preferred_provider: null,
   fallback_enabled: true,
   cross_provider_fallback: false,
+  auto_approve_up_to: 'LOW_RISK',
   cost_preference: 'balanced',
   speed_preference: 'balanced',
   quality_preference: 'balanced',
@@ -88,4 +89,3 @@ export function useSettings(): UseSettingsReturn {
 
   return { settings, isLoading, isSaving, isApplied, error, loadSettings, saveSettings, updateLocal }
 }
-

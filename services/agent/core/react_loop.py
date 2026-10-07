@@ -23,6 +23,7 @@ class ReActLoop:
         self.event_bus = event_bus
         self.role_config = role_config
         self._pending_confirmations = {}
+        self.auto_approve_up_to = "LOW_RISK"
 
     async def _ensure_confirmation_subscriptions(self):
         subscribe = getattr(self.event_bus, "subscribe", None)
@@ -75,10 +76,14 @@ class ReActLoop:
         
         iteration = 0
         current_messages = list(messages)
+        requirements.vision = requirements.vision or any(
+            message.image_bytes for message in current_messages
+        )
         provider_context = {
             "messages": current_messages,
             "_execution_failed_models": set(),
             "_execution_failed_keys": set(),
+            "_helix_task_id": task_id,
         }
         
         while iteration < max_iterations:
@@ -132,8 +137,29 @@ class ReActLoop:
                 for tc in response.tool_calls:
                     tool = self.tool_registry.get_tool(tc.name)
                     tool_succeeded = False
+                    image_bytes = None
                     if tool:
-                        confirmed = not tool.requires_confirmation
+                        permission_ranks = {
+                            "READ_ONLY": 0,
+                            "LOW_RISK": 1,
+                            "MODIFY": 2,
+                            "EXECUTE": 3,
+                            "SYSTEM": 4,
+                            "CRITICAL": 5,
+                        }
+                        permission_level = str(tool.permission_level).upper()
+                        rank = permission_ranks.get(permission_level, 4)
+                        approval_ceiling = permission_ranks.get(
+                            self.auto_approve_up_to,
+                            permission_ranks["LOW_RISK"],
+                        )
+                        requires_confirmation = (
+                            tool.requires_confirmation or rank >= permission_ranks["EXECUTE"]
+                        )
+                        confirmed = (
+                            not requires_confirmation
+                            or rank <= approval_ceiling
+                        )
                         output = None
                         if not confirmed:
                             try:
@@ -154,13 +180,15 @@ class ReActLoop:
                                     )
                                 result = await tool.execute(tc.arguments)
                                 tool_succeeded = result.success
-                                output = (
-                                    result.output
-                                    if result.success
-                                    else f"Error: {result.error}"
-                                )
+                                output = result.output if result.success else f"Error: {result.error}"
+                                if isinstance(output, dict):
+                                    image_bytes = output.pop("screenshot_bytes", None)
+                                    if image_bytes:
+                                        requirements.vision = True
+                                    output = json.dumps(output, ensure_ascii=False, default=str)
                             except Exception as e:
                                 output = f"Execution Exception: {str(e)}"
+                                image_bytes = None
                     else:
                         output = f"Error: Tool {tc.name} not found."
                     
@@ -179,6 +207,12 @@ class ReActLoop:
                         tool_call_id=tc.id,
                         tool_name=tc.name,
                     ))
+                    if tool_succeeded and image_bytes:
+                        current_messages.append(ChatMessage(
+                            role="user",
+                            content=f"Screen captured after {tc.name}. Use this to verify the result before continuing.",
+                            image_bytes=image_bytes,
+                        ))
             else:
                 if not isinstance(response, ChatResponse):
                     response = ChatResponse(

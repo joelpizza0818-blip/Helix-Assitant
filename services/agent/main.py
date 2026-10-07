@@ -21,7 +21,7 @@ from core.task_manager import TaskManager
 from core.planner import Planner
 from core.orchestrator import Orchestrator
 from core.agent import Agent
-from core.tool_registry import ToolRegistry
+from services.agent.core.tool_registry import ToolRegistry
 from core.role_config import RoleConfig
 from core.context_manager import ContextManager
 from core.react_loop import ReActLoop
@@ -192,7 +192,10 @@ async def main():
         capability_registry,
         key_manager,
         settings_path,
+        fallback_manager,
+        react_loop,
     )
+    request_handler.get_settings()
     clients = set()
 
     async def broadcast_event(event_name: str, payload: dict):
@@ -200,6 +203,7 @@ async def main():
             "TASK_CREATED": "task_update",
             "TASK_STATUS_CHANGED": "task_update",
             "TASK_CANCELLED": "task_update",
+            "TASK_DETAILS_CHANGED": "task_update",
             "WAIT_CONFIRMATION": "confirmation_request",
             "CONFIRMATION_RESOLVED": "confirmation_resolved",
             "AGENT_MESSAGE": "agent_message",
@@ -211,7 +215,12 @@ async def main():
             "SUBAGENT_SPAWNED": "agent_update",
             "REACT_STEP": "react_step",
         }
-        if event_name in {"TASK_CREATED", "TASK_STATUS_CHANGED", "TASK_CANCELLED"}:
+        if event_name in {
+            "TASK_CREATED",
+            "TASK_STATUS_CHANGED",
+            "TASK_CANCELLED",
+            "TASK_DETAILS_CHANGED",
+        }:
             task = await task_manager.get_task(payload.get("task_id", ""))
             if task is None:
                 return
@@ -249,26 +258,42 @@ async def main():
         # agent_ws_port
         logger.info("Note: agent_ws_port changes require a restart to take effect.")
         
-        # camera_enabled
-        camera_enabled = payload.get("camera_enabled")
-        if camera_enabled is False and gesture_engine is not None:
-            await gesture_engine.stop()
+        camera_enabled = payload.get("camera_enabled", gesture_engine is not None)
+        camera_index = payload.get(
+            "camera_device_index",
+            gesture_engine.camera_index if gesture_engine is not None else 0,
+        )
+        gesture_sensitivity = payload.get(
+            "gesture_sensitivity",
+            gesture_engine.sensitivity if gesture_engine is not None else 0.8,
+        )
+        if camera_enabled:
+            try:
+                if gesture_engine is None:
+                    from perception.gesture_engine import GestureEngine
+
+                    gesture_engine = GestureEngine(
+                        event_bus,
+                        camera_index=camera_index,
+                        sensitivity=gesture_sensitivity,
+                        state_manager=state_manager,
+                    )
+                await gesture_engine.configure(
+                    camera_index,
+                    gesture_sensitivity,
+                    enabled=True,
+                )
+                logger.info("Gesture engine settings applied.")
+            except Exception as e:
+                logger.error("Failed to apply gesture settings: %s", e)
+        elif gesture_engine is not None:
+            await gesture_engine.configure(
+                camera_index,
+                gesture_sensitivity,
+                enabled=False,
+            )
             gesture_engine = None
             logger.info("Gesture engine stopped.")
-        elif camera_enabled is True and gesture_engine is None:
-            try:
-                from perception.gesture_engine import GestureEngine
-                gesture_engine = GestureEngine(
-                    event_bus,
-                    camera_index=payload.get("camera_device_index", 0),
-                    sensitivity=payload.get("gesture_sensitivity", 0.8),
-                    min_detection_confidence=payload.get("gesture_sensitivity", 0.8),
-                    state_manager=state_manager,
-                )
-                await gesture_engine.start()
-                logger.info("Gesture engine started.")
-            except Exception as e:
-                logger.error(f"Failed to start gesture engine: {e}")
                 
         # voice_enabled
         voice_enabled = payload.get("voice_enabled")
@@ -293,6 +318,12 @@ async def main():
                 except Exception as e:
                     logger.error(f"Failed to start voice engine: {e}")
 
+    async def record_model_request(event_name: str, payload: dict) -> None:
+        task_id = payload.get("task_id")
+        if task_id:
+            await task_manager.record_model_request(task_id, payload)
+
+    await event_bus.subscribe("MODEL_REQUEST", record_model_request)
     await event_bus.subscribe("*", broadcast_event)
     await event_bus.subscribe("SETTINGS_UPDATED", on_settings_updated)
     await asyncio.sleep(0)
@@ -326,7 +357,6 @@ async def main():
                 event_bus,
                 camera_index=runtime_settings.get("camera_device_index", 0),
                 sensitivity=runtime_settings.get("gesture_sensitivity", 0.8),
-                min_detection_confidence=runtime_settings.get("gesture_sensitivity", 0.8),
                 state_manager=state_manager,
             )
             await gesture_engine.start()

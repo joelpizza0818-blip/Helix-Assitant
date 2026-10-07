@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import AsyncMock
 
 from services.agent.ai.anthropic_provider import AnthropicProvider
 from services.agent.ai.capability_registry import CapabilityRegistry
@@ -6,6 +7,7 @@ from services.agent.ai.google_provider import GoogleProvider
 from services.agent.ai.key_manager import KeyManager
 from services.agent.ai.openai_provider import OpenAIProvider
 from services.agent.ai.provider_registry import ProviderRegistry
+from services.agent.ai.base_provider import KeyHealth
 from services.agent.core.desktop_bridge import DesktopRequestHandler
 from services.agent.core.event_bus import EventBus
 from services.agent.core.task_manager import TaskManager
@@ -24,6 +26,59 @@ def request_handler(tmp_path, clean_env):
         CapabilityRegistry(),
         key_manager,
         tmp_path / "settings.json",
+    )
+
+@pytest.mark.asyncio
+async def test_validated_key_is_saved_for_model_routing(request_handler, monkeypatch):
+    provider = request_handler.provider_registry.get_registered_provider("google")
+
+    async def validate_key(_api_key):
+        return KeyHealth.HEALTHY
+
+    monkeypatch.setattr(provider, "validate_key", validate_key)
+    response = await request_handler.dispatch({
+        "type": "VALIDATE_KEY",
+        "request_id": "save-google-key",
+        "payload": {"provider": "google", "slot": 2, "key": "validated-key"},
+    })
+
+    assert response["payload"] == "healthy"
+    assert request_handler.key_manager.get_key("google", 1) == "validated-key"
+    models = await request_handler.dispatch({
+        "type": "GET_MODELS",
+        "request_id": "vision-models",
+        "payload": {"requirements": {"vision": True, "tool_calling": True}},
+    })
+    assert any(
+        model["provider"] == "google"
+        and model["capabilities"]["vision"]
+        and model["capabilities"]["tool_calling"]
+        for model in models["payload"]
+    )
+
+@pytest.mark.asyncio
+async def test_task_model_request_history_updates_by_request_id():
+    event_bus = AsyncMock()
+    manager = TaskManager(event_bus)
+    await manager.create_task("task-audit", "Inspect model calls")
+
+    await manager.record_model_request("task-audit", {
+        "request_id": "request-1",
+        "status": "attempting",
+        "provider": "google",
+    })
+    await manager.record_model_request("task-audit", {
+        "request_id": "request-1",
+        "status": "succeeded",
+        "provider": "google",
+    })
+
+    task = await manager.get_task("task-audit")
+    assert len(task.model_requests) == 1
+    assert task.model_requests[0]["status"] == "succeeded"
+    assert event_bus.publish.await_args_list[-1].args == (
+        "TASK_DETAILS_CHANGED",
+        {"task_id": "task-audit"},
     )
 
 

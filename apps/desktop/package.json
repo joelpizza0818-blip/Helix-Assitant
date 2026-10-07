@@ -16,6 +16,8 @@
   "dependencies": {
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "ws": "^8.16.0"
   },
   "devDependencies": {
@@ -42,7 +44,9 @@
       "output": "release"
     },
     "win": {
-      "target": ["nsis"],
+      "target": [
+        "nsis"
+      ],
       "icon": "assets/icon.ico",
       "signAndEditExecutable": false
     },
@@ -59,7 +63,12 @@
       {
         "from": "../../services/agent",
         "to": "agent",
-        "filter": ["**/*", "!.venv/**", "!__pycache__/**", "!*.pyc"]
+        "filter": [
+          "**/*",
+          "!.venv/**",
+          "!__pycache__/**",
+          "!*.pyc"
+        ]
       }
     ]
   }

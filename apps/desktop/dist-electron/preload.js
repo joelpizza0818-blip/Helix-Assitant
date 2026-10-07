@@ -46,6 +46,7 @@ electron.contextBridge.exposeInMainWorld("helix", {
   onTaskUpdate: (fn) => createEventListener("helix:task-update", fn),
   onStatusUpdate: (fn) => createEventListener("helix:status-update", fn),
   onFallbackEvent: (fn) => createEventListener("helix:fallback-event", fn),
+  onModelRequest: (fn) => createEventListener("helix:model_request", fn),
   onConfirmationRequest: (fn) => createEventListener("helix:confirmation-request", fn),
   onConfirmationResolved: (fn) => createEventListener("helix:confirmation-resolved", fn),
   onError: (fn) => createEventListener("helix:error", fn),

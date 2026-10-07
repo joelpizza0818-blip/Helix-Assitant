@@ -120,6 +120,8 @@ class PythonManager {
       windowsHide: true,
       env: {
         ...process.env,
+        PYTHONIOENCODING: "utf-8",
+        PYTHONUTF8: "1",
         PYTHONPATH: [
           path.resolve(this.agentDir, "../.."),
           process.env.PYTHONPATH
@@ -257,7 +259,6 @@ class PythonManager {
   }
 }
 const RECONNECT_DELAY_MS = 3e3;
-const MAX_RECONNECT_ATTEMPTS = 10;
 class IPCBridge {
   constructor() {
     this.ws = null;
@@ -358,6 +359,10 @@ class IPCBridge {
               resolver(message.payload, message.error);
               return;
             }
+            if (message.type === "window_action") {
+              this._handleWindowAction(message.payload);
+              return;
+            }
             this._forwardToRenderer(message);
           } catch (err) {
             console.error("[IPCBridge] Failed to parse message from Python:", err);
@@ -388,17 +393,6 @@ class IPCBridge {
   }
   _scheduleReconnect() {
     if (this.reconnecting) return;
-    if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-      console.error("[IPCBridge] Max reconnect attempts reached.");
-      this._sendToAll("helix:error", { message: "Lost connection to HELIX agent. Please restart." });
-      for (const [requestId] of this.queuedRequests) {
-        const resolver = this.pendingRequests.get(requestId);
-        this.queuedRequests.delete(requestId);
-        this.pendingRequests.delete(requestId);
-        resolver == null ? void 0 : resolver(void 0, "Lost connection to HELIX agent. Please restart.");
-      }
-      return;
-    }
     this.reconnecting = true;
     this.reconnectAttempts++;
     console.log(`[IPCBridge] Reconnecting in ${RECONNECT_DELAY_MS}ms (attempt ${this.reconnectAttempts})...`);
@@ -467,6 +461,24 @@ class IPCBridge {
     }
     this._sendToAll(channel, message.payload);
   }
+  _handleWindowAction(payload) {
+    const floatingWindow = this.mainWindow;
+    const toolboxWindow = this.toolboxWindow;
+    const floatingVisible = floatingWindow && !floatingWindow.isDestroyed() && floatingWindow.isVisible();
+    const toolboxVisible = toolboxWindow && !toolboxWindow.isDestroyed() && toolboxWindow.isVisible();
+    if (payload.action === "HIDE_FLOATING_OR_TOOLBOX") {
+      const windowToHide = floatingVisible ? floatingWindow : toolboxVisible ? toolboxWindow : null;
+      windowToHide == null ? void 0 : windowToHide.hide();
+      return;
+    }
+    if (payload.action === "SHOW_FLOATING_OR_TOOLBOX") {
+      const windowToShow = floatingVisible ? toolboxWindow : floatingWindow;
+      if (!windowToShow || windowToShow.isDestroyed()) return;
+      if (windowToShow.isMinimized()) windowToShow.restore();
+      windowToShow.show();
+      windowToShow.focus();
+    }
+  }
   _sendToAll(channel, data) {
     var _a;
     (_a = this.mainWindow) == null ? void 0 : _a.webContents.send(channel, data);
@@ -524,9 +536,17 @@ class TrayManager {
   }
 }
 const isDev = process.env.NODE_ENV === "development" || !electron.app.isPackaged;
-const RENDERER_URL = isDev ? "http://127.0.0.1:5173" : `file://${path.join(__dirname, "../dist/index.html")}`;
+const rendererPort = Number(process.env.HELIX_RENDERER_PORT || 5173);
+const RENDERER_URL = isDev ? `http://127.0.0.1:${rendererPort}` : `file://${path.join(__dirname, "../dist/index.html")}`;
 const DEFAULT_WS_PORT = parseInt(process.env.AGENT_WS_PORT || "8765", 10);
 let wsPort = DEFAULT_WS_PORT;
+if (isDev) {
+  const checkoutName = path.basename(path.resolve(electron.app.getAppPath(), "..", ".."));
+  electron.app.setPath(
+    "userData",
+    path.join(electron.app.getPath("appData"), `@helix-desktop-dev-${checkoutName}`)
+  );
+}
 exports.floatingWindow = null;
 exports.toolboxWindow = null;
 let trayManager = null;
@@ -615,29 +635,11 @@ function createToolboxWindow() {
   return win;
 }
 async function startPythonAgent() {
-  const candidates = isDev ? [
-    // process.cwd() is typically the workspace root (apps/desktop)
-    path.resolve(process.cwd(), "../../services/agent"),
-    // From dist-electron/ go up to monorepo root
-    path.resolve(__dirname, "../../../services/agent"),
-    // From apps/desktop/ go up to monorepo root
-    path.resolve(__dirname, "../../services/agent"),
-    // Absolute fallback
-    path.resolve(process.cwd(), "services/agent")
-  ] : [path.join(process.resourcesPath, "agent")];
-  let agentDir = "";
-  for (const candidate of candidates) {
-    if (fs.existsSync(path.join(candidate, "main.py"))) {
-      agentDir = candidate;
-      break;
-    }
+  const agentDir = isDev ? path.resolve(electron.app.getAppPath(), "..", "..", "services", "agent") : path.join(process.resourcesPath, "agent");
+  if (!fs.existsSync(path.join(agentDir, "main.py"))) {
+    throw new Error(`Python agent main.py not found at expected path: ${agentDir}`);
   }
-  if (!agentDir) {
-    console.error("[Main] Python agent main.py not found in any candidate path:");
-    candidates.forEach((c) => console.error(`  - ${c}`));
-    console.error("[Main] Python agent will NOT start. The app will run without backend.");
-    return;
-  }
+  console.log(`[Main] Desktop app root: ${electron.app.getAppPath()}`);
   console.log(`[Main] Found Python agent at: ${agentDir}`);
   pythonManager = new PythonManager();
   pythonManager.onStdout((line) => {
@@ -650,16 +652,12 @@ async function startPythonAgent() {
     console.warn(`[Python] Process exited with code: ${code}`);
     trayManager == null ? void 0 : trayManager.updateStatus("error");
   });
-  try {
-    wsPort = await pythonManager.start(
-      agentDir,
-      DEFAULT_WS_PORT,
-      path.join(electron.app.getPath("userData"), "settings.json")
-    );
-    console.log("[Main] Python agent started");
-  } catch (err) {
-    console.error("[Main] Failed to start Python agent:", err);
-  }
+  wsPort = await pythonManager.start(
+    agentDir,
+    DEFAULT_WS_PORT,
+    path.join(electron.app.getPath("userData"), "settings.json")
+  );
+  console.log("[Main] Python agent started");
 }
 function setupIPC() {
   if (!exports.floatingWindow || !exports.toolboxWindow) return;
@@ -754,6 +752,16 @@ electron.app.whenReady().then(async () => {
   (_a = exports.floatingWindow) == null ? void 0 : _a.show();
   (_b = exports.floatingWindow) == null ? void 0 : _b.focus();
   trayManager.updateStatus("idle");
+}).catch((error) => {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error("[Main] HELIX failed to start:", error);
+  electron.dialog.showErrorBox(
+    "HELIX could not start its agent",
+    `${message}
+
+Check services/agent/requirements.txt and the Python environment, then start HELIX again.`
+  );
+  electron.app.quit();
 });
 electron.app.on("before-quit", (event) => {
   if (shutdownComplete) return;

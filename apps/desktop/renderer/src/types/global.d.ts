@@ -33,6 +33,7 @@ export interface HelixAPI {
   onTaskUpdate: (fn: (task: TaskDefinition) => void) => () => void
   onStatusUpdate: (fn: (status: AgentStatusUpdate) => void) => () => void
   onFallbackEvent: (fn: (event: FallbackEvent) => void) => () => void
+  onModelRequest: (fn: (request: ModelRequestEvent) => void) => () => void
   onConfirmationRequest: (fn: (req: ConfirmationRequest) => void) => () => void
   onConfirmationResolved: (fn: (request: { request_id: string }) => void) => () => void
   onError: (fn: (err: AgentError) => void) => () => void
@@ -45,7 +46,7 @@ export interface HelixAPI {
 
 export type ProviderID = 'openai' | 'anthropic' | 'google' | 'custom' | string
 export type KeySlot = 1 | 2 | 3
-export type KeyHealth = 'healthy' | 'rate_limited' | 'quota_exceeded' | 'auth_error' | 'unavailable' | 'unconfigured'
+export type KeyHealth = 'healthy' | 'rate_limited' | 'quota_exceeded' | 'billing_exhausted' | 'auth_error' | 'unavailable' | 'unconfigured'
 export type AgentStatus = 'idle' | 'busy' | 'listening' | 'executing' | 'waiting_confirmation' | 'error'
 export type TaskStatus = 'queued' | 'running' | 'paused' | 'waiting_confirmation' | 'completed' | 'failed' | 'cancelled' | 'retrying'
 export type PermissionLevel = 'READ_ONLY' | 'LOW_RISK' | 'MODIFY' | 'EXECUTE' | 'SYSTEM' | 'CRITICAL'
@@ -119,6 +120,7 @@ export interface TaskDefinition {
   provider: ProviderID | null
   required_permissions: PermissionLevel[]
   error: string | null
+  model_requests?: ModelRequestEvent[]
 }
 
 export interface TaskLog {
@@ -163,12 +165,26 @@ export interface ConfirmationRequest {
   created_at: string
 }
 
+export interface ModelRequestEvent {
+  task_id: string
+  request_id: string
+  timestamp: string
+  attempt: number
+  provider: ProviderID
+  model: string
+  key_slot: number
+  status: 'attempting' | 'succeeded' | 'failed'
+  request: unknown
+  error?: { code: string; message: string }
+}
+
 export interface AgentError {
   code: string
   message: string
   provider?: ProviderID
   model?: string
   timestamp: string
+  model_requests?: ModelRequestEvent[]
 }
 
 export interface HelixSettings {
@@ -188,6 +204,7 @@ export interface HelixSettings {
   preferred_provider: ProviderID | null
   fallback_enabled: boolean
   cross_provider_fallback: boolean
+  auto_approve_up_to: 'READ_ONLY' | 'LOW_RISK' | 'MODIFY'
   cost_preference: 'low' | 'balanced' | 'high'
   speed_preference: 'low' | 'balanced' | 'high'
   quality_preference: 'low' | 'balanced' | 'high'
