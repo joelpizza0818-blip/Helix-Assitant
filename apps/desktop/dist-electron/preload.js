@@ -7,8 +7,8 @@ function createEventListener(channel, fn) {
 }
 electron.contextBridge.exposeInMainWorld("helix", {
   // Send text command to agent
-  sendMessage: (text) => {
-    electron.ipcRenderer.send("helix:send-message", text);
+  sendMessage: (payload) => {
+    electron.ipcRenderer.send("helix:send-message", payload);
   },
   // Cancel a running background task
   cancelTask: (taskId) => {
@@ -21,6 +21,9 @@ electron.contextBridge.exposeInMainWorld("helix", {
   // Reject a pending action
   rejectAction: (requestId) => {
     electron.ipcRenderer.send("helix:reject-action", requestId);
+  },
+  quit: () => {
+    electron.ipcRenderer.send("helix:quit");
   },
   // Open the Toolbox window
   openToolbox: () => {
@@ -44,7 +47,9 @@ electron.contextBridge.exposeInMainWorld("helix", {
   onStatusUpdate: (fn) => createEventListener("helix:status-update", fn),
   onFallbackEvent: (fn) => createEventListener("helix:fallback-event", fn),
   onConfirmationRequest: (fn) => createEventListener("helix:confirmation-request", fn),
+  onConfirmationResolved: (fn) => createEventListener("helix:confirmation-resolved", fn),
   onError: (fn) => createEventListener("helix:error", fn),
   onProviderUpdate: (fn) => createEventListener("helix:provider-update", fn),
+  onSettingsApplied: (fn) => createEventListener("helix:settings-applied", fn),
   onShowTasks: (fn) => createEventListener("helix:show-tasks", fn)
 });

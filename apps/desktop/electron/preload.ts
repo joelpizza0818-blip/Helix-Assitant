@@ -11,8 +11,12 @@ function createEventListener<T>(channel: string, fn: (data: T) => void): () => v
 // NEVER expose raw ipcRenderer — only specific allowed methods
 contextBridge.exposeInMainWorld('helix', {
   // Send text command to agent
-  sendMessage: (text: string): void => {
-    ipcRenderer.send('helix:send-message', text)
+  sendMessage: (payload: {
+    text: string
+    conversation_id: string
+    conversation_history: Array<{ role: 'user' | 'assistant'; content: string }>
+  }): void => {
+    ipcRenderer.send('helix:send-message', payload)
   },
 
   // Cancel a running background task
@@ -28,6 +32,10 @@ contextBridge.exposeInMainWorld('helix', {
   // Reject a pending action
   rejectAction: (requestId: string): void => {
     ipcRenderer.send('helix:reject-action', requestId)
+  },
+
+  quit: (): void => {
+    ipcRenderer.send('helix:quit')
   },
 
   // Open the Toolbox window
@@ -76,11 +84,17 @@ contextBridge.exposeInMainWorld('helix', {
   onConfirmationRequest: (fn: (req: unknown) => void): (() => void) =>
     createEventListener('helix:confirmation-request', fn),
 
+  onConfirmationResolved: (fn: (request: { request_id: string }) => void): (() => void) =>
+    createEventListener('helix:confirmation-resolved', fn),
+
   onError: (fn: (err: unknown) => void): (() => void) =>
     createEventListener('helix:error', fn),
 
   onProviderUpdate: (fn: (providers: unknown) => void): (() => void) =>
     createEventListener('helix:provider-update', fn),
+
+  onSettingsApplied: (fn: (settings: unknown) => void): (() => void) =>
+    createEventListener('helix:settings-applied', fn),
 
   onShowTasks: (fn: () => void): (() => void) =>
     createEventListener('helix:show-tasks', fn),

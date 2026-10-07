@@ -52,7 +52,7 @@ function NavIcon({ d }: { d: string }) {
 
 export default function Toolbox() {
   const [activeSection, setActiveSection] = useState<Section>('ai')
-  const { settings, isLoading, isSaving, loadSettings, saveSettings } = useSettings()
+  const { settings, isLoading, isSaving, isApplied, loadSettings, saveSettings } = useSettings()
   const { providers, models, loadProviders, loadModels } = useAgent()
 
   useEffect(() => {
@@ -69,7 +69,7 @@ export default function Toolbox() {
           <HelixLogo size="sm" showText={true} />
           <span className="toolbox__title">Toolbox & Control Center</span>
         </div>
-        {isSaving && <span className="toolbox__saving">Saving changes...</span>}
+        {isSaving && <span className="toolbox__saving">Saving changes...</span>}{!isSaving && isApplied && <span className="toolbox__saving" style={{ color: "var(--green)", border: "1px solid var(--green)", padding: "2px 6px", borderRadius: "4px" }}>Saved</span>}
       </header>
 
       <div className="toolbox__layout">

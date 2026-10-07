@@ -19,6 +19,7 @@ export class IPCBridge {
   private toolboxWindow: BrowserWindow | null = null
   private pendingRequests: Map<string, ResponseResolver> = new Map()
   private queuedRequests: Map<string, AgentMessage & { request_id: string }> = new Map()
+  private requestTimeouts: Map<string, NodeJS.Timeout> = new Map()
   private reconnectAttempts: number = 0
   private wsUrl: string = ''
   private reconnecting: boolean = false
@@ -28,8 +29,12 @@ export class IPCBridge {
     this.toolboxWindow = toolboxWindow
 
     // Renderer -> Python (fire and forget)
-    ipcMain.on('helix:send-message', (_event, text: string) => {
-      this._sendToPython({ type: 'USER_TEXT', payload: { text }, timestamp: new Date().toISOString() })
+    ipcMain.on('helix:send-message', (_event, payload: {
+      text: string
+      conversation_id: string
+      conversation_history: Array<{ role: 'user' | 'assistant'; content: string }>
+    }) => {
+      this._sendToPython({ type: 'USER_TEXT', payload, timestamp: new Date().toISOString() })
     })
 
     ipcMain.on('helix:cancel-task', (_event, taskId: string) => {
@@ -61,8 +66,10 @@ export class IPCBridge {
       return this._request({ type: 'GET_SETTINGS', payload: {} })
     })
 
-    ipcMain.handle('helix:save-settings', async (_event, settings: Record<string, unknown>) => {
-      return this._request({ type: 'SAVE_SETTINGS', payload: { settings } })
+    ipcMain.handle('helix:save-settings', async (event, settings: Record<string, unknown>) => {
+      const result = await this._request({ type: 'SAVE_SETTINGS', payload: { settings } })
+      event.sender.send('helix:settings-applied', result)
+      return result
     })
 
     ipcMain.handle('helix:validate-key', async (_event, provider: string, slot: number, key: string) => {
@@ -76,13 +83,33 @@ export class IPCBridge {
     return this._connect()
   }
 
+  close(): void {
+    for (const timeout of this.requestTimeouts.values()) clearTimeout(timeout)
+    this.requestTimeouts.clear()
+
+    for (const [requestId, resolver] of this.pendingRequests) {
+      resolver(undefined, 'HELIX is shutting down.')
+      this.pendingRequests.delete(requestId)
+    }
+    this.queuedRequests.clear()
+
+    const ws = this.ws
+    this.ws = null
+    ws?.removeAllListeners()
+    ws?.close()
+  }
+
   private _connect(): Promise<void> {
     return new Promise((resolve, reject) => {
+      let connected = false
+      let settled = false
       try {
         const ws = new (WebSocket as any)(this.wsUrl)
         this.ws = ws
 
         ws.on('open', () => {
+          connected = true
+          settled = true
           console.log('[IPCBridge] Connected to Python agent WebSocket')
           this.reconnectAttempts = 0
           this.reconnecting = false
@@ -91,8 +118,8 @@ export class IPCBridge {
               this.queuedRequests.delete(requestId)
               continue
             }
-            ws.send(JSON.stringify(message))
             this.queuedRequests.delete(requestId)
+            this._sendRequest(ws, message)
           }
           resolve()
         })
@@ -107,6 +134,9 @@ export class IPCBridge {
             // Handle request/response pairing
             if (message.request_id && this.pendingRequests.has(message.request_id)) {
               const resolver = this.pendingRequests.get(message.request_id)!
+              const timeout = this.requestTimeouts.get(message.request_id)
+              if (timeout) clearTimeout(timeout)
+              this.requestTimeouts.delete(message.request_id)
               this.pendingRequests.delete(message.request_id)
               resolver(message.payload, message.error)
               return
@@ -121,15 +151,24 @@ export class IPCBridge {
 
         ws.on('error', (err: Error) => {
           console.error('[IPCBridge] WebSocket error:', err.message)
-          if (!this.reconnecting) reject(err)
+          if (!connected && !settled) {
+            settled = true
+            reject(err)
+          }
         })
 
         ws.on('close', () => {
           console.warn('[IPCBridge] WebSocket connection closed')
-          this.ws = null
-          this._scheduleReconnect()
+          if (this.ws === ws) this.ws = null
+          if (connected) {
+            this._scheduleReconnect()
+          } else if (!settled) {
+            settled = true
+            reject(new Error('Python agent WebSocket closed before connecting'))
+          }
         })
       } catch (err) {
+        settled = true
         reject(err)
       }
     })
@@ -140,6 +179,12 @@ export class IPCBridge {
     if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
       console.error('[IPCBridge] Max reconnect attempts reached.')
       this._sendToAll('helix:error', { message: 'Lost connection to HELIX agent. Please restart.' })
+      for (const [requestId] of this.queuedRequests) {
+        const resolver = this.pendingRequests.get(requestId)
+        this.queuedRequests.delete(requestId)
+        this.pendingRequests.delete(requestId)
+        resolver?.(undefined, 'Lost connection to HELIX agent. Please restart.')
+      }
       return
     }
 
@@ -170,24 +215,33 @@ export class IPCBridge {
       const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2)}`
       const messageWithId = { ...message, request_id: requestId }
 
-      const timeout = setTimeout(() => {
-        this.pendingRequests.delete(requestId)
-        this.queuedRequests.delete(requestId)
-        reject(new Error(`Request timeout: ${message.type}`))
-      }, timeoutMs)
-
       this.pendingRequests.set(requestId, (data, error) => {
-        clearTimeout(timeout)
         if (error) reject(new Error(error))
         else resolve(data)
       })
 
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify(messageWithId))
+        this._sendRequest(this.ws, messageWithId, timeoutMs)
       } else {
         this.queuedRequests.set(requestId, messageWithId)
       }
     })
+  }
+
+  private _sendRequest(
+    ws: WebSocket,
+    message: AgentMessage & { request_id: string },
+    timeoutMs: number = 10000
+  ): void {
+    const timeout = setTimeout(() => {
+      this.requestTimeouts.delete(message.request_id)
+      const resolver = this.pendingRequests.get(message.request_id)
+      this.pendingRequests.delete(message.request_id)
+      this.queuedRequests.delete(message.request_id)
+      resolver?.(undefined, `Request timeout: ${message.type}`)
+    }, timeoutMs)
+    this.requestTimeouts.set(message.request_id, timeout)
+    ws.send(JSON.stringify(message))
   }
 
   private _forwardToRenderer(message: AgentMessage): void {
@@ -197,6 +251,7 @@ export class IPCBridge {
       'status_update': 'helix:status-update',
       'fallback_event': 'helix:fallback-event',
       'confirmation_request': 'helix:confirmation-request',
+      'confirmation_resolved': 'helix:confirmation-resolved',
       'error': 'helix:error',
       'provider_update': 'helix:provider-update',
       'model_update': 'helix:model-update'
@@ -204,9 +259,13 @@ export class IPCBridge {
 
     const channel = typeMap[message.type] ?? `helix:${message.type}`
 
-    // confirmation requests and agent messages go to floating window
+    // Confirmation requests and agent messages are sent once to each window.
     if (['helix:agent-message', 'helix:confirmation-request'].includes(channel)) {
       this.mainWindow?.webContents.send(channel, message.payload)
+      if (this.toolboxWindow && !this.toolboxWindow.isDestroyed()) {
+        this.toolboxWindow.webContents.send(channel, message.payload)
+      }
+      return
     }
 
     // Everything else goes to both windows

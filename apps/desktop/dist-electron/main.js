@@ -16,6 +16,7 @@ class PythonManager {
     this.restartCount = 0;
     this.maxRestarts = 5;
     this.stopping = false;
+    this.restartTimer = null;
     this.stdoutHandlers = [];
     this.stderrHandlers = [];
     this.exitHandlers = [];
@@ -30,7 +31,45 @@ class PythonManager {
     this.stopping = false;
     this.restartCount = 0;
     await this._spawn();
+    try {
+      await this._waitForReady();
+    } catch (error) {
+      await this.stop();
+      throw error;
+    }
     return this.wsPort;
+  }
+  async _waitForReady(timeoutMs = 9e4) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const child = this.process;
+      if (!child || child.exitCode !== null || child.signalCode !== null) {
+        throw new Error("Python agent exited before its WebSocket became ready");
+      }
+      const ready = await new Promise((resolve) => {
+        const socket = new WebSocket(`ws://127.0.0.1:${this.wsPort}`);
+        let settled = false;
+        let timeout = null;
+        const finish = (connected) => {
+          if (settled) return;
+          settled = true;
+          if (timeout) clearTimeout(timeout);
+          socket.close();
+          resolve(connected);
+        };
+        timeout = setTimeout(() => finish(false), 1e3);
+        socket.once("open", () => finish(true));
+        socket.once("error", () => finish(false));
+      });
+      if (ready) {
+        console.log(`[PythonManager] Agent WebSocket ready on port ${this.wsPort}`);
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    throw new Error(
+      `Python agent WebSocket did not become ready on port ${this.wsPort} within ${timeoutMs}ms`
+    );
   }
   findAvailablePort(preferredPort) {
     return new Promise((resolve, reject) => {
@@ -81,6 +120,10 @@ class PythonManager {
       windowsHide: true,
       env: {
         ...process.env,
+        PYTHONPATH: [
+          path.resolve(this.agentDir, "../.."),
+          process.env.PYTHONPATH
+        ].filter(Boolean).join(path.delimiter),
         HELIX_SETTINGS_PATH: this.settingsPath
       }
     });
@@ -113,7 +156,10 @@ class PythonManager {
         const delay = RESTART_DELAYS_MS[Math.min(this.restartCount, RESTART_DELAYS_MS.length - 1)];
         console.warn(`[PythonManager] Process exited (code ${code}). Restarting in ${delay}ms... (attempt ${this.restartCount + 1}/${this.maxRestarts})`);
         this.restartCount++;
-        setTimeout(() => this._spawn(), delay);
+        this.restartTimer = setTimeout(() => {
+          this.restartTimer = null;
+          if (!this.stopping) void this._spawn();
+        }, delay);
       } else if (!this.stopping) {
         console.error("[PythonManager] Max restarts reached. Agent is permanently down.");
       }
@@ -124,22 +170,51 @@ class PythonManager {
   }
   async stop() {
     this.stopping = true;
-    if (!this.process) return;
-    return new Promise((resolve) => {
-      if (!this.process) {
-        resolve();
-        return;
-      }
-      const timeout = setTimeout(() => {
-        var _a;
-        (_a = this.process) == null ? void 0 : _a.kill("SIGKILL");
-        resolve();
-      }, 5e3);
-      this.process.once("exit", () => {
-        clearTimeout(timeout);
-        resolve();
+    if (this.restartTimer) {
+      clearTimeout(this.restartTimer);
+      this.restartTimer = null;
+    }
+    const agentProcess = this.process;
+    if (!agentProcess) return;
+    if (process.platform === "win32" && agentProcess.pid) {
+      await new Promise((resolve, reject) => {
+        child_process.execFile(
+          "taskkill",
+          ["/PID", String(agentProcess.pid), "/T", "/F"],
+          { windowsHide: true },
+          (error) => {
+            if (error && agentProcess.exitCode === null && agentProcess.signalCode === null) {
+              reject(new Error(`Could not stop Python agent process tree: ${error.message}`));
+              return;
+            }
+            resolve();
+          }
+        );
       });
-      this.process.kill("SIGTERM");
+      if (!await this.waitForExit(agentProcess, 5e3)) {
+        throw new Error("Python agent process did not exit after process-tree shutdown");
+      }
+      return;
+    }
+    agentProcess.kill("SIGTERM");
+    if (await this.waitForExit(agentProcess, 5e3)) return;
+    agentProcess.kill("SIGKILL");
+    if (!await this.waitForExit(agentProcess, 5e3)) {
+      throw new Error("Python agent process did not exit after forced shutdown");
+    }
+  }
+  waitForExit(child, timeoutMs) {
+    if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        child.removeListener("exit", onExit);
+        resolve(false);
+      }, timeoutMs);
+      const onExit = () => {
+        clearTimeout(timeout);
+        resolve(true);
+      };
+      child.once("exit", onExit);
     });
   }
   async restart() {
@@ -190,6 +265,7 @@ class IPCBridge {
     this.toolboxWindow = null;
     this.pendingRequests = /* @__PURE__ */ new Map();
     this.queuedRequests = /* @__PURE__ */ new Map();
+    this.requestTimeouts = /* @__PURE__ */ new Map();
     this.reconnectAttempts = 0;
     this.wsUrl = "";
     this.reconnecting = false;
@@ -197,8 +273,8 @@ class IPCBridge {
   setupHandlers(mainWindow, toolboxWindow) {
     this.mainWindow = mainWindow;
     this.toolboxWindow = toolboxWindow;
-    electron.ipcMain.on("helix:send-message", (_event, text) => {
-      this._sendToPython({ type: "USER_TEXT", payload: { text }, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
+    electron.ipcMain.on("helix:send-message", (_event, payload) => {
+      this._sendToPython({ type: "USER_TEXT", payload, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
     });
     electron.ipcMain.on("helix:cancel-task", (_event, taskId) => {
       this._sendToPython({ type: "TASK_CANCEL", payload: { task_id: taskId }, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
@@ -221,8 +297,10 @@ class IPCBridge {
     electron.ipcMain.handle("helix:get-settings", async () => {
       return this._request({ type: "GET_SETTINGS", payload: {} });
     });
-    electron.ipcMain.handle("helix:save-settings", async (_event, settings) => {
-      return this._request({ type: "SAVE_SETTINGS", payload: { settings } });
+    electron.ipcMain.handle("helix:save-settings", async (event, settings) => {
+      const result = await this._request({ type: "SAVE_SETTINGS", payload: { settings } });
+      event.sender.send("helix:settings-applied", result);
+      return result;
     });
     electron.ipcMain.handle("helix:validate-key", async (_event, provider, slot, key) => {
       return this._request({ type: "VALIDATE_KEY", payload: { provider, slot, key } });
@@ -232,12 +310,29 @@ class IPCBridge {
     this.wsUrl = wsUrl;
     return this._connect();
   }
+  close() {
+    for (const timeout of this.requestTimeouts.values()) clearTimeout(timeout);
+    this.requestTimeouts.clear();
+    for (const [requestId, resolver] of this.pendingRequests) {
+      resolver(void 0, "HELIX is shutting down.");
+      this.pendingRequests.delete(requestId);
+    }
+    this.queuedRequests.clear();
+    const ws = this.ws;
+    this.ws = null;
+    ws == null ? void 0 : ws.removeAllListeners();
+    ws == null ? void 0 : ws.close();
+  }
   _connect() {
     return new Promise((resolve, reject) => {
+      let connected = false;
+      let settled = false;
       try {
         const ws = new WebSocket(this.wsUrl);
         this.ws = ws;
         ws.on("open", () => {
+          connected = true;
+          settled = true;
           console.log("[IPCBridge] Connected to Python agent WebSocket");
           this.reconnectAttempts = 0;
           this.reconnecting = false;
@@ -246,8 +341,8 @@ class IPCBridge {
               this.queuedRequests.delete(requestId);
               continue;
             }
-            ws.send(JSON.stringify(message));
             this.queuedRequests.delete(requestId);
+            this._sendRequest(ws, message);
           }
           resolve();
         });
@@ -256,6 +351,9 @@ class IPCBridge {
             const message = JSON.parse(data.toString());
             if (message.request_id && this.pendingRequests.has(message.request_id)) {
               const resolver = this.pendingRequests.get(message.request_id);
+              const timeout = this.requestTimeouts.get(message.request_id);
+              if (timeout) clearTimeout(timeout);
+              this.requestTimeouts.delete(message.request_id);
               this.pendingRequests.delete(message.request_id);
               resolver(message.payload, message.error);
               return;
@@ -267,14 +365,23 @@ class IPCBridge {
         });
         ws.on("error", (err) => {
           console.error("[IPCBridge] WebSocket error:", err.message);
-          if (!this.reconnecting) reject(err);
+          if (!connected && !settled) {
+            settled = true;
+            reject(err);
+          }
         });
         ws.on("close", () => {
           console.warn("[IPCBridge] WebSocket connection closed");
-          this.ws = null;
-          this._scheduleReconnect();
+          if (this.ws === ws) this.ws = null;
+          if (connected) {
+            this._scheduleReconnect();
+          } else if (!settled) {
+            settled = true;
+            reject(new Error("Python agent WebSocket closed before connecting"));
+          }
         });
       } catch (err) {
+        settled = true;
         reject(err);
       }
     });
@@ -284,6 +391,12 @@ class IPCBridge {
     if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
       console.error("[IPCBridge] Max reconnect attempts reached.");
       this._sendToAll("helix:error", { message: "Lost connection to HELIX agent. Please restart." });
+      for (const [requestId] of this.queuedRequests) {
+        const resolver = this.pendingRequests.get(requestId);
+        this.queuedRequests.delete(requestId);
+        this.pendingRequests.delete(requestId);
+        resolver == null ? void 0 : resolver(void 0, "Lost connection to HELIX agent. Please restart.");
+      }
       return;
     }
     this.reconnecting = true;
@@ -309,22 +422,27 @@ class IPCBridge {
     return new Promise((resolve, reject) => {
       const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2)}`;
       const messageWithId = { ...message, request_id: requestId };
-      const timeout = setTimeout(() => {
-        this.pendingRequests.delete(requestId);
-        this.queuedRequests.delete(requestId);
-        reject(new Error(`Request timeout: ${message.type}`));
-      }, timeoutMs);
       this.pendingRequests.set(requestId, (data, error) => {
-        clearTimeout(timeout);
         if (error) reject(new Error(error));
         else resolve(data);
       });
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify(messageWithId));
+        this._sendRequest(this.ws, messageWithId, timeoutMs);
       } else {
         this.queuedRequests.set(requestId, messageWithId);
       }
     });
+  }
+  _sendRequest(ws, message, timeoutMs = 1e4) {
+    const timeout = setTimeout(() => {
+      this.requestTimeouts.delete(message.request_id);
+      const resolver = this.pendingRequests.get(message.request_id);
+      this.pendingRequests.delete(message.request_id);
+      this.queuedRequests.delete(message.request_id);
+      resolver == null ? void 0 : resolver(void 0, `Request timeout: ${message.type}`);
+    }, timeoutMs);
+    this.requestTimeouts.set(message.request_id, timeout);
+    ws.send(JSON.stringify(message));
   }
   _forwardToRenderer(message) {
     var _a;
@@ -334,6 +452,7 @@ class IPCBridge {
       "status_update": "helix:status-update",
       "fallback_event": "helix:fallback-event",
       "confirmation_request": "helix:confirmation-request",
+      "confirmation_resolved": "helix:confirmation-resolved",
       "error": "helix:error",
       "provider_update": "helix:provider-update",
       "model_update": "helix:model-update"
@@ -341,6 +460,10 @@ class IPCBridge {
     const channel = typeMap[message.type] ?? `helix:${message.type}`;
     if (["helix:agent-message", "helix:confirmation-request"].includes(channel)) {
       (_a = this.mainWindow) == null ? void 0 : _a.webContents.send(channel, message.payload);
+      if (this.toolboxWindow && !this.toolboxWindow.isDestroyed()) {
+        this.toolboxWindow.webContents.send(channel, message.payload);
+      }
+      return;
     }
     this._sendToAll(channel, message.payload);
   }
@@ -409,20 +532,21 @@ exports.toolboxWindow = null;
 let trayManager = null;
 let pythonManager = null;
 exports.ipcBridge = null;
-if (electron.app.isPackaged) {
-  const gotLock = electron.app.requestSingleInstanceLock();
-  if (!gotLock) {
-    electron.app.quit();
-    process.exit(0);
-  }
-  electron.app.on("second-instance", () => {
-    if (exports.floatingWindow) {
-      if (exports.floatingWindow.isMinimized()) exports.floatingWindow.restore();
-      exports.floatingWindow.show();
-      exports.floatingWindow.focus();
-    }
-  });
+let isQuitting = false;
+let shutdownComplete = false;
+const gotLock = electron.app.requestSingleInstanceLock();
+if (!gotLock) {
+  electron.app.quit();
+  process.exit(0);
 }
+electron.app.on("second-instance", () => {
+  var _a;
+  const window = ((_a = exports.toolboxWindow) == null ? void 0 : _a.isVisible()) ? exports.toolboxWindow : exports.floatingWindow;
+  if (!window) return;
+  if (window.isMinimized()) window.restore();
+  window.show();
+  window.focus();
+});
 function loadWithRetry(win, url, maxRetries = 30, intervalMs = 1500) {
   win.loadURL(url).catch(() => {
     if (maxRetries > 0) {
@@ -544,9 +668,6 @@ function setupIPC() {
 }
 async function connectWebSocket(retryCount = 0, maxRetries = 15) {
   if (!exports.ipcBridge) return;
-  if (retryCount === 0) {
-    await new Promise((resolve) => setTimeout(resolve, 3e3));
-  }
   try {
     await exports.ipcBridge.connectToPython(`ws://127.0.0.1:${wsPort}`);
     console.log("[Main] Connected to Python agent WebSocket");
@@ -570,6 +691,7 @@ electron.app.whenReady().then(async () => {
   electron.Menu.setApplicationMenu(null);
   exports.floatingWindow = createFloatingWindow();
   exports.toolboxWindow = createToolboxWindow();
+  setupIPC();
   const iconPath = path.join(__dirname, "../assets/tray-icon.png");
   trayManager = new TrayManager();
   trayManager.create(iconPath);
@@ -628,21 +750,32 @@ electron.app.whenReady().then(async () => {
   };
   trayManager.setContextMenu(buildContextMenu());
   await startPythonAgent();
-  setupIPC();
   connectWebSocket();
   (_a = exports.floatingWindow) == null ? void 0 : _a.show();
   (_b = exports.floatingWindow) == null ? void 0 : _b.focus();
   trayManager.updateStatus("idle");
 });
-electron.app.on("before-quit", async () => {
-  var _a, _b, _c, _d;
+electron.app.on("before-quit", (event) => {
+  if (shutdownComplete) return;
+  event.preventDefault();
+  if (isQuitting) return;
+  isQuitting = true;
   console.log("[Main] Quitting HELIX...");
-  (_a = exports.floatingWindow) == null ? void 0 : _a.removeAllListeners("close");
-  (_b = exports.toolboxWindow) == null ? void 0 : _b.removeAllListeners("close");
-  (_c = exports.floatingWindow) == null ? void 0 : _c.destroy();
-  (_d = exports.toolboxWindow) == null ? void 0 : _d.destroy();
-  trayManager == null ? void 0 : trayManager.destroy();
-  await (pythonManager == null ? void 0 : pythonManager.stop());
+  void (async () => {
+    var _a, _b, _c, _d, _e;
+    (_a = exports.floatingWindow) == null ? void 0 : _a.removeAllListeners("close");
+    (_b = exports.toolboxWindow) == null ? void 0 : _b.removeAllListeners("close");
+    (_c = exports.floatingWindow) == null ? void 0 : _c.destroy();
+    (_d = exports.toolboxWindow) == null ? void 0 : _d.destroy();
+    trayManager == null ? void 0 : trayManager.destroy();
+    (_e = exports.ipcBridge) == null ? void 0 : _e.close();
+    await (pythonManager == null ? void 0 : pythonManager.stop());
+    shutdownComplete = true;
+    electron.app.quit();
+  })().catch((error) => {
+    console.error("[Main] Failed to shut down HELIX cleanly:", error);
+    electron.app.exit(1);
+  });
 });
 electron.app.on("window-all-closed", () => {
 });
@@ -650,6 +783,9 @@ electron.ipcMain.on("helix:open-toolbox", () => {
   var _a, _b;
   (_a = exports.toolboxWindow) == null ? void 0 : _a.show();
   (_b = exports.toolboxWindow) == null ? void 0 : _b.focus();
+});
+electron.ipcMain.on("helix:quit", () => {
+  electron.app.quit();
 });
 electron.ipcMain.on("helix:open-external", (_event, url) => {
   if (url.startsWith("https://") || url.startsWith("http://")) {

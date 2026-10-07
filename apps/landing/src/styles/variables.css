@@ -12,6 +12,14 @@
   --green: #a0ca92;         /* Functional status only */
   --red: #d4544a;           /* Error and danger status */
 
+  /* ── ORYZO Design Tokens ────────────────────────────────────── */
+  --color-warm-cream: #ffedd7;
+  --color-walnut-shadow: #100904;
+  --color-bark-brown: #382416;
+  --color-cork-border: #40372e;
+  --color-driftwood: #6c5f51;
+  --color-ember-accent: #dc5000;
+
   /* ── OpenAI Style Surface & Border Tokens ───────────────────── */
   --color-canvas: var(--canvas);
   --color-surface: var(--carbon);

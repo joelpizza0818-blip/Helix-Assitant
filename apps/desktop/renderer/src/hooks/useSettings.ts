@@ -1,11 +1,11 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import type { HelixSettings } from '../types/global'
 
 const DEFAULT_SETTINGS: HelixSettings = {
   voice_enabled: true,
-  wake_word: 'helix',
+  wake_word: 'hey helix',
   wake_word_provider: 'openwakeword',
-  camera_enabled: false,
+  camera_enabled: true,
   camera_device_index: 0,
   gesture_sensitivity: 0.8,
   start_with_windows: true,
@@ -26,6 +26,7 @@ interface UseSettingsReturn {
   settings: HelixSettings
   isLoading: boolean
   isSaving: boolean
+  isApplied: boolean
   error: string | null
   loadSettings: () => Promise<void>
   saveSettings: (partial: Partial<HelixSettings>) => Promise<void>
@@ -36,7 +37,18 @@ export function useSettings(): UseSettingsReturn {
   const [settings, setSettings] = useState<HelixSettings>(DEFAULT_SETTINGS)
   const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [isApplied, setIsApplied] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!window.helix?.onSettingsApplied) return
+    const cleanup = window.helix.onSettingsApplied((newSettings) => {
+      setSettings(newSettings)
+      setIsApplied(true)
+      setTimeout(() => setIsApplied(false), 2000)
+    })
+    return cleanup
+  }, [])
 
   const loadSettings = useCallback(async () => {
     setIsLoading(true)
@@ -74,5 +86,6 @@ export function useSettings(): UseSettingsReturn {
     setSettings((prev) => ({ ...prev, ...partial }))
   }, [])
 
-  return { settings, isLoading, isSaving, error, loadSettings, saveSettings, updateLocal }
+  return { settings, isLoading, isSaving, isApplied, error, loadSettings, saveSettings, updateLocal }
 }
+

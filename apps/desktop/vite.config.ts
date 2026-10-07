@@ -4,8 +4,19 @@ import electron from 'vite-plugin-electron'
 import renderer from 'vite-plugin-electron-renderer'
 import { resolve } from 'path'
 
+const desktopDevHealth = {
+  name: 'helix-desktop-dev-health',
+  configureServer(server) {
+    server.middlewares.use('/__helix_desktop_dev_health', (_request, response) => {
+      response.statusCode = 200
+      response.end('HELIX_DESKTOP_DEV')
+    })
+  }
+}
+
 export default defineConfig({
   plugins: [
+    desktopDevHealth,
     react(),
     electron([
       {
@@ -52,7 +63,7 @@ export default defineConfig({
   },
   server: {
     host: '127.0.0.1',
-    port: 5173,
+    port: Number(process.env.HELIX_RENDERER_PORT || 5173),
     strictPort: true
   }
 })

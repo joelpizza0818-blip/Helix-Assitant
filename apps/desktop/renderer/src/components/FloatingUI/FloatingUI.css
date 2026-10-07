@@ -227,6 +227,17 @@
   background: var(--carbon);
 }
 
+.floating-ui__quit-btn:hover {
+  color: var(--red);
+}
+
+.floating-ui__quit-btn {
+  width: auto;
+  gap: 5px;
+  padding: 0 9px;
+  border-radius: 16px;
+}
+
 .icon-btn--active {
   color: var(--orange);
 }

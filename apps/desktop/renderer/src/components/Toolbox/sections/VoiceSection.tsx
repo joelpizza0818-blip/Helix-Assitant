@@ -210,7 +210,8 @@ export default function VoiceSection({ settings, onSave }: Props) {
             min={300}
             max={3000}
             step={100}
-            defaultValue={800}
+            value={settings.vad_threshold || 800}
+            onChange={(e) => onSave({ vad_threshold: parseInt(e.target.value, 10) || 800 })}
           />
         </div>
       </div>

@@ -45,5 +45,18 @@ export function useAuth() {
     await supabase.auth.signOut();
   };
 
-  return { user, session, isLoading, error, signIn, signUp, signOut };
+  const signInWithGitHub = async () => {
+    setIsLoading(true);
+    setError(null);
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'github',
+      options: {
+        redirectTo: window.location.origin + '/'
+      }
+    });
+    if (error) setError(error.message);
+    setIsLoading(false);
+  };
+
+  return { user, session, isLoading, error, signIn, signUp, signOut, signInWithGitHub };
 }

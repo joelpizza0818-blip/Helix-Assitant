@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PythonManager = void 0;
 const child_process_1 = require("child_process");
+const net_1 = require("net");
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
 const RESTART_DELAYS_MS = [1000, 2000, 5000, 10000, 30000];
@@ -13,6 +14,7 @@ class PythonManager {
         this.process = null;
         this.agentDir = '';
         this.wsPort = 8765;
+        this.settingsPath = '';
         this.restartCount = 0;
         this.maxRestarts = 5;
         this.stopping = false;
@@ -20,12 +22,52 @@ class PythonManager {
         this.stderrHandlers = [];
         this.exitHandlers = [];
     }
-    async start(agentDir, wsPort) {
+    async start(agentDir, wsPort, settingsPath) {
         this.agentDir = agentDir;
-        this.wsPort = wsPort;
+        this.wsPort = await this.findAvailablePort(wsPort);
+        this.settingsPath = settingsPath;
+        if (this.wsPort !== wsPort) {
+            console.warn(`[PythonManager] Port ${wsPort} is already in use; using ${this.wsPort} instead`);
+        }
         this.stopping = false;
         this.restartCount = 0;
-        return this._spawn();
+        await this._spawn();
+        return this.wsPort;
+    }
+    findAvailablePort(preferredPort) {
+        return new Promise((resolve, reject) => {
+            const server = (0, net_1.createServer)();
+            server.once('error', (error) => {
+                if (error.code !== 'EADDRINUSE') {
+                    reject(error);
+                    return;
+                }
+                const fallbackServer = (0, net_1.createServer)();
+                fallbackServer.once('error', reject);
+                fallbackServer.listen(0, '127.0.0.1', () => {
+                    const address = fallbackServer.address();
+                    if (!address || typeof address === 'string') {
+                        fallbackServer.close();
+                        reject(new Error('Could not determine an available agent port'));
+                        return;
+                    }
+                    fallbackServer.close((closeError) => {
+                        if (closeError)
+                            reject(closeError);
+                        else
+                            resolve(address.port);
+                    });
+                });
+            });
+            server.listen(preferredPort, '127.0.0.1', () => {
+                server.close((error) => {
+                    if (error)
+                        reject(error);
+                    else
+                        resolve(preferredPort);
+                });
+            });
+        });
     }
     async _spawn() {
         const pythonExe = this._findPython();
@@ -41,7 +83,15 @@ class PythonManager {
         this.process = (0, child_process_1.spawn)(pythonExe, ['main.py', '--ws-port', String(this.wsPort)], {
             cwd: this.agentDir,
             stdio: ['pipe', 'pipe', 'pipe'],
-            windowsHide: true
+            windowsHide: true,
+            env: {
+                ...process.env,
+                PYTHONPATH: [
+                    path_1.default.resolve(this.agentDir, '../..'),
+                    process.env.PYTHONPATH
+                ].filter(Boolean).join(path_1.default.delimiter),
+                HELIX_SETTINGS_PATH: this.settingsPath
+            }
         });
         let stdoutBuffer = '';
         this.process.stdout?.on('data', (data) => {
@@ -84,22 +134,45 @@ class PythonManager {
     }
     async stop() {
         this.stopping = true;
-        if (!this.process)
+        const agentProcess = this.process;
+        if (!agentProcess)
             return;
-        return new Promise((resolve) => {
-            if (!this.process) {
-                resolve();
-                return;
-            }
-            const timeout = setTimeout(() => {
-                this.process?.kill('SIGKILL');
-                resolve();
-            }, 5000);
-            this.process.once('exit', () => {
-                clearTimeout(timeout);
-                resolve();
+        if (process.platform === 'win32' && agentProcess.pid) {
+            await new Promise((resolve, reject) => {
+                (0, child_process_1.execFile)('taskkill', ['/PID', String(agentProcess.pid), '/T', '/F'], { windowsHide: true }, (error) => {
+                    if (error && agentProcess.exitCode === null && agentProcess.signalCode === null) {
+                        reject(new Error(`Could not stop Python agent process tree: ${error.message}`));
+                        return;
+                    }
+                    resolve();
+                });
             });
-            this.process.kill('SIGTERM');
+            if (!(await this.waitForExit(agentProcess, 5000))) {
+                throw new Error('Python agent process did not exit after process-tree shutdown');
+            }
+            return;
+        }
+        agentProcess.kill('SIGTERM');
+        if (await this.waitForExit(agentProcess, 5000))
+            return;
+        agentProcess.kill('SIGKILL');
+        if (!(await this.waitForExit(agentProcess, 5000))) {
+            throw new Error('Python agent process did not exit after forced shutdown');
+        }
+    }
+    waitForExit(child, timeoutMs) {
+        if (child.exitCode !== null || child.signalCode !== null)
+            return Promise.resolve(true);
+        return new Promise((resolve) => {
+            const timeout = setTimeout(() => {
+                child.removeListener('exit', onExit);
+                resolve(false);
+            }, timeoutMs);
+            const onExit = () => {
+                clearTimeout(timeout);
+                resolve(true);
+            };
+            child.once('exit', onExit);
         });
     }
     async restart() {

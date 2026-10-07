@@ -14,6 +14,8 @@ class IPCBridge {
         this.mainWindow = null;
         this.toolboxWindow = null;
         this.pendingRequests = new Map();
+        this.queuedRequests = new Map();
+        this.requestTimeouts = new Map();
         this.reconnectAttempts = 0;
         this.wsUrl = '';
         this.reconnecting = false;
@@ -47,8 +49,10 @@ class IPCBridge {
         electron_1.ipcMain.handle('helix:get-settings', async () => {
             return this._request({ type: 'GET_SETTINGS', payload: {} });
         });
-        electron_1.ipcMain.handle('helix:save-settings', async (_event, settings) => {
-            return this._request({ type: 'SAVE_SETTINGS', payload: { settings } });
+        electron_1.ipcMain.handle('helix:save-settings', async (event, settings) => {
+            const result = await this._request({ type: 'SAVE_SETTINGS', payload: { settings } });
+            event.sender.send('helix:settings-applied', result);
+            return result;
         });
         electron_1.ipcMain.handle('helix:validate-key', async (_event, provider, slot, key) => {
             // SECURITY: key goes directly to Python for validation, never stored in main process logs
@@ -59,15 +63,41 @@ class IPCBridge {
         this.wsUrl = wsUrl;
         return this._connect();
     }
+    close() {
+        for (const timeout of this.requestTimeouts.values())
+            clearTimeout(timeout);
+        this.requestTimeouts.clear();
+        for (const [requestId, resolver] of this.pendingRequests) {
+            resolver(undefined, 'HELIX is shutting down.');
+            this.pendingRequests.delete(requestId);
+        }
+        this.queuedRequests.clear();
+        const ws = this.ws;
+        this.ws = null;
+        ws?.removeAllListeners();
+        ws?.close();
+    }
     _connect() {
         return new Promise((resolve, reject) => {
+            let connected = false;
+            let settled = false;
             try {
                 const ws = new ws_1.default(this.wsUrl);
                 this.ws = ws;
                 ws.on('open', () => {
+                    connected = true;
+                    settled = true;
                     console.log('[IPCBridge] Connected to Python agent WebSocket');
                     this.reconnectAttempts = 0;
                     this.reconnecting = false;
+                    for (const [requestId, message] of this.queuedRequests) {
+                        if (!this.pendingRequests.has(requestId)) {
+                            this.queuedRequests.delete(requestId);
+                            continue;
+                        }
+                        this.queuedRequests.delete(requestId);
+                        this._sendRequest(ws, message);
+                    }
                     resolve();
                 });
                 ws.on('message', (data) => {
@@ -76,8 +106,12 @@ class IPCBridge {
                         // Handle request/response pairing
                         if (message.request_id && this.pendingRequests.has(message.request_id)) {
                             const resolver = this.pendingRequests.get(message.request_id);
+                            const timeout = this.requestTimeouts.get(message.request_id);
+                            if (timeout)
+                                clearTimeout(timeout);
+                            this.requestTimeouts.delete(message.request_id);
                             this.pendingRequests.delete(message.request_id);
-                            resolver(message.payload);
+                            resolver(message.payload, message.error);
                             return;
                         }
                         // Forward event messages to renderer windows
@@ -89,16 +123,26 @@ class IPCBridge {
                 });
                 ws.on('error', (err) => {
                     console.error('[IPCBridge] WebSocket error:', err.message);
-                    if (!this.reconnecting)
+                    if (!connected && !settled) {
+                        settled = true;
                         reject(err);
+                    }
                 });
                 ws.on('close', () => {
                     console.warn('[IPCBridge] WebSocket connection closed');
-                    this.ws = null;
-                    this._scheduleReconnect();
+                    if (this.ws === ws)
+                        this.ws = null;
+                    if (connected) {
+                        this._scheduleReconnect();
+                    }
+                    else if (!settled) {
+                        settled = true;
+                        reject(new Error('Python agent WebSocket closed before connecting'));
+                    }
                 });
             }
             catch (err) {
+                settled = true;
                 reject(err);
             }
         });
@@ -109,6 +153,12 @@ class IPCBridge {
         if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
             console.error('[IPCBridge] Max reconnect attempts reached.');
             this._sendToAll('helix:error', { message: 'Lost connection to HELIX agent. Please restart.' });
+            for (const [requestId] of this.queuedRequests) {
+                const resolver = this.pendingRequests.get(requestId);
+                this.queuedRequests.delete(requestId);
+                this.pendingRequests.delete(requestId);
+                resolver?.(undefined, 'Lost connection to HELIX agent. Please restart.');
+            }
             return;
         }
         this.reconnecting = true;
@@ -136,16 +186,30 @@ class IPCBridge {
         return new Promise((resolve, reject) => {
             const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2)}`;
             const messageWithId = { ...message, request_id: requestId };
-            const timeout = setTimeout(() => {
-                this.pendingRequests.delete(requestId);
-                reject(new Error(`Request timeout: ${message.type}`));
-            }, timeoutMs);
-            this.pendingRequests.set(requestId, (data) => {
-                clearTimeout(timeout);
-                resolve(data);
+            this.pendingRequests.set(requestId, (data, error) => {
+                if (error)
+                    reject(new Error(error));
+                else
+                    resolve(data);
             });
-            this._sendToPython(messageWithId);
+            if (this.ws && this.ws.readyState === ws_1.default.OPEN) {
+                this._sendRequest(this.ws, messageWithId, timeoutMs);
+            }
+            else {
+                this.queuedRequests.set(requestId, messageWithId);
+            }
         });
+    }
+    _sendRequest(ws, message, timeoutMs = 10000) {
+        const timeout = setTimeout(() => {
+            this.requestTimeouts.delete(message.request_id);
+            const resolver = this.pendingRequests.get(message.request_id);
+            this.pendingRequests.delete(message.request_id);
+            this.queuedRequests.delete(message.request_id);
+            resolver?.(undefined, `Request timeout: ${message.type}`);
+        }, timeoutMs);
+        this.requestTimeouts.set(message.request_id, timeout);
+        ws.send(JSON.stringify(message));
     }
     _forwardToRenderer(message) {
         const typeMap = {

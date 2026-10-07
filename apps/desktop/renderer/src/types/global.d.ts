@@ -10,10 +10,15 @@ declare global {
 }
 
 export interface HelixAPI {
-  sendMessage: (text: string) => void
+  sendMessage: (payload: {
+    text: string
+    conversation_id: string
+    conversation_history: Array<{ role: 'user' | 'assistant'; content: string }>
+  }) => void
   cancelTask: (taskId: string) => void
   confirmAction: (requestId: string) => void
   rejectAction: (requestId: string) => void
+  quit: () => void
   openToolbox: () => void
   openExternal: (url: string) => void
 
@@ -29,8 +34,10 @@ export interface HelixAPI {
   onStatusUpdate: (fn: (status: AgentStatusUpdate) => void) => () => void
   onFallbackEvent: (fn: (event: FallbackEvent) => void) => () => void
   onConfirmationRequest: (fn: (req: ConfirmationRequest) => void) => () => void
+  onConfirmationResolved: (fn: (request: { request_id: string }) => void) => () => void
   onError: (fn: (err: AgentError) => void) => () => void
   onProviderUpdate: (fn: (providers: ProviderStatus[]) => void) => () => void
+  onSettingsApplied: (fn: (settings: HelixSettings) => void) => () => void
   onShowTasks: (fn: () => void) => () => void
 }
 
@@ -167,10 +174,11 @@ export interface AgentError {
 export interface HelixSettings {
   voice_enabled: boolean
   wake_word: string
-  wake_word_provider: 'openwakeword' | 'porcupine'
+  wake_word_provider: 'openwakeword'
   custom_wake_words?: string[]
   voice_stt_provider?: string
   voice_tts_provider?: string
+  vad_threshold?: number
   camera_enabled: boolean
   camera_device_index: number
   gesture_sensitivity: number

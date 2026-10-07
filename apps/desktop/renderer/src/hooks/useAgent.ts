@@ -29,6 +29,7 @@ interface UseAgentReturn {
 
 export function useAgent(): UseAgentReturn {
   const [messages, setMessages] = useState<AgentMessage[]>([])
+  const [conversationId] = useState(() => crypto.randomUUID())
   const [isLoading, setIsLoading] = useState(false)
   const [tasks, setTasks] = useState<TaskDefinition[]>([])
   const [agentStatus, setAgentStatus] = useState<AgentStatus>('idle')
@@ -100,6 +101,14 @@ export function useAgent(): UseAgentReturn {
     )
 
     cleanups.push(
+      window.helix.onConfirmationResolved(({ request_id: requestId }) => {
+        setPendingConfirmation((current) => (
+          current?.id === requestId ? null : current
+        ))
+      })
+    )
+
+    cleanups.push(
       window.helix.onFallbackEvent((event) => {
         setFallbackEvent(event)
         // Auto-dismiss after 5 seconds
@@ -135,8 +144,18 @@ export function useAgent(): UseAgentReturn {
     }
     setMessages((prev) => [...prev, userMessage])
     setIsLoading(true)
-    window.helix?.sendMessage(text)
-  }, [])
+    const conversationHistory = [
+      ...messages
+        .filter((message) => message.role === 'user' || message.role === 'assistant')
+        .map(({ role, content }) => ({ role, content })),
+      { role: 'user' as const, content: text }
+    ]
+    window.helix?.sendMessage({
+      text,
+      conversation_id: conversationId,
+      conversation_history: conversationHistory
+    })
+  }, [messages, conversationId])
 
   const cancelTask = useCallback((taskId: string) => {
     window.helix?.cancelTask(taskId)

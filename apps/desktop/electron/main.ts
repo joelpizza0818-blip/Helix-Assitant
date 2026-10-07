@@ -25,23 +25,22 @@ let toolboxWindow: BrowserWindow | null = null
 let trayManager: TrayManager | null = null
 let pythonManager: PythonManager | null = null
 let ipcBridge: IPCBridge | null = null
+let isQuitting = false
+let shutdownComplete = false
 
-// Single instance lock for packaged builds
-if (app.isPackaged) {
-  const gotLock = app.requestSingleInstanceLock()
-  if (!gotLock) {
-    app.quit()
-    process.exit(0)
-  }
-
-  app.on('second-instance', () => {
-    if (floatingWindow) {
-      if (floatingWindow.isMinimized()) floatingWindow.restore()
-      floatingWindow.show()
-      floatingWindow.focus()
-    }
-  })
+const gotLock = app.requestSingleInstanceLock()
+if (!gotLock) {
+  app.quit()
+  process.exit(0)
 }
+
+app.on('second-instance', () => {
+  const window = toolboxWindow?.isVisible() ? toolboxWindow : floatingWindow
+  if (!window) return
+  if (window.isMinimized()) window.restore()
+  window.show()
+  window.focus()
+})
 
 function loadWithRetry(win: BrowserWindow, url: string, maxRetries = 30, intervalMs = 1500) {
   win.loadURL(url).catch(() => {
@@ -190,11 +189,6 @@ function setupIPC(): void {
 async function connectWebSocket(retryCount = 0, maxRetries = 15): Promise<void> {
   if (!ipcBridge) return
 
-  // Give Python a moment to start the WebSocket server on first attempt
-  if (retryCount === 0) {
-    await new Promise((resolve) => setTimeout(resolve, 3000))
-  }
-
   try {
     await ipcBridge.connectToPython(`ws://127.0.0.1:${wsPort}`)
     console.log('[Main] Connected to Python agent WebSocket')
@@ -223,6 +217,7 @@ app.whenReady().then(async () => {
   // Create windows
   floatingWindow = createFloatingWindow()
   toolboxWindow = createToolboxWindow()
+  setupIPC()
 
   // Create tray
   const iconPath = path.join(__dirname, '../assets/tray-icon.png')
@@ -276,8 +271,7 @@ app.whenReady().then(async () => {
   // Start Python agent
   await startPythonAgent()
 
-  // Register IPC handlers (once) and connect WebSocket (with retries)
-  setupIPC()
+  // Connect WebSocket only after the Python agent reports readiness.
   connectWebSocket()
 
   // Show floating window on startup
@@ -286,19 +280,27 @@ app.whenReady().then(async () => {
   trayManager.updateStatus('idle')
 })
 
-let isQuitting = false
+app.on('before-quit', (event) => {
+  if (shutdownComplete) return
+  event.preventDefault()
+  if (isQuitting) return
 
-app.on('before-quit', async () => {
   isQuitting = true
   console.log('[Main] Quitting HELIX...')
-  // Allow windows to actually close
-  floatingWindow?.removeAllListeners('close')
-  toolboxWindow?.removeAllListeners('close')
-  floatingWindow?.destroy()
-  toolboxWindow?.destroy()
-  trayManager?.destroy()
-  // Stop Python agent
-  await pythonManager?.stop()
+  void (async () => {
+    floatingWindow?.removeAllListeners('close')
+    toolboxWindow?.removeAllListeners('close')
+    floatingWindow?.destroy()
+    toolboxWindow?.destroy()
+    trayManager?.destroy()
+    ipcBridge?.close()
+    await pythonManager?.stop()
+    shutdownComplete = true
+    app.quit()
+  })().catch((error: unknown) => {
+    console.error('[Main] Failed to shut down HELIX cleanly:', error)
+    app.exit(1)
+  })
 })
 
 app.on('window-all-closed', () => {
@@ -310,6 +312,10 @@ app.on('window-all-closed', () => {
 ipcMain.on('helix:open-toolbox', () => {
   toolboxWindow?.show()
   toolboxWindow?.focus()
+})
+
+ipcMain.on('helix:quit', () => {
+  app.quit()
 })
 
 // Handle IPC for opening external URLs safely

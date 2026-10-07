@@ -125,3 +125,22 @@
 .auth-link:hover {
   text-decoration: underline;
 }
+
+.btn-github {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  background-color: #24292e;
+  color: #ffffff;
+  border: none;
+  border-radius: var(--radius-inputs);
+  padding: 10px 20px;
+  font-size: var(--text-input);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--ease);
+}
+.btn-github:hover {
+  background-color: #1b1f23;
+}

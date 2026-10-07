@@ -31,9 +31,9 @@ export const DownloadPage: React.FC = () => {
               </div>
 
               <div className="note-card">
-                <span className="note-heading">PyAudio & Voice Drivers</span>
+                <span className="note-heading">Voice input</span>
                 <p className="note-body">
-                  On Windows machines without C++ build tools, install PyAudio via <code>pip install pipwin; pipwin install pyaudio</code> if you intend to enable the wake word detector.
+                  HELIX uses SoundDevice for microphone input. It is installed with the agent's Python requirements; allow microphone access when prompted.
                 </p>
               </div>
 

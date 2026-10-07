@@ -88,6 +88,15 @@ export default function FloatingUI() {
           >
             <GearIcon />
           </button>
+          <button
+            className="icon-btn floating-ui__quit-btn"
+            onClick={() => window.helix?.quit()}
+            title="Salir completamente de HELIX"
+            aria-label="Salir de HELIX"
+          >
+            <QuitIcon />
+            <span>Salir</span>
+          </button>
         </div>
       </div>
 
@@ -196,6 +205,16 @@ function GearIcon() {
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="3" />
       <path d="M12 1v3M12 20v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M1 12h3M20 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12" />
+    </svg>
+  )
+}
+
+function QuitIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h5" />
+      <path d="M16 17l5-5-5-5" />
+      <path d="M21 12H9" />
     </svg>
   )
 }

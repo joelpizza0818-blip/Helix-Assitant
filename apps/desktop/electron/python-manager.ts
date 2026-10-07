@@ -1,7 +1,8 @@
-import { spawn, ChildProcess } from 'child_process'
+import { execFile, spawn, ChildProcess } from 'child_process'
 import { createServer } from 'net'
 import path from 'path'
 import fs from 'fs'
+import WebSocket from 'ws'
 
 type StdoutHandler = (line: string) => void
 type ExitHandler = (code: number | null) => void
@@ -16,6 +17,7 @@ export class PythonManager {
   private restartCount: number = 0
   private maxRestarts: number = 5
   private stopping: boolean = false
+  private restartTimer: NodeJS.Timeout | null = null
 
   private stdoutHandlers: StdoutHandler[] = []
   private stderrHandlers: StdoutHandler[] = []
@@ -31,7 +33,47 @@ export class PythonManager {
     this.stopping = false
     this.restartCount = 0
     await this._spawn()
+    try {
+      await this._waitForReady()
+    } catch (error) {
+      await this.stop()
+      throw error
+    }
     return this.wsPort
+  }
+
+  private async _waitForReady(timeoutMs = 90000): Promise<void> {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      const child = this.process
+      if (!child || child.exitCode !== null || child.signalCode !== null) {
+        throw new Error('Python agent exited before its WebSocket became ready')
+      }
+
+      const ready = await new Promise<boolean>((resolve) => {
+        const socket = new WebSocket(`ws://127.0.0.1:${this.wsPort}`)
+        let settled = false
+        let timeout: NodeJS.Timeout | null = null
+        const finish = (connected: boolean) => {
+          if (settled) return
+          settled = true
+          if (timeout) clearTimeout(timeout)
+          socket.close()
+          resolve(connected)
+        }
+        timeout = setTimeout(() => finish(false), 1000)
+        socket.once('open', () => finish(true))
+        socket.once('error', () => finish(false))
+      })
+      if (ready) {
+        console.log(`[PythonManager] Agent WebSocket ready on port ${this.wsPort}`)
+        return
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    }
+    throw new Error(
+      `Python agent WebSocket did not become ready on port ${this.wsPort} within ${timeoutMs}ms`
+    )
   }
 
   private findAvailablePort(preferredPort: number): Promise<number> {
@@ -87,6 +129,10 @@ export class PythonManager {
       windowsHide: true,
       env: {
         ...process.env,
+        PYTHONPATH: [
+          path.resolve(this.agentDir, '../..'),
+          process.env.PYTHONPATH
+        ].filter(Boolean).join(path.delimiter),
         HELIX_SETTINGS_PATH: this.settingsPath
       }
     })
@@ -123,7 +169,10 @@ export class PythonManager {
         const delay = RESTART_DELAYS_MS[Math.min(this.restartCount, RESTART_DELAYS_MS.length - 1)]
         console.warn(`[PythonManager] Process exited (code ${code}). Restarting in ${delay}ms... (attempt ${this.restartCount + 1}/${this.maxRestarts})`)
         this.restartCount++
-        setTimeout(() => this._spawn(), delay)
+        this.restartTimer = setTimeout(() => {
+          this.restartTimer = null
+          if (!this.stopping) void this._spawn()
+        }, delay)
       } else if (!this.stopping) {
         console.error('[PythonManager] Max restarts reached. Agent is permanently down.')
       }
@@ -136,22 +185,57 @@ export class PythonManager {
 
   async stop(): Promise<void> {
     this.stopping = true
-    if (!this.process) return
+    if (this.restartTimer) {
+      clearTimeout(this.restartTimer)
+      this.restartTimer = null
+    }
+    const agentProcess = this.process
+    if (!agentProcess) return
+
+    if (process.platform === 'win32' && agentProcess.pid) {
+      await new Promise<void>((resolve, reject) => {
+        execFile(
+          'taskkill',
+          ['/PID', String(agentProcess.pid), '/T', '/F'],
+          { windowsHide: true },
+          (error) => {
+            if (error && agentProcess.exitCode === null && agentProcess.signalCode === null) {
+              reject(new Error(`Could not stop Python agent process tree: ${error.message}`))
+              return
+            }
+            resolve()
+          }
+        )
+      })
+      if (!(await this.waitForExit(agentProcess, 5000))) {
+        throw new Error('Python agent process did not exit after process-tree shutdown')
+      }
+      return
+    }
+
+    agentProcess.kill('SIGTERM')
+    if (await this.waitForExit(agentProcess, 5000)) return
+
+    agentProcess.kill('SIGKILL')
+
+    if (!(await this.waitForExit(agentProcess, 5000))) {
+      throw new Error('Python agent process did not exit after forced shutdown')
+    }
+  }
+
+  private waitForExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
+    if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true)
 
     return new Promise((resolve) => {
-      if (!this.process) { resolve(); return }
-
       const timeout = setTimeout(() => {
-        this.process?.kill('SIGKILL')
-        resolve()
-      }, 5000)
-
-      this.process.once('exit', () => {
+        child.removeListener('exit', onExit)
+        resolve(false)
+      }, timeoutMs)
+      const onExit = () => {
         clearTimeout(timeout)
-        resolve()
-      })
-
-      this.process.kill('SIGTERM')
+        resolve(true)
+      }
+      child.once('exit', onExit)
     })
   }
 
