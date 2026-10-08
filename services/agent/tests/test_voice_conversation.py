@@ -3,8 +3,9 @@ import io
 import sys
 import wave
 from types import ModuleType, SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
+import pytest
 from services.agent.core.orchestrator import Orchestrator
 from services.agent.core.task_manager import TaskStatus
 from services.agent.perception import speech_to_text
@@ -321,6 +322,81 @@ def test_voice_capture_closes_microphone_before_stt(monkeypatch):
         "stream_closed",
         "stt_started",
     ]
+
+
+@pytest.mark.asyncio
+async def test_voice_engine_resubscribes_after_stop_and_restart():
+    from services.agent.core.event_bus import EventBus
+
+    event_bus = EventBus()
+    wake_detector = SimpleNamespace(
+        start=AsyncMock(),
+        stop=AsyncMock(),
+        is_running=lambda: True,
+        input_device=0,
+        provider="openwakeword",
+    )
+    engine = VoiceEngine.__new__(VoiceEngine)
+    engine.enabled = True
+    engine._is_active = False
+    engine._subscriptions = []
+    engine.event_bus = event_bus
+    engine.wake_detector = wake_detector
+    engine.state_manager = None
+    engine.state = VoiceState.IDLE
+    engine._task = None
+    engine._wake_monitor_task = None
+    engine._audio_device = None
+    engine.stt = SimpleNamespace(provider="remote")
+
+    await engine.start()
+    assert engine._handle_wake_event in event_bus.subscribers["VOICE_WAKE"]
+    await engine.stop()
+    assert not event_bus.subscribers["VOICE_WAKE"]
+
+    await engine.start()
+    assert engine._handle_wake_event in event_bus.subscribers["VOICE_WAKE"]
+    await engine.stop()
+
+
+@pytest.mark.asyncio
+async def test_voice_engine_retries_a_stopped_wake_word_detector(monkeypatch):
+    engine = VoiceEngine.__new__(VoiceEngine)
+    engine._is_active = True
+    engine.state = VoiceState.IDLE
+    engine._audio_device = None
+    engine.wake_detector = SimpleNamespace(
+        start=AsyncMock(),
+        is_running=Mock(side_effect=[False, True]),
+        input_device=3,
+    )
+
+    async def end_monitor(_delay):
+        engine._is_active = False
+
+    monkeypatch.setattr(asyncio, "sleep", end_monitor)
+
+    await engine._monitor_wake_detector()
+
+    engine.wake_detector.start.assert_awaited_once()
+    assert engine._audio_device == 3
+
+
+@pytest.mark.asyncio
+async def test_audio_generator_ends_when_microphone_read_stalls(caplog):
+    class StalledStream:
+        def read(self, _frame_size):
+            raise asyncio.TimeoutError
+
+    engine = VoiceEngine.__new__(VoiceEngine)
+    engine.state = VoiceState.LISTENING
+    frames = [
+        frame
+        async for frame in engine._audio_generator(StalledStream(), 480)
+    ]
+
+    assert frames == []
+    assert "stopped returning frames" in caplog.text
 
 
 def test_openai_tts_plays_wav_audio_with_sounddevice(monkeypatch):

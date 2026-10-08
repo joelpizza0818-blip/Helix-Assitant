@@ -24,6 +24,7 @@ class GestureType(Enum):
 class GestureEngine:
     CAMERA_READ_FAILURE_LIMIT = 5
     CAMERA_RETRY_SECONDS = 2.0
+    HAND_COMMAND_MATCH_THRESHOLD = 0.35
 
     def __init__(
         self,
@@ -81,6 +82,8 @@ class GestureEngine:
         self.hand_commands = hand_commands or []
         self._candidate_hand_command = None
         self._candidate_hand_frames = 0
+        self._neutral_hand_frames = 0
+        self._latched_hand_command = None
 
     def set_gesture_mappings(self, mappings: dict | None) -> None:
         self.gesture_mappings = mappings or {}
@@ -89,6 +92,8 @@ class GestureEngine:
         self.hand_commands = commands or []
         self._candidate_hand_command = None
         self._candidate_hand_frames = 0
+        self._neutral_hand_frames = 0
+        self._latched_hand_command = None
 
     @staticmethod
     def _config_float(name: str, default: float) -> float:
@@ -502,17 +507,53 @@ class GestureEngine:
 
     @staticmethod
     def _landmark_distance(left: list, right: list) -> float:
-        if len(left) != len(right) or not left:
+        normalized_left = GestureEngine._normalize_landmarks(left)
+        normalized_right = GestureEngine._normalize_landmarks(right)
+        if normalized_left is None or normalized_right is None:
             return 999.0
         total = 0.0
-        for a, b in zip(left, right):
-            total += sum((float(a[index]) - float(b[index])) ** 2 for index in range(min(len(a), len(b))))
-        return (total / len(left)) ** 0.5
+        for a, b in zip(normalized_left, normalized_right):
+            total += sum((a[index] - b[index]) ** 2 for index in range(3))
+        return (total / len(normalized_left)) ** 0.5
+
+    @staticmethod
+    def _normalize_landmarks(points: list) -> list[list[float]] | None:
+        if not isinstance(points, list) or len(points) != 21:
+            return None
+        try:
+            values = [
+                [
+                    float(point[0]),
+                    float(point[1]),
+                    float(point[2]) if len(point) > 2 else 0.0,
+                ]
+                for point in points
+            ]
+        except (IndexError, TypeError, ValueError):
+            return None
+
+        wrist = values[0]
+        middle_mcp = values[9]
+        palm_scale = (
+            (middle_mcp[0] - wrist[0]) ** 2
+            + (middle_mcp[1] - wrist[1]) ** 2
+        ) ** 0.5
+        if palm_scale < 1e-6:
+            return None
+        return [
+            [
+                (point[axis] - wrist[axis]) / palm_scale
+                for axis in range(3)
+            ]
+            for point in values
+        ]
 
     def _observe_hand_commands(self, points: list[list[float]], confidence: float) -> None:
         match = None
-        best_distance = 0.08
+        best_distance = self.HAND_COMMAND_MATCH_THRESHOLD
         for command in self.hand_commands:
+            if not isinstance(command, dict) or command.get("enabled") is False:
+                continue
             samples = command.get("samples", []) if isinstance(command, dict) else []
             for sample in samples:
                 template = sample.get("landmarks") if isinstance(sample, dict) else None
@@ -524,8 +565,14 @@ class GestureEngine:
         if match is None or confidence < self.confidence_threshold:
             self._candidate_hand_command = None
             self._candidate_hand_frames = 0
+            self._neutral_hand_frames += 1
+            if self._neutral_hand_frames >= self.stability_frames:
+                self._latched_hand_command = None
             return
+        self._neutral_hand_frames = 0
         command_id = match.get("id") or match.get("name")
+        if command_id == self._latched_hand_command:
+            return
         if command_id == self._candidate_hand_command:
             self._candidate_hand_frames += 1
         else:
@@ -533,10 +580,17 @@ class GestureEngine:
             self._candidate_hand_frames = 1
         if self._candidate_hand_frames >= self.stability_frames:
             self._candidate_hand_frames = 0
+            self._latched_hand_command = command_id
             self._publish_hand_command(match)
 
     def _publish_hand_command(self, command: dict) -> None:
-        if not self.event_bus or not self._loop or self._loop.is_closed():
+        if not self.event_bus:
+            return
+        if not self._loop or self._loop.is_closed():
+            logger.error(
+                "Cannot publish learned hand command %r: agent event loop is unavailable",
+                command.get("name"),
+            )
             return
         payload = {
             "action": command.get("action", "CUSTOM_COMMAND"),

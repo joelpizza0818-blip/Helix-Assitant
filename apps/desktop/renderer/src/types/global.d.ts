@@ -14,6 +14,7 @@ export interface HelixAPI {
     text: string
     conversation_id: string
     conversation_history: Array<{ role: 'user' | 'assistant'; content: string }>
+    attachments?: ChatAttachment[]
   }) => void
   cancelTask: (taskId: string) => void
   emergencyStop: () => void
@@ -25,6 +26,9 @@ export interface HelixAPI {
 
   getSettings: () => Promise<HelixSettings>
   saveSettings: (settings: Partial<HelixSettings>) => Promise<void>
+  testTts: (text?: string) => Promise<TtsTestResult>
+  getMemoryStatus: () => Promise<MemoryStatus>
+  clearMemory: () => Promise<{ cleared: boolean }>
   getTasks: () => Promise<TaskDefinition[]>
   getProviders: () => Promise<ProviderStatus[]>
   getModels: (requirements?: Partial<ModelRequirements>) => Promise<ModelDefinition[]>
@@ -61,6 +65,39 @@ export interface HelixAPI {
   downloadUpdate: () => Promise<void>
   installUpdate: () => Promise<void>
   onUpdaterStatus: (fn: (status: unknown) => void) => () => void
+  getAdminStatus: () => Promise<{ configured: boolean; authenticated: boolean }>
+  validateAdmin: () => Promise<{ authenticated: boolean }>
+  startAdminGithubLogin: () => Promise<{ started: boolean }>
+  getAdminConfig: () => Promise<AdminConfig>
+  saveAdminConfig: (config: AdminConfig) => Promise<AdminConfig>
+  createVersionBackup: (version: string) => Promise<AdminBackup>
+}
+
+export interface AdminBackup { version: string; createdAt: string; currentVersion: string | null; synced?: boolean; syncError?: string }
+export interface AdminConfig {
+  autoUpdate: boolean
+  checkIntervalHours: number
+  channel: 'stable' | 'beta'
+  publicVersion: string
+  backups: AdminBackup[]
+  synced?: boolean
+  syncError?: string
+}
+
+export interface TtsTestResult {
+  ok: boolean
+  provider: string
+  fallback_used?: boolean
+  error?: string
+}
+
+export interface MemoryStatus {
+  pgvector_ready: boolean
+  provider: 'pgvector' | 'local'
+  embedding_model: string
+  similarity_threshold: number
+  dimensions: number | null
+  message: string
 }
 
 // ── Shared types ──────────────────────────────────────────────────────────────
@@ -171,6 +208,14 @@ export interface AgentMessage {
   provider?: ProviderID
   tool_name?: string
   streaming?: boolean
+  attachments?: ChatAttachment[]
+}
+
+export interface ChatAttachment {
+  name: string
+  mime_type: string
+  size: number
+  data_base64: string
 }
 
 export interface SkillDraft {

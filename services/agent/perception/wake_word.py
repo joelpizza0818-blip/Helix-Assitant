@@ -2,6 +2,8 @@ import logging
 import asyncio
 import importlib.util
 import os
+import re
+import time
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -14,6 +16,8 @@ WAKE_WORD_CONFIRMATION_FRAMES = 3
 
 
 class WakeWordDetector:
+    AUDIO_HEARTBEAT_TIMEOUT_SECONDS = 15.0
+
     def __init__(
         self,
         wake_word: str = "hey helix",
@@ -21,8 +25,20 @@ class WakeWordDetector:
         model_path: str | Path | None = None,
         event_bus=None,
         threshold: float = DEFAULT_WAKE_WORD_THRESHOLD,
+        aliases: list[str] | None = None,
     ):
         self.wake_word = wake_word.lower()
+        self.aliases = []
+        for alias in aliases or []:
+            if not isinstance(alias, str):
+                continue
+            normalized_alias = alias.strip().casefold()
+            if not normalized_alias:
+                continue
+            if not re.fullmatch(r"[a-z0-9]+(?:[ -][a-z0-9]+)*", normalized_alias):
+                logger.warning("Ignoring wake alias containing unsupported characters.")
+                continue
+            self.aliases.append(normalized_alias)
         self.provider = provider
         self.event_bus = event_bus
         self.threshold = float(threshold)
@@ -35,14 +51,29 @@ class WakeWordDetector:
         self._task = None
         self._model = None
         self._audio_stream = None
+        self._last_frame_at = 0.0
         self.input_device = None
         configured_path = model_path or os.environ.get("WAKE_WORD_MODEL_PATH")
         self.model_path = Path(configured_path) if configured_path else DEFAULT_MODEL_PATH
         if not self.model_path.is_absolute():
             self.model_path = Path(__file__).resolve().parents[1] / self.model_path
-        self._expected_model_output = self._normalize_model_output(
-            self.model_path.stem
-        )
+        if configured_path is None or self.model_path == DEFAULT_MODEL_PATH:
+            normalized_wake_word = self._normalize_model_output(self.wake_word)
+            candidate_stems = [normalized_wake_word]
+            if not normalized_wake_word.startswith("hey_"):
+                candidate_stems.append(f"hey_{normalized_wake_word}")
+            matching_model = next(
+                (
+                    self.model_path.parent / f"{stem}.onnx"
+                    for stem in candidate_stems
+                    if (self.model_path.parent / f"{stem}.onnx").is_file()
+                ),
+                None,
+            )
+            if matching_model is not None:
+                self.model_path = matching_model
+        self._model_paths: list[Path] = [self.model_path]
+        self._expected_outputs: dict[str, str] = {}
 
         self._initialize_provider()
 
@@ -59,6 +90,17 @@ class WakeWordDetector:
             logger.error("openwakeword is not installed. Wake word detection is unavailable.")
             self.provider = None
             return
+        for alias in self.aliases:
+            alias_path = self.model_path.parent / f"{self._normalize_model_output(alias)}.onnx"
+            if alias_path.is_file() and alias_path not in self._model_paths:
+                self._model_paths.append(alias_path)
+            else:
+                logger.warning(
+                    "Wake alias %r has no matching OpenWakeWord model at %s; it cannot activate HELIX until the model exists.",
+                    alias,
+                    alias_path,
+                )
+
         if not self.model_path.is_file():
             logger.error(
                 "Custom wake word model for %r was not found: %s. Train the model before enabling voice activation.",
@@ -73,36 +115,52 @@ class WakeWordDetector:
 
         download_models(model_names=[])
         self._model = Model(
-            wakeword_models=[str(self.model_path)],
+            wakeword_models=[str(path) for path in self._model_paths],
             inference_framework="onnx",
         )
+        self._expected_outputs = {
+            self._normalize_model_output(path.stem): path.stem.lower().replace("_", " ")
+            for path in self._model_paths
+        }
         model_phrase = self.model_path.stem.lower().replace("_", " ")
-        phrase_matches_model = model_phrase == self.wake_word
+        normalized_model_phrase = self._normalize_model_output(model_phrase)
+        normalized_wake_word = self._normalize_model_output(self.wake_word)
+        phrase_matches_model = (
+            normalized_model_phrase == normalized_wake_word
+            or (
+                normalized_model_phrase == f"hey_{normalized_wake_word}"
+                and normalized_wake_word == "helix"
+            )
+        )
         logger.info(
-            "WAKE_WORD_MODEL_LOADED phrase=%r model=%s threshold=%.3f "
+            "WAKE_WORD_MODEL_LOADED phrase=%r models=%s threshold=%.3f "
             "phrase_matches_model=%s",
             self.wake_word,
-            self.model_path.name,
+            [path.name for path in self._model_paths],
             self.threshold,
             phrase_matches_model,
         )
         if not phrase_matches_model:
-            logger.warning(
+            logger.error(
                 "Configured wake phrase %r does not match model filename %r; "
-                "verify the ONNX model was trained for the configured phrase.",
+                "voice activation is unavailable until a matching ONNX model is selected.",
                 self.wake_word,
                 model_phrase,
             )
+            self._model = None
+            self.provider = None
 
     async def start(self):
         if not self.provider:
             logger.warning("No wake word provider initialized. Cannot start.")
             return
         
-        if self._is_running:
+        if self.is_running():
             return
 
         try:
+            if self._task is not None or self._audio_stream is not None:
+                await self.stop()
             import sounddevice as sd
 
             default_devices = sd.default.device
@@ -131,6 +189,7 @@ class WakeWordDetector:
                 blocksize=1280,
             )
             self._audio_stream.start()
+            self._last_frame_at = time.monotonic()
             self._is_running = True
             self._task = asyncio.create_task(self._listen_loop())
             logger.info(
@@ -158,18 +217,23 @@ class WakeWordDetector:
 
     async def stop(self):
         self._is_running = False
-        if self._task:
-            self._task.cancel()
+        task = self._task
+        self._task = None
+        if task:
+            task.cancel()
             try:
-                await self._task
+                await task
             except asyncio.CancelledError:
                 pass
         
-        if self._audio_stream:
-            if self._audio_stream.active:
-                self._audio_stream.stop()
-            self._audio_stream.close()
-            self._audio_stream = None
+        stream = self._audio_stream
+        self._audio_stream = None
+        if stream:
+            try:
+                if stream.active:
+                    stream.stop()
+            finally:
+                stream.close()
 
         if self._model:
             self._model.reset()
@@ -177,17 +241,33 @@ class WakeWordDetector:
         logger.info("Wake word detector stopped")
 
     def is_running(self) -> bool:
-        return self._is_running and self._task is not None and not self._task.done()
+        return (
+            self._is_running
+            and self._task is not None
+            and not self._task.done()
+            and time.monotonic() - self._last_frame_at
+            < self.AUDIO_HEARTBEAT_TIMEOUT_SECONDS
+        )
 
     async def _on_wake(self, model_output=None, score=None):
+        expected_outputs = getattr(self, "_expected_outputs", None)
+        if not isinstance(expected_outputs, dict):
+            legacy_output = getattr(self, "_expected_model_output", None)
+            expected_outputs = (
+                {legacy_output: self.wake_word}
+                if isinstance(legacy_output, str)
+                else {}
+            )
+        normalized_output = self._normalize_model_output(str(model_output))
+        phrase = expected_outputs.get(normalized_output, self.wake_word)
         logger.info(
             "WAKE_WORD_DETECTED phrase=%r model_output=%r score=%s",
-            self.wake_word,
+            phrase,
             model_output,
             f"{score:.3f}" if isinstance(score, (int, float)) else "unknown",
         )
         if self.event_bus:
-            await self.event_bus.publish("VOICE_WAKE", {"phrase": self.wake_word})
+            await self.event_bus.publish("VOICE_WAKE", {"phrase": phrase})
 
     async def _listen_loop(self):
         import numpy as np
@@ -206,6 +286,7 @@ class WakeWordDetector:
                     self._audio_stream.read,
                     1280,
                 )
+                self._last_frame_at = time.monotonic()
                 frames_received += 1
                 if not listening_logged:
                     logger.info(
@@ -231,22 +312,31 @@ class WakeWordDetector:
                     interval_max_rms = max(interval_max_rms, rms)
                 prediction = self._model.predict(audio)
                 if prediction and not wake_reported:
-                    matching_scores = [
-                        float(score)
+                    expected_outputs = getattr(self, "_expected_outputs", None)
+                    if not isinstance(expected_outputs, dict):
+                        legacy_output = getattr(
+                            self, "_expected_model_output", None
+                        )
+                        expected_outputs = (
+                            {legacy_output: self.wake_word}
+                            if isinstance(legacy_output, str)
+                            else {}
+                        )
+                    scored_outputs = [
+                        (self._normalize_model_output(str(model_output)), float(score))
                         for model_output, score in prediction.items()
-                        if self._normalize_model_output(str(model_output))
-                        == self._expected_model_output
+                        if self._normalize_model_output(str(model_output)) in expected_outputs
                     ]
-                    score = max(matching_scores, default=0.0)
+                    matched_output, score = max(scored_outputs, key=lambda item: item[1], default=("", 0.0))
                     if score >= interval_max_score:
                         interval_max_score = score
-                        interval_output = self._expected_model_output
+                        interval_output = matched_output or "none"
                     if score >= self.threshold:
                         consecutive_matches += 1
                         if consecutive_matches >= WAKE_WORD_CONFIRMATION_FRAMES:
                             wake_reported = True
                             await self._on_wake(
-                                self._expected_model_output,
+                                matched_output,
                                 score,
                             )
                     else:

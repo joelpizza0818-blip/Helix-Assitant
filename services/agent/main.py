@@ -95,10 +95,10 @@ async def main():
     state_manager = StateManager()
     task_manager = TaskManager(event_bus)
     permission_manager = PermissionManager()
-    memory_manager = MemoryManager()
     
     # Key & Provider Management
     key_manager = KeyManager()
+    memory_manager = MemoryManager(key_manager=key_manager)
     logger.info(
         "AI providers with configured credentials: %s",
         ", ".join(key_manager.get_configured_providers()) or "none",
@@ -469,6 +469,7 @@ async def main():
                         **dict(os.environ),
                         "VOICE_ENABLED": "true",
                         "WAKE_WORD": payload.get("wake_word", "hey helix"),
+                        "WAKE_WORD_ALIASES": payload.get("custom_wake_words", []),
                         "WAKE_WORD_PROVIDER": payload.get(
                             "wake_word_provider", "openwakeword"
                         ),
@@ -478,8 +479,9 @@ async def main():
                         "STT_PROVIDER": {
                             "openai_whisper": "openai",
                             "local_whisper": "whisper_local",
-                            "windows_sapi": "windows_sapi",
+                            "windows_sapi": "whisper_local",
                         }.get(payload.get("voice_stt_provider", "local_whisper"), "whisper_local"),
+                        "STT_MODEL": payload.get("stt_model", "base"),
                         "TTS_PROVIDER": {
                             "openai_tts": "openai",
                             "elevenlabs": "elevenlabs",
@@ -507,19 +509,94 @@ async def main():
                 except Exception as e:
                     logger.error(f"Failed to start voice engine: {e}")
         elif voice_enabled is True and voice_engine is not None:
+            configured_aliases = payload.get("custom_wake_words", [])
+            if not isinstance(configured_aliases, list):
+                raise ValueError("custom_wake_words must be a list of phrases.")
+            wake_word = payload.get(
+                "wake_word", voice_engine.config.get("WAKE_WORD", "hey helix")
+            )
+            wake_provider = payload.get(
+                "wake_word_provider",
+                voice_engine.config.get("WAKE_WORD_PROVIDER", "openwakeword"),
+            )
+            wake_threshold = float(payload.get(
+                "wake_word_threshold",
+                voice_engine.config.get("WAKE_WORD_THRESHOLD", 0.5),
+            ))
+            model_path = payload.get(
+                "wake_word_model_path",
+                voice_engine.config.get(
+                    "WAKE_WORD_MODEL_PATH",
+                    os.environ.get("WAKE_WORD_MODEL_PATH"),
+                ),
+            )
+            if (
+                wake_word != voice_engine.config.get("WAKE_WORD")
+                or wake_provider != voice_engine.config.get("WAKE_WORD_PROVIDER")
+                or wake_threshold != float(voice_engine.config.get("WAKE_WORD_THRESHOLD", 0.5))
+                or configured_aliases != voice_engine.config.get("WAKE_WORD_ALIASES", [])
+                or model_path != voice_engine.config.get("WAKE_WORD_MODEL_PATH")
+            ):
+                await voice_engine.configure_wake_word(
+                    wake_word=wake_word,
+                    provider=wake_provider,
+                    threshold=wake_threshold,
+                    aliases=configured_aliases,
+                    model_path=model_path,
+                )
             tts_provider = {
                 "openai_tts": "openai",
                 "elevenlabs": "elevenlabs",
                 "edge_tts": "edge_tts",
                 "windows_sapi": "system",
-            }.get(payload.get("voice_tts_provider", "edge_tts"), "edge_tts")
-            await voice_engine.configure_tts(
-                provider=tts_provider,
-                model=payload.get("tts_model", os.environ.get("TTS_MODEL", "tts-1")),
-                voice_id=payload.get(
-                    "voice_tts_voice", "en-US-AndrewMultilingualNeural"
+            }.get(
+                payload.get(
+                    "voice_tts_provider",
+                    voice_engine.config.get("TTS_PROVIDER", "edge_tts"),
+                ),
+                "edge_tts",
+            )
+            tts_model = payload.get(
+                "tts_model",
+                voice_engine.config.get(
+                    "TTS_MODEL", os.environ.get("TTS_MODEL", "tts-1")
                 ),
             )
+            tts_voice = payload.get(
+                "voice_tts_voice",
+                voice_engine.config.get(
+                    "TTS_VOICE", "en-US-AndrewMultilingualNeural"
+                ),
+            )
+            if (
+                tts_provider != voice_engine.config.get("TTS_PROVIDER")
+                or tts_model != voice_engine.config.get("TTS_MODEL")
+                or tts_voice != voice_engine.config.get("TTS_VOICE")
+            ):
+                await voice_engine.configure_tts(
+                    provider=tts_provider,
+                    model=tts_model,
+                    voice_id=tts_voice,
+                )
+            stt_provider = {
+                "openai_whisper": "openai",
+                "local_whisper": "whisper_local",
+                "windows_sapi": "whisper_local",
+            }.get(
+                payload.get(
+                    "voice_stt_provider",
+                    voice_engine.config.get("STT_PROVIDER", "whisper_local"),
+                ),
+                "whisper_local",
+            )
+            stt_model = payload.get(
+                "stt_model", voice_engine.config.get("STT_MODEL", "base")
+            )
+            if (
+                stt_provider != voice_engine.stt.provider
+                or stt_model != voice_engine.stt.model
+            ):
+                await voice_engine.configure_stt(stt_provider, stt_model)
 
     async def record_model_request(event_name: str, payload: dict) -> None:
         task_id = payload.get("task_id")

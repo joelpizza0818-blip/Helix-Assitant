@@ -14,6 +14,44 @@ const corsHeaders = {
   'Cache-Control': 'no-store',
 }
 
+interface ReleasePolicy {
+  public_version: string
+  channel: 'stable' | 'beta'
+  auto_update: boolean
+  check_interval_hours: number
+}
+
+async function readReleasePolicy(): Promise<{
+  policy: ReleasePolicy | null
+  error?: string
+}> {
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+  if (!supabaseUrl || !serviceRoleKey) return { policy: null, error: 'Policy database access is not configured.' }
+  const admin = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
+  const { data, error } = await admin
+    .from('release_policies')
+    .select('public_version, channel, auto_update, check_interval_hours')
+    .eq('id', 'global')
+    .maybeSingle()
+  if (error) return { policy: null, error: error.message }
+  if (!data) return { policy: null }
+  if (
+    typeof data.public_version !== 'string'
+    || !/^\d+(?:\.\d+){1,3}$/.test(data.public_version)
+    || (data.channel !== 'stable' && data.channel !== 'beta')
+    || typeof data.auto_update !== 'boolean'
+    || typeof data.check_interval_hours !== 'number'
+  ) return { policy: null, error: 'Release policy record is invalid.' }
+  return { policy: data as ReleasePolicy }
+}
+
+function releaseTag(version: string): string {
+  return version.startsWith('v') ? version : `v${version}`
+}
+
 function jsonResponse(status: number, body: Record<string, unknown>): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -80,9 +118,15 @@ Deno.serve(async (request: Request) => {
     'User-Agent': 'HELIX-installer-download',
   }
   let releaseResponse: Response
+  const policyResult = await readReleasePolicy()
+  if (policyResult.error) {
+    console.error('Could not read the public release policy:', policyResult.error)
+    return jsonResponse(503, { error: 'The installer is temporarily unavailable. Please try again later.' })
+  }
+  const policy = policyResult.policy
   try {
     releaseResponse = await fetch(
-      `${GITHUB_API}/repos/${encodeURIComponent(githubOwner)}/${encodeURIComponent(githubRepo)}/releases/latest`,
+      `${GITHUB_API}/repos/${encodeURIComponent(githubOwner)}/${encodeURIComponent(githubRepo)}/releases/${policy ? `tags/${encodeURIComponent(releaseTag(policy.public_version))}` : 'latest'}`,
       { headers: githubHeaders },
     )
   } catch (error) {
@@ -105,6 +149,19 @@ Deno.serve(async (request: Request) => {
 
   if (!releaseData || typeof releaseData !== 'object' || !('assets' in releaseData) || !Array.isArray(releaseData.assets)) {
     console.error('GitHub latest release response did not contain an asset list.')
+    return jsonResponse(503, { error: 'The installer is temporarily unavailable. Please try again later.' })
+  }
+  if (
+    policy
+    && (
+      !('tag_name' in releaseData)
+      || releaseData.tag_name !== releaseTag(policy.public_version)
+      || !('prerelease' in releaseData)
+      || (policy.channel === 'stable' && releaseData.prerelease === true)
+      || (policy.channel === 'beta' && releaseData.prerelease !== true)
+    )
+  ) {
+    console.error('The selected public release does not match the configured tag and channel.')
     return jsonResponse(503, { error: 'The installer is temporarily unavailable. Please try again later.' })
   }
 

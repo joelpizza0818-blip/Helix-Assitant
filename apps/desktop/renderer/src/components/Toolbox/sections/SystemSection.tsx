@@ -57,6 +57,28 @@ export default function SystemSection({ settings, onSave }: Props) {
             <span className="toggle__slider" />
           </label>
         </div>
+
+        <div className="form-row">
+          <div>
+            <span className="text-sm weight-medium text-bone">Start HELIX with Windows</span>
+            <p className="text-xs text-muted">Controls the installed HELIX startup entry. Disable it here to stop automatic launch.</p>
+          </div>
+          <label className="toggle">
+            <input type="checkbox" checked={settings.start_with_windows} onChange={(event) => void onSave({ start_with_windows: event.target.checked })} />
+            <span className="toggle__slider" />
+          </label>
+        </div>
+
+        <div className="form-row">
+          <div>
+            <span className="text-sm weight-medium text-bone">Start minimized to tray</span>
+            <p className="text-xs text-muted">HELIX still starts in the background and remains available from the tray.</p>
+          </div>
+          <label className="toggle">
+            <input type="checkbox" checked={settings.start_minimized ?? true} onChange={(event) => void onSave({ start_minimized: event.target.checked })} />
+            <span className="toggle__slider" />
+          </label>
+        </div>
       </div>
 
       {/* ── Protected Directory Boundaries ─────────────────────── */}

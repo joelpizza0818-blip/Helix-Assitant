@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('helix', {
     text: string
     conversation_id: string
     conversation_history: Array<{ role: 'user' | 'assistant'; content: string }>
+    attachments?: Array<{ name: string; mime_type: string; size: number; data_base64: string }>
   }): void => {
     ipcRenderer.send('helix:send-message', payload)
   },
@@ -62,6 +63,14 @@ contextBridge.exposeInMainWorld('helix', {
 
   saveSettings: (settings: object): Promise<void> =>
     ipcRenderer.invoke('helix:save-settings', settings),
+
+  testTts: (text?: string): Promise<unknown> =>
+    ipcRenderer.invoke('helix:test-tts', text),
+
+  getMemoryStatus: (): Promise<unknown> =>
+    ipcRenderer.invoke('helix:get-memory-status'),
+  clearMemory: (): Promise<{ cleared: boolean }> =>
+    ipcRenderer.invoke('helix:clear-memory'),
 
   getTasks: (): Promise<unknown[]> =>
     ipcRenderer.invoke('helix:get-tasks'),
@@ -166,4 +175,13 @@ contextBridge.exposeInMainWorld('helix', {
 
   onUpdaterStatus: (fn: (status: unknown) => void): (() => void) =>
     createEventListener('helix:updater-status', fn),
+  startAdminGithubLogin: (): Promise<{ started: boolean }> =>
+    ipcRenderer.invoke('helix:admin-github-login'),
+  getAdminStatus: (): Promise<{ configured: boolean; authenticated: boolean }> =>
+    ipcRenderer.invoke('helix:admin-status'),
+  validateAdmin: (secret: string): Promise<{ authenticated: boolean }> =>
+    ipcRenderer.invoke('helix:admin-validate', secret),
+  getAdminConfig: (): Promise<unknown> => ipcRenderer.invoke('helix:admin-config'),
+  saveAdminConfig: (config: object): Promise<unknown> => ipcRenderer.invoke('helix:admin-save-config', config),
+  createVersionBackup: (version: string): Promise<unknown> => ipcRenderer.invoke('helix:admin-backup', version),
 })

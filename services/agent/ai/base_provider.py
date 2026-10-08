@@ -20,6 +20,7 @@ class ChatMessage:
     tool_call_id: Optional[str] = None
     tool_name: Optional[str] = None
     image_bytes: Optional[bytes] = None
+    image_mime_type: str = "image/jpeg"
     provider_data: Any = None
 
 @dataclass

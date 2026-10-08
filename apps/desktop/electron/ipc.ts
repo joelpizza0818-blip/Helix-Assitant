@@ -57,6 +57,7 @@ export class IPCBridge {
       text: string
       conversation_id: string
       conversation_history: Array<{ role: 'user' | 'assistant'; content: string }>
+      attachments?: Array<{ name: string; mime_type: string; size: number; data_base64: string }>
     }) => {
       this._sendToPython({ type: 'USER_TEXT', payload, timestamp: new Date().toISOString() })
     })
@@ -102,6 +103,21 @@ export class IPCBridge {
       }
       event.sender.send('helix:settings-applied', result)
       return result
+    })
+
+    ipcMain.handle('helix:test-tts', async (_event, text?: string) => {
+      return this._request({
+        type: 'TEST_TTS',
+        payload: { text: typeof text === 'string' && text.trim() ? text.trim() : undefined },
+      }, 30000)
+    })
+
+    ipcMain.handle('helix:get-memory-status', async () => {
+      return this._request({ type: 'GET_MEMORY_STATUS', payload: {} })
+    })
+
+    ipcMain.handle('helix:clear-memory', async () => {
+      return this._request({ type: 'CLEAR_MEMORY', payload: {} })
     })
 
     ipcMain.handle('helix:validate-key', async (_event, provider: string, slot: number, key: string) => {

@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import base64
 from copy import deepcopy
 from dataclasses import asdict
 from datetime import datetime
@@ -146,6 +147,9 @@ class DesktopRequestHandler:
             "GET_MODELS": lambda: self._get_models(payload.get("requirements") or {}),
             "GET_SETTINGS": self._get_settings,
             "SAVE_SETTINGS": lambda: self._save_settings(payload.get("settings")),
+            "TEST_TTS": lambda: self._test_tts(payload),
+            "GET_MEMORY_STATUS": self._get_memory_status,
+            "CLEAR_MEMORY": self._clear_memory,
             "VALIDATE_KEY": lambda: self._validate_key(payload),
             "GET_SKILLS": self._get_skills,
             "SAVE_SKILL": lambda: self._save_skill(payload.get("skill")),
@@ -169,9 +173,36 @@ class DesktopRequestHandler:
             self._update_browser_page(payload)
         elif message_type == "USER_TEXT":
             text = payload.get("text")
-            if not isinstance(text, str) or not text.strip():
-                raise ValueError("USER_TEXT requires a non-empty text value")
+            if not isinstance(text, str) or (not text.strip() and not payload.get("attachments")):
+                raise ValueError("USER_TEXT requires text or at least one attachment")
             event_payload = {"text": text}
+            attachments = payload.get("attachments", [])
+            if not isinstance(attachments, list) or len(attachments) > 10:
+                raise ValueError("USER_TEXT attachments must be a list with at most 10 items")
+            safe_attachments = []
+            total_bytes = 0
+            for attachment in attachments:
+                if not isinstance(attachment, dict):
+                    raise ValueError("USER_TEXT attachment must be an object")
+                name = attachment.get("name")
+                mime_type = attachment.get("mime_type")
+                data = attachment.get("data_base64")
+                if not isinstance(name, str) or not name or len(name) > 255:
+                    raise ValueError("USER_TEXT attachment has an invalid name")
+                if not isinstance(mime_type, str) or len(mime_type) > 127:
+                    raise ValueError("USER_TEXT attachment has an invalid MIME type")
+                if not isinstance(data, str) or len(data) > 12_000_000:
+                    raise ValueError("USER_TEXT attachment is too large")
+                try:
+                    raw = base64.b64decode(data, validate=True)
+                except (ValueError, TypeError):
+                    raise ValueError("USER_TEXT attachment is not valid base64") from None
+                total_bytes += len(raw)
+                if total_bytes > 8 * 1024 * 1024:
+                    raise ValueError("USER_TEXT attachments exceed the 8 MB limit")
+                safe_attachments.append({"name": name, "mime_type": mime_type, "data_base64": data})
+            if safe_attachments:
+                event_payload["attachments"] = safe_attachments
             conversation_id = payload.get("conversation_id")
             conversation_history = payload.get("conversation_history")
             if conversation_id is not None:
@@ -485,6 +516,87 @@ class DesktopRequestHandler:
 
     async def _get_settings(self) -> dict:
         return self.get_settings()
+
+    async def _test_tts(self, payload: dict) -> dict:
+        settings = self.get_settings()
+        text = payload.get("text") if isinstance(payload, dict) else None
+        if not isinstance(text, str) or not text.strip():
+            text = "HELIX audio output test. Your configured voice pipeline is active."
+        provider = {
+            "openai_tts": "openai",
+            "elevenlabs": "elevenlabs",
+            "edge_tts": "edge_tts",
+            "windows_sapi": "system",
+        }.get(settings.get("voice_tts_provider", "edge_tts"), "edge_tts")
+        voice_id = settings.get("voice_tts_voice", "en-US-AndrewMultilingualNeural")
+        model = settings.get("tts_model", os.environ.get("TTS_MODEL", "tts-1"))
+        try:
+            from services.agent.perception.text_to_speech import TextToSpeech
+        except ImportError:
+            from perception.text_to_speech import TextToSpeech
+        key_info = self.key_manager.get_available_key("openai")
+        api_key = key_info[1] if key_info else None
+        if provider == "elevenlabs":
+            api_key = os.environ.get("ELEVENLABS_API_KEY")
+        tts = TextToSpeech(
+            provider=provider,
+            model=model,
+            api_key=api_key,
+            voice_id=voice_id,
+        )
+        fallback_used = getattr(tts, "provider", provider) != provider
+        if fallback_used:
+            await tts.speak(text)
+            return {
+                "ok": True,
+                "provider": getattr(tts, "provider", "system"),
+                "fallback_used": True,
+                "error": f"The configured {provider} provider has no API key.",
+            }
+        try:
+            await tts.speak(text)
+        except Exception as error:
+            if getattr(tts, "provider", provider) == "system":
+                raise
+            fallback_used = True
+            fallback = TextToSpeech(provider="system")
+            await fallback.speak(text)
+            return {
+                "ok": True,
+                "provider": "system",
+                "fallback_used": fallback_used,
+                "error": str(error),
+            }
+        return {"ok": True, "provider": getattr(tts, "provider", provider), "fallback_used": fallback_used}
+
+    async def _get_memory_status(self) -> dict:
+        if self.memory_manager is None:
+            return {
+                "pgvector_ready": False,
+                "provider": "local",
+                "embedding_model": "none",
+                "similarity_threshold": 0,
+                "dimensions": None,
+                "message": "Memory manager is not available.",
+            }
+        status = getattr(self.memory_manager, "status", None)
+        if callable(status):
+            result = status()
+            return await result if asyncio.iscoroutine(result) else result
+        return {
+            "pgvector_ready": False,
+            "provider": "local",
+            "embedding_model": getattr(self.memory_manager, "embedding_model", "unknown"),
+            "similarity_threshold": getattr(self.memory_manager, "similarity_threshold", 0),
+            "dimensions": None,
+            "message": "Memory manager does not expose pgvector status.",
+        }
+
+    async def _clear_memory(self) -> dict:
+        if self.memory_manager is None:
+            raise RuntimeError("Memory manager is not available.")
+        await self.memory_manager.clear_conversation_memory()
+        return {"cleared": True}
 
     def _custom_skills_dir(self) -> Path:
         return self.settings_path.parent / "skills"

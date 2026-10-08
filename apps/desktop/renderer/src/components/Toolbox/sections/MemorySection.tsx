@@ -1,5 +1,5 @@
-import React, { useState } from 'react'
-import type { HelixSettings } from '../../../types/global'
+import React, { useEffect, useState } from 'react'
+import type { HelixSettings, MemoryStatus } from '../../../types/global'
 import '../Toolbox.css'
 
 interface Props {
@@ -9,12 +9,37 @@ interface Props {
 
 export default function MemorySection({ settings, onSave }: Props) {
   const [clearedNotice, setClearedNotice] = useState(false)
+  const [memoryStatus, setMemoryStatus] = useState<MemoryStatus | null>(null)
+  const [maintenanceError, setMaintenanceError] = useState<string | null>(null)
 
-  const handleClearMemory = () => {
-    void onSave({ application_memory: {} })
-    setClearedNotice(true)
-    setTimeout(() => setClearedNotice(false), 3000)
+  const handleClearMemory = async () => {
+    setMaintenanceError(null)
+    try {
+      await window.helix.clearMemory()
+      setClearedNotice(true)
+      setTimeout(() => setClearedNotice(false), 3000)
+    } catch (error) {
+      setMaintenanceError(error instanceof Error ? error.message : 'Could not clear conversation memory.')
+    }
   }
+
+  useEffect(() => {
+    let active = true
+    const refresh = async () => {
+      try {
+        const status = await window.helix.getMemoryStatus()
+        if (active) setMemoryStatus(status)
+      } catch {
+        if (active) setMemoryStatus(null)
+      }
+    }
+    void refresh()
+    const interval = window.setInterval(() => void refresh(), 5000)
+    return () => {
+      active = false
+      window.clearInterval(interval)
+    }
+  }, [])
 
   return (
     <div className="toolbox-section">
@@ -60,17 +85,22 @@ export default function MemorySection({ settings, onSave }: Props) {
       <div className="toolbox-card" style={{ marginBottom: 16 }}>
         <div className="toolbox-card__header">
           <span className="toolbox-card__title">Long-Term Semantic Vector Storage</span>
-          <span className="status-badge status-badge--healthy">pgvector Ready</span>
+          <span className={`status-badge ${memoryStatus?.pgvector_ready ? 'status-badge--healthy' : 'status-badge--unconfigured'}`}>
+            {memoryStatus?.pgvector_ready ? 'pgvector Ready' : 'Local memory only'}
+          </span>
         </div>
+        {memoryStatus && <p className="text-xs text-muted">{memoryStatus.message}</p>}
 
         <div className="form-row">
           <label className="form-label">Embedding Model</label>
           <select className="form-input" value={settings.embedding_model || 'text-embedding-3-small'} onChange={(event) => void onSave({ embedding_model: event.target.value })}>
             <option value="text-embedding-3-small">OpenAI text-embedding-3-small (1536 dim)</option>
             <option value="text-embedding-004">Google text-embedding-004 (768 dim)</option>
-            <option value="local_bge">Local BGE-Small-EN (Offline HuggingFace model)</option>
           </select>
         </div>
+          <p className="text-xs text-muted">
+            Semantic storage requires an explicit HELIX_MEMORY_DATABASE_URL and the selected provider's API key. Conversation text is sent to OpenAI or Google for embeddings and stored in that separate database. The backend database connection is never reused.
+          </p>
 
         <div className="form-row">
           <label className="form-label">Vector Similarity Threshold (Cosine)</label>
@@ -88,6 +118,7 @@ export default function MemorySection({ settings, onSave }: Props) {
             </span>
           )}
         </div>
+        {maintenanceError && <p className="toolbox-error" role="alert">{maintenanceError}</p>}
 
         <div className="form-row">
           <div>
@@ -98,7 +129,7 @@ export default function MemorySection({ settings, onSave }: Props) {
             type="button"
             className="validate-btn"
             style={{ background: 'rgba(212, 84, 74, 0.15)', borderColor: 'var(--red)', color: 'var(--chalk)' }}
-            onClick={handleClearMemory}
+            onClick={() => void handleClearMemory()}
           >
             Clear Buffer
           </button>

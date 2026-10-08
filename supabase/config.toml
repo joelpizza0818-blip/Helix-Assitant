@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.installer-updates]
 verify_jwt = false
+
+[functions.installer-admin]
+verify_jwt = false

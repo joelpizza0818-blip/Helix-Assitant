@@ -41,7 +41,7 @@ class AnthropicProvider(BaseAIProvider):
                     "type": "image",
                     "source": {
                         "type": "base64",
-                        "media_type": "image/jpeg",
+                        "media_type": message.image_mime_type,
                         "data": base64.b64encode(message.image_bytes).decode("ascii"),
                     },
                 })

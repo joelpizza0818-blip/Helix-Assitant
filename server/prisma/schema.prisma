@@ -199,3 +199,31 @@ model ConfirmationPolicy {
   @@index([userId])
   @@map("confirmation_policies")
 }
+
+model ReleasePolicy {
+  id                 String   @id @default("global")
+  publicVersion      String   @map("public_version")
+  channel            String   @default("stable")
+  autoUpdate         Boolean  @default(true) @map("auto_update")
+  checkIntervalHours Int      @default(24) @map("check_interval_hours")
+  updatedByUserId    String?  @map("updated_by_user_id")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  backups ReleaseBackup[]
+
+  @@map("release_policies")
+}
+
+model ReleaseBackup {
+  id             String   @id @default(uuid())
+  version        String   @unique
+  currentVersion String?  @map("current_version")
+  createdAt      DateTime @default(now()) @map("created_at")
+  policyId       String   @default("global") @map("policy_id")
+
+  policy ReleasePolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+
+  @@index([policyId])
+  @@map("release_backups")
+}

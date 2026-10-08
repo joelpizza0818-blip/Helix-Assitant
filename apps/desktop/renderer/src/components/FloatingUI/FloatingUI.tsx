@@ -13,7 +13,7 @@ import {
   type ActiveMention,
   type MentionOption,
 } from './mentionAutocomplete'
-import type { MCPServerStatus, SkillSummary } from '../../types/global'
+import type { ChatAttachment, MCPServerStatus, SkillSummary } from '../../types/global'
 import './FloatingUI.css'
 
 export default function FloatingUI() {
@@ -34,6 +34,8 @@ export default function FloatingUI() {
   const [selectedMentionIndex, setSelectedMentionIndex] = useState(0)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([])
 
   // Auto-scroll to latest message
   useEffect(() => {
@@ -93,10 +95,27 @@ export default function FloatingUI() {
 
   const handleSend = () => {
     const text = inputText.trim()
-    if (!text || isLoading) return
-    sendMessage(text)
+    if ((!text && attachments.length === 0) || isLoading) return
+    sendMessage(text, attachments)
     setInputText('')
+    setAttachments([])
     setActiveMention(null)
+  }
+
+  const readAttachments = async (files: FileList | null) => {
+    if (!files) return
+    const next = await Promise.all(Array.from(files).slice(0, 10).map(async (file) => ({
+      name: file.name,
+      mime_type: file.type || 'application/octet-stream',
+      size: file.size,
+      data_base64: (await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(String(reader.result).split(',')[1] || '')
+        reader.onerror = () => reject(reader.error)
+        reader.readAsDataURL(file)
+      })),
+    })))
+    setAttachments((current) => [...current, ...next].slice(0, 10))
   }
 
   const updateInput = (value: string, caretPosition: number) => {
@@ -305,6 +324,10 @@ export default function FloatingUI() {
 
       {/* ── Input Area ────────────────────────── */}
       <div className="floating-ui__input-area">
+        <input ref={fileInputRef} className="floating-ui__file-input" type="file" multiple accept="image/*,.txt,.md,.json,.csv,.pdf,.doc,.docx,.js,.ts,.py,.html,.css" onChange={(event) => { void readAttachments(event.target.files); event.currentTarget.value = '' }} />
+        {attachments.length > 0 && <div className="floating-ui__attachments" aria-label="Attached files">
+          {attachments.map((attachment) => <button key={`${attachment.name}-${attachment.size}`} type="button" className="floating-ui__attachment" onClick={() => setAttachments((current) => current.filter((item) => item !== attachment))} title="Remove attachment">📎 {attachment.name} ×</button>)}
+        </div>}
         <div className="floating-ui__input-wrapper">
           <input
             ref={inputRef}
@@ -353,6 +376,8 @@ export default function FloatingUI() {
             </div>
           )}
         </div>
+
+        <button className="icon-btn" type="button" onClick={() => fileInputRef.current?.click()} title="Attach files or images" aria-label="Attach files or images"><PaperclipIcon /></button>
 
         {/* Microphone button */}
         <button
@@ -437,6 +462,14 @@ function SendIcon() {
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <line x1="22" y1="2" x2="11" y2="13" />
       <polygon points="22 2 15 22 11 13 2 9 22 2" />
+    </svg>
+  )
+}
+
+function PaperclipIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m21.4 11.6-8.8 8.8a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5" />
     </svg>
   )
 }

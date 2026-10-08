@@ -36,7 +36,7 @@ class OpenAIProvider(BaseAIProvider):
                 content.append({
                     "type": "image_url",
                     "image_url": {
-                        "url": "data:image/jpeg;base64,"
+                        "url": f"data:{message.image_mime_type};base64,"
                         + base64.b64encode(message.image_bytes).decode("ascii"),
                     },
                 })

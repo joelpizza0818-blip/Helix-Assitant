@@ -15,6 +15,7 @@ import {
 import { autoUpdater } from 'electron-updater'
 import path from 'path'
 import fs from 'fs'
+import { execFile, spawn } from 'child_process'
 import { pathToFileURL } from 'url'
 import { PythonManager } from './python-manager'
 import { IPCBridge } from './ipc'
@@ -28,6 +29,7 @@ const RENDERER_URL = isDev
   ? `http://127.0.0.1:${rendererPort}`
   : pathToFileURL(path.join(__dirname, '../dist/index.html')).toString()
 const DEFAULT_WS_PORT = parseInt(process.env.AGENT_WS_PORT || '8765', 10)
+const UPDATE_POLICY_URL = 'https://zqjktbpymrfjmggjmbfp.supabase.co/functions/v1/installer-updates/policy.json'
 let wsPort = DEFAULT_WS_PORT
 
 if (isDev) {
@@ -50,6 +52,163 @@ let updaterCheckInProgress = false
 let updateDownloaded = false
 let isQuitting = false
 let shutdownComplete = false
+let adminAuthenticated = false
+const ADMIN_GITHUB_LOGIN = 'joelpizza0818-blip'
+
+function verifyGithubAdmin(): Promise<boolean> {
+  return new Promise((resolve) => {
+    execFile('gh', ['api', 'user', '--jq', '.login'], { windowsHide: true, timeout: 5000 }, (error, stdout) => {
+      const login = stdout.trim()
+      const isAdmin = !error && login === ADMIN_GITHUB_LOGIN
+      adminAuthenticated = isAdmin
+      resolve(isAdmin)
+    })
+  })
+}
+
+function startGithubLogin(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const child = spawn('gh', ['auth', 'login', '--web', '--hostname', 'github.com', '--git-protocol', 'https'], {
+      detached: true,
+      windowsHide: false,
+      stdio: 'ignore',
+    })
+    child.once('spawn', () => {
+      child.unref()
+      resolve(true)
+    })
+    child.once('error', () => resolve(false))
+  })
+}
+
+interface AdminBackup { version: string; createdAt: string; currentVersion: string | null }
+interface AdminConfig { autoUpdate: boolean; checkIntervalHours: number; channel: 'stable' | 'beta'; publicVersion: string; backups: AdminBackup[] }
+
+function adminConfigPath(): string { return path.join(app.getPath('userData'), 'admin-config.json') }
+function readAdminConfig(): AdminConfig {
+  const fallback: AdminConfig = { autoUpdate: true, checkIntervalHours: 24, channel: 'stable', publicVersion: app.getVersion(), backups: [] }
+  try {
+    const value = JSON.parse(fs.readFileSync(adminConfigPath(), 'utf8'))
+    return { ...fallback, ...value, backups: Array.isArray(value.backups) ? value.backups : [] }
+  } catch { return fallback }
+}
+function writeAdminConfig(config: AdminConfig): AdminConfig {
+  const safe = { ...config, checkIntervalHours: Math.max(1, Math.min(720, Number(config.checkIntervalHours) || 24)), backups: config.backups.slice(0, 20) }
+  fs.mkdirSync(path.dirname(adminConfigPath()), { recursive: true })
+  fs.writeFileSync(adminConfigPath(), JSON.stringify(safe, null, 2), 'utf8')
+  return safe
+}
+
+function adminApiBaseUrl(): string {
+  return process.env.HELIX_ADMIN_URL
+    || 'https://zqjktbpymrfjmggjmbfp.supabase.co/functions/v1/installer-admin'
+}
+
+function githubCliToken(): Promise<string> {
+  return new Promise((resolve) => {
+    execFile('gh', ['auth', 'token', '--hostname', 'github.com'], {
+      windowsHide: true,
+      timeout: 5000,
+    }, (error, stdout) => {
+      resolve(error ? '' : stdout.trim())
+    })
+  })
+}
+
+async function loadAdminConfig(): Promise<AdminConfig & { synced?: boolean; syncError?: string }> {
+  const local = readAdminConfig()
+  const token = await githubCliToken()
+  if (!token) {
+    return { ...local, synced: false, syncError: 'Authenticate with GitHub CLI to load the shared policy.' }
+  }
+  try {
+    const response = await fetch(`${adminApiBaseUrl()}/policy`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(8000),
+    })
+    if (!response.ok) {
+      return { ...local, synced: false, syncError: `Server rejected admin policy (${response.status}).` }
+    }
+    const result = await response.json() as { success?: boolean; data?: Record<string, unknown> }
+    const data = result.data
+    if (
+      result.success !== true
+      || !data
+      || typeof data.publicVersion !== 'string'
+      || (data.channel !== 'stable' && data.channel !== 'beta')
+      || typeof data.autoUpdate !== 'boolean'
+      || typeof data.checkIntervalHours !== 'number'
+      || !Array.isArray(data.backups)
+    ) {
+      return { ...local, synced: false, syncError: 'The server returned an invalid admin policy.' }
+    }
+    const remote: AdminConfig = {
+      publicVersion: data.publicVersion,
+      channel: data.channel,
+      autoUpdate: data.autoUpdate,
+      checkIntervalHours: data.checkIntervalHours,
+      backups: data.backups.filter((backup): backup is AdminBackup => (
+        backup !== null
+        && typeof backup === 'object'
+        && 'version' in backup
+        && typeof backup.version === 'string'
+        && 'createdAt' in backup
+        && typeof backup.createdAt === 'string'
+      )),
+    }
+    writeAdminConfig(remote)
+    return { ...remote, synced: true }
+  } catch (error) {
+    return {
+      ...local,
+      synced: false,
+      syncError: error instanceof Error ? error.message : 'Could not load admin policy.',
+    }
+  }
+}
+
+async function publishAdminConfig(config: AdminConfig): Promise<{ synced: boolean; error?: string }> {
+  const token = await githubCliToken()
+  if (!token) return { synced: false, error: 'No Supabase session token is available for server sync.' }
+  try {
+    const response = await fetch(`${adminApiBaseUrl()}/policy`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        publicVersion: config.publicVersion || app.getVersion(),
+        channel: config.channel,
+        autoUpdate: config.autoUpdate,
+        checkIntervalHours: config.checkIntervalHours,
+      }),
+    })
+    if (!response.ok) return { synced: false, error: `Server rejected admin policy (${response.status}).` }
+    return { synced: true }
+  } catch (error) {
+    return { synced: false, error: error instanceof Error ? error.message : 'Could not sync admin policy.' }
+  }
+}
+
+async function publishAdminBackup(backup: AdminBackup): Promise<{ synced: boolean; error?: string }> {
+  const token = await githubCliToken()
+  if (!token) return { synced: false, error: 'No Supabase session token is available for server sync.' }
+  try {
+    const response = await fetch(`${adminApiBaseUrl()}/backups`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ version: backup.version, currentVersion: backup.currentVersion }),
+    })
+    if (!response.ok) return { synced: false, error: `Server rejected backup (${response.status}).` }
+    return { synced: true }
+  } catch (error) {
+    return { synced: false, error: error instanceof Error ? error.message : 'Could not sync backup.' }
+  }
+}
 
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
@@ -251,6 +410,50 @@ function setupIPC(): void {
     }
     autoUpdater.quitAndInstall(false, true)
   })
+  ipcMain.handle('helix:admin-status', () => ({
+    configured: true,
+    authenticated: adminAuthenticated,
+  }))
+  ipcMain.handle('helix:admin-validate', async () => {
+    return { authenticated: await verifyGithubAdmin() }
+  })
+  ipcMain.handle('helix:admin-github-login', async () => ({ started: await startGithubLogin() }))
+  ipcMain.handle('helix:admin-config', () => {
+    if (!adminAuthenticated) throw new Error('Admin authentication required.')
+    return loadAdminConfig()
+  })
+  ipcMain.handle('helix:admin-save-config', async (_event, incoming: Partial<AdminConfig>) => {
+    if (!adminAuthenticated) throw new Error('Admin authentication required.')
+    const current = readAdminConfig()
+    const next: AdminConfig = {
+      ...current,
+      ...incoming,
+      channel: incoming.channel === 'beta' ? 'beta' : 'stable',
+      backups: Array.isArray(incoming.backups) ? incoming.backups : current.backups,
+    }
+    if (
+      typeof next.autoUpdate !== 'boolean'
+      || !Number.isInteger(next.checkIntervalHours)
+      || next.checkIntervalHours < 1
+      || next.checkIntervalHours > 720
+      || !/^\d+(?:\.\d+){1,3}$/.test(next.publicVersion)
+    ) {
+      throw new Error('Admin policy contains an invalid value.')
+    }
+    const saved = writeAdminConfig(next)
+    const sync = await publishAdminConfig(saved)
+    if (saved.autoUpdate) void checkForUpdates()
+    return { ...saved, synced: sync.synced, syncError: sync.error }
+  })
+  ipcMain.handle('helix:admin-backup', async (_event, version: string) => {
+    if (!adminAuthenticated) throw new Error('Admin authentication required.')
+    if (typeof version !== 'string' || !/^\d+(?:\.\d+){1,3}$/.test(version)) throw new Error('Invalid version.')
+    const current = readAdminConfig()
+    const backup = { version, createdAt: new Date().toISOString(), currentVersion: app.getVersion() }
+    const savedBackup = writeAdminConfig({ ...current, backups: [backup, ...current.backups.filter((item) => item.version !== version)] }).backups[0]
+    const sync = await publishAdminBackup(savedBackup)
+    return { ...savedBackup, synced: sync.synced, syncError: sync.error }
+  })
 
   ipcMain.handle('helix:get-browser-extension-info', () => {
     if (browserExtensionBridge) return browserExtensionBridge.getInfo()
@@ -307,10 +510,41 @@ async function checkForUpdates(): Promise<void> {
   }
 }
 
+async function getRemoteUpdatePolicy(): Promise<{
+  autoUpdate: boolean
+  checkIntervalHours: number
+} | null> {
+  const response = await fetch(UPDATE_POLICY_URL, {
+    signal: AbortSignal.timeout(8000),
+  })
+  if (!response.ok) {
+    throw new Error(`Update policy service returned HTTP ${response.status}.`)
+  }
+  const policy: unknown = await response.json()
+  if (
+    policy === null
+    || typeof policy !== 'object'
+    || !('autoUpdate' in policy)
+    || typeof policy.autoUpdate !== 'boolean'
+    || !('checkIntervalHours' in policy)
+    || typeof policy.checkIntervalHours !== 'number'
+    || !Number.isInteger(policy.checkIntervalHours)
+    || policy.checkIntervalHours < 1
+    || policy.checkIntervalHours > 720
+  ) {
+    throw new Error('Update policy service returned invalid settings.')
+  }
+  return {
+    autoUpdate: policy.autoUpdate,
+    checkIntervalHours: policy.checkIntervalHours,
+  }
+}
+
 function setupAutoUpdater(): void {
   if (!app.isPackaged || process.platform !== 'win32') return
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = false
+  const adminConfig = readAdminConfig()
   autoUpdater.on('checking-for-update', () => {
     sendToDesktopWindows('helix:updater-status', { status: 'checking', currentVersion: app.getVersion() })
   })
@@ -351,11 +585,28 @@ function setupAutoUpdater(): void {
       message: error.message || 'Could not check for updates.',
     })
   })
-  setTimeout(() => {
-    void checkForUpdates().catch((error: unknown) => {
-      console.error('[Updater] Initial update check failed:', error)
-    })
-  }, 30_000)
+  let lastAutomaticCheck = 0
+  const scheduleCheck = async () => {
+    const localConfig = readAdminConfig()
+    let remotePolicy: Awaited<ReturnType<typeof getRemoteUpdatePolicy>> = null
+    try {
+      remotePolicy = await getRemoteUpdatePolicy()
+    } catch (error) {
+      console.warn('[Updater] Could not load shared update policy; using local policy:', error)
+    }
+    const autoUpdate = remotePolicy?.autoUpdate ?? localConfig.autoUpdate
+    if (!autoUpdate) return
+    const checkIntervalHours = remotePolicy?.checkIntervalHours ?? localConfig.checkIntervalHours
+    if (Date.now() - lastAutomaticCheck < checkIntervalHours * 60 * 60 * 1000) return
+    lastAutomaticCheck = Date.now()
+    try {
+      await checkForUpdates()
+    } catch (error) {
+      console.error('[Updater] Automatic update check failed:', error)
+    }
+  }
+  setTimeout(() => void scheduleCheck(), 30_000)
+  setInterval(() => void scheduleCheck(), 15 * 60 * 1000)
 }
 
 async function startBrowserExtensionBridge(): Promise<void> {

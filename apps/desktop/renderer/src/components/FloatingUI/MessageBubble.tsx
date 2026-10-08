@@ -41,6 +41,15 @@ export default function MessageBubble({ message }: Props) {
     <div className={`message-bubble message-bubble--${role}`}>
       <div className={`bubble bubble--${role}`}>
         <div className="bubble__content selectable">
+          {message.attachments?.length ? (
+            <div className="bubble__attachments">
+              {message.attachments.map((attachment) => attachment.mime_type.startsWith('image/') ? (
+                <img key={attachment.name} className="bubble__attachment-image" src={`data:${attachment.mime_type};base64,${attachment.data_base64}`} alt={attachment.name} />
+              ) : (
+                <span key={attachment.name} className="bubble__attachment-file">📎 {attachment.name}</span>
+              ))}
+            </div>
+          ) : null}
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
         </div>
         <div className="bubble__meta">

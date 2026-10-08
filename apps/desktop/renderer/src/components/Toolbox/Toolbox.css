@@ -127,7 +127,15 @@
   width: 100%;
   min-height: 160px;
   padding: 10px;
-  resize: vertical;
+  resize: none;
+  border-radius: 0;
+}
+
+.toolbox__admin-login-message {
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-size: var(--text-xs);
 }
 
 .toolbox-action-button {

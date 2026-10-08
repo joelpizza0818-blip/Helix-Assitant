@@ -16,6 +16,9 @@ class VoiceState(Enum):
     ERROR = "ERROR"
 
 class VoiceEngine:
+    WAKE_WORD_RETRY_SECONDS = 3.0
+    AUDIO_READ_TIMEOUT_SECONDS = 5.0
+
     def __init__(self, config: dict, event_bus, key_manager, state_manager=None):
         self.config = config
         self.event_bus = event_bus
@@ -26,6 +29,7 @@ class VoiceEngine:
         self._is_active = False
         self._audio_device = None
         self._task = None
+        self._wake_monitor_task = None
         self._stt_warmup_task = None
         self._conversation_id = None
         self._conversation_history = []
@@ -61,6 +65,7 @@ class VoiceEngine:
             model_path=config.get('WAKE_WORD_MODEL_PATH', os.environ.get('WAKE_WORD_MODEL_PATH')),
             event_bus=self.event_bus,
             threshold=wake_word_threshold,
+            aliases=config.get("WAKE_WORD_ALIASES", []),
         )
         try:
             vad_threshold = float(config.get("VAD_THRESHOLD", config.get("VAD_SILENCE_THRESHOLD_MS", 250)))
@@ -75,13 +80,16 @@ class VoiceEngine:
         self.tts = TextToSpeech(
             provider=config.get('TTS_PROVIDER', 'system'),
             model=config.get('TTS_MODEL', 'tts-1'),
-            api_key=openai_key,
+            api_key=self._tts_api_key(config.get('TTS_PROVIDER', 'system'), openai_key),
             voice_id=config.get('TTS_VOICE', 'echo'),
         )
         self.fallback_tts = TextToSpeech(
             provider='system',
         )
         
+        self._subscriptions = []
+
+    def _subscribe_events(self) -> None:
         self._subscriptions = [
             asyncio.create_task(
                 self.event_bus.subscribe("VOICE_WAKE", self._handle_wake_event)
@@ -104,18 +112,48 @@ class VoiceEngine:
     async def start(self):
         if not self.enabled or self._is_active:
             return
+        if not getattr(self.wake_detector, "provider", None):
+            raise RuntimeError(
+                "Voice activation has no compatible wake-word ONNX model."
+            )
+        if not self._subscriptions:
+            self._subscribe_events()
         await asyncio.gather(*self._subscriptions)
         self._is_active = True
         await self.wake_detector.start()
         if not self.wake_detector.is_running():
-            self._is_active = False
-            logger.error("VoiceEngine could not start wake-word microphone input.")
-            return
+            logger.error(
+                "VoiceEngine could not start wake-word microphone input; "
+                "automatic recovery will retry."
+            )
         self._audio_device = getattr(self.wake_detector, "input_device", None)
         logger.info("VoiceEngine started.")
+        self._wake_monitor_task = asyncio.create_task(
+            self._monitor_wake_detector()
+        )
         if self.stt.provider == "whisper_local":
             self._stt_warmup_task = asyncio.create_task(self.stt.warmup())
             self._stt_warmup_task.add_done_callback(self._log_stt_warmup_result)
+
+    async def _monitor_wake_detector(self) -> None:
+        while self._is_active:
+            if (
+                self.state == VoiceState.IDLE
+                and not self.wake_detector.is_running()
+            ):
+                logger.warning(
+                    "Wake-word microphone is not responding; attempting recovery."
+                )
+                try:
+                    await self.wake_detector.start()
+                except Exception:
+                    logger.exception("Wake-word microphone recovery failed.")
+                if self.wake_detector.is_running():
+                    self._audio_device = getattr(
+                        self.wake_detector, "input_device", None
+                    )
+                    logger.info("Wake-word microphone recovered.")
+            await asyncio.sleep(self.WAKE_WORD_RETRY_SECONDS)
 
     @staticmethod
     def _log_stt_warmup_result(task):
@@ -127,6 +165,13 @@ class VoiceEngine:
 
     async def stop(self):
         self._is_active = False
+        if self._wake_monitor_task:
+            self._wake_monitor_task.cancel()
+            try:
+                await self._wake_monitor_task
+            except asyncio.CancelledError:
+                pass
+            self._wake_monitor_task = None
         await self.wake_detector.stop()
         if self.state_manager:
             await self.state_manager.update_state(voice_active=False)
@@ -141,6 +186,7 @@ class VoiceEngine:
         for subscription in self._subscriptions:
             if not subscription.done():
                 subscription.cancel()
+        self._subscriptions = []
         if self._task:
             self._task.cancel()
             try:
@@ -159,6 +205,38 @@ class VoiceEngine:
             turns = 20
         self._conversation_history_limit = max(1, min(100, turns)) * 2
         self._trim_conversation_history()
+
+    def _tts_api_key(self, provider: str, openai_key: str | None = None) -> str | None:
+        if provider == "openai":
+            if openai_key is not None:
+                return openai_key
+            key_info = self.key_manager.get_available_key("openai")
+            return key_info[1] if key_info else None
+        if provider == "elevenlabs":
+            return os.environ.get("ELEVENLABS_API_KEY")
+        return None
+
+    async def configure_stt(self, provider: str, model: str) -> None:
+        if __package__ == "perception":
+            from .speech_to_text import SpeechToText
+        else:
+            from services.agent.perception.speech_to_text import SpeechToText
+        key_info = self.key_manager.get_available_key("openai")
+        self.stt = SpeechToText(
+            provider=provider,
+            model=model,
+            api_key=key_info[1] if key_info else None,
+        )
+        self.config.update({"STT_PROVIDER": provider, "STT_MODEL": model})
+        if self._is_active and provider == "whisper_local":
+            if self._stt_warmup_task and not self._stt_warmup_task.done():
+                self._stt_warmup_task.cancel()
+                try:
+                    await self._stt_warmup_task
+                except asyncio.CancelledError:
+                    pass
+            self._stt_warmup_task = asyncio.create_task(self.stt.warmup())
+            self._stt_warmup_task.add_done_callback(self._log_stt_warmup_result)
 
     def _trim_conversation_history(self) -> None:
         history_limit = getattr(self, "_conversation_history_limit", 40)
@@ -184,11 +262,10 @@ class VoiceEngine:
         else:
             from services.agent.perception.text_to_speech import TextToSpeech
 
-        key_info = self.key_manager.get_available_key("openai")
         self.tts = TextToSpeech(
             provider=provider,
             model=model,
-            api_key=key_info[1] if key_info else None,
+            api_key=self._tts_api_key(provider),
             voice_id=voice_id,
         )
         self.config.update(
@@ -198,6 +275,54 @@ class VoiceEngine:
                 "TTS_VOICE": voice_id,
             }
         )
+
+    async def configure_wake_word(
+        self,
+        wake_word: str,
+        provider: str,
+        threshold: float,
+        aliases: list[str] | None = None,
+        model_path: str | None = None,
+    ) -> None:
+        was_active = self._is_active
+        if __package__ == "perception":
+            from .wake_word import WakeWordDetector
+        else:
+            from services.agent.perception.wake_word import WakeWordDetector
+        new_detector = WakeWordDetector(
+            wake_word=wake_word,
+            provider=provider,
+            model_path=model_path or self.config.get("WAKE_WORD_MODEL_PATH"),
+            event_bus=self.event_bus,
+            threshold=threshold,
+            aliases=aliases or [],
+        )
+        if not getattr(new_detector, "provider", None):
+            raise RuntimeError(
+                "The selected wake phrase has no matching OpenWakeWord model."
+            )
+        previous_detector = self.wake_detector
+        if was_active:
+            await previous_detector.stop()
+            try:
+                await new_detector.start()
+                if not new_detector.is_running():
+                    raise RuntimeError(
+                        "The wake-word microphone could not start with the new settings."
+                    )
+            except Exception:
+                try:
+                    await previous_detector.start()
+                except Exception:
+                    logger.exception("Could not restore the previous wake-word detector.")
+                raise
+        self.wake_detector = new_detector
+        self.config.update({
+            "WAKE_WORD": wake_word,
+            "WAKE_WORD_PROVIDER": provider,
+            "WAKE_WORD_THRESHOLD": str(threshold),
+            "WAKE_WORD_ALIASES": aliases or [],
+        })
 
     async def _speak_with_fallback(self, text: str) -> None:
         try:
@@ -279,7 +404,10 @@ class VoiceEngine:
         last_report = loop.time()
         while self.state == VoiceState.LISTENING:
             try:
-                data, overflowed = await asyncio.to_thread(stream.read, frame_size)
+                data, overflowed = await asyncio.wait_for(
+                    asyncio.to_thread(stream.read, frame_size),
+                    timeout=self.AUDIO_READ_TIMEOUT_SECONDS,
+                )
                 frames_received += 1
                 now = loop.time()
                 if frames_received == 1:
@@ -300,6 +428,12 @@ class VoiceEngine:
                 if overflowed:
                     logger.warning("Audio input overflowed while recording speech.")
                 yield data
+            except asyncio.TimeoutError:
+                logger.error(
+                    "Audio input stopped returning frames; ending this capture "
+                    "so the wake-word microphone can recover."
+                )
+                break
             except Exception as e:
                 logger.exception("Audio stream read error: %s", e)
                 break

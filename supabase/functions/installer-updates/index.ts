@@ -1,3 +1,5 @@
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+
 const GITHUB_API = 'https://api.github.com'
 const RELEASE_ASSET_HOSTS = new Set([
   'release-assets.githubusercontent.com',
@@ -8,6 +10,44 @@ const UPDATE_ASSET_PATTERN = /^HELIX-Setup-\d+(?:\.\d+){1,3}\.exe(?:\.blockmap)?
 interface ReleaseAsset {
   id: number
   name: string
+}
+
+interface ReleasePolicy {
+  public_version: string
+  channel: 'stable' | 'beta'
+  auto_update: boolean
+  check_interval_hours: number
+}
+
+async function readReleasePolicy(): Promise<{
+  policy: ReleasePolicy | null
+  error?: string
+}> {
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+  if (!supabaseUrl || !serviceRoleKey) return { policy: null, error: 'Policy database access is not configured.' }
+  const supabase = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
+  const { data, error } = await supabase
+    .from('release_policies')
+    .select('public_version, channel, auto_update, check_interval_hours')
+    .eq('id', 'global')
+    .maybeSingle()
+  if (error) return { policy: null, error: error.message }
+  if (!data) return { policy: null }
+  if (
+    typeof data.public_version !== 'string'
+    || !/^\d+(?:\.\d+){1,3}$/.test(data.public_version)
+    || (data.channel !== 'stable' && data.channel !== 'beta')
+    || typeof data.auto_update !== 'boolean'
+    || typeof data.check_interval_hours !== 'number'
+  ) return { policy: null, error: 'Release policy record is invalid.' }
+  return { policy: data as ReleasePolicy }
+}
+
+function releaseTag(version: string): string {
+  return version.startsWith('v') ? version : `v${version}`
 }
 
 function response(status: number, body: string, contentType: string, cacheControl = 'no-store'): Response {
@@ -32,6 +72,12 @@ function isReleaseAsset(value: unknown): value is ReleaseAsset {
     && typeof value.name === 'string'
 }
 
+function getReleaseAssets(value: unknown): ReleaseAsset[] {
+  if (!Array.isArray(value)) return []
+  const candidates: unknown[] = value
+  return candidates.filter(isReleaseAsset)
+}
+
 Deno.serve(async (request: Request) => {
   if (request.method === 'OPTIONS') return response(204, '', 'text/plain')
   if (request.method !== 'GET' && request.method !== 'HEAD') {
@@ -49,9 +95,31 @@ Deno.serve(async (request: Request) => {
   const url = new URL(request.url)
   const route = url.pathname.split('/installer-updates/')[1] ?? 'latest.yml'
   const isMetadata = route === '' || route === 'latest.yml'
+  const isPolicy = route === 'policy.json'
   const assetName = route.startsWith('download/') ? decodeURIComponent(route.slice('download/'.length)) : ''
-  if (!isMetadata && !UPDATE_ASSET_PATTERN.test(assetName)) {
+  if (!isMetadata && !isPolicy && !UPDATE_ASSET_PATTERN.test(assetName)) {
     return response(404, 'Not found', 'text/plain')
+  }
+
+  const policyResult = await readReleasePolicy()
+  if (policyResult.error) {
+    console.error('Could not read the public release policy:', policyResult.error)
+    return response(503, 'Release policy is temporarily unavailable.', 'text/plain')
+  }
+  const policy = policyResult.policy
+  if (isPolicy) {
+    const body = JSON.stringify({
+      publicVersion: policy?.public_version ?? null,
+      channel: policy?.channel ?? 'stable',
+      autoUpdate: policy?.auto_update ?? true,
+      checkIntervalHours: policy?.check_interval_hours ?? 24,
+    })
+    return response(
+      200,
+      request.method === 'HEAD' ? '' : body,
+      'application/json; charset=utf-8',
+      'public, max-age=60',
+    )
   }
 
   const githubHeaders = {
@@ -63,7 +131,7 @@ Deno.serve(async (request: Request) => {
   let releaseResponse: Response
   try {
     releaseResponse = await fetch(
-      `${GITHUB_API}/repos/${encodeURIComponent(githubOwner)}/${encodeURIComponent(githubRepo)}/releases/latest`,
+      `${GITHUB_API}/repos/${encodeURIComponent(githubOwner)}/${encodeURIComponent(githubRepo)}/releases/${policy ? `tags/${encodeURIComponent(releaseTag(policy.public_version))}` : 'latest'}`,
       { headers: githubHeaders },
     )
   } catch (error) {
@@ -82,7 +150,20 @@ Deno.serve(async (request: Request) => {
   if (!release || typeof release !== 'object' || !('assets' in release) || !Array.isArray(release.assets)) {
     return response(503, 'Invalid release metadata.', 'text/plain')
   }
-  const assets = release.assets.filter(isReleaseAsset)
+  if (
+    policy
+    && (
+      !('tag_name' in release)
+      || release.tag_name !== releaseTag(policy.public_version)
+      || !('prerelease' in release)
+      || (policy.channel === 'stable' && release.prerelease === true)
+      || (policy.channel === 'beta' && release.prerelease !== true)
+    )
+  ) {
+    console.error('The selected public release does not match the configured tag and channel.')
+    return response(503, 'Configured public release is unavailable.', 'text/plain')
+  }
+  const assets = getReleaseAssets(release.assets)
   const requestedName = isMetadata ? 'latest.yml' : assetName
   const asset = assets.find((candidate) => candidate.name === requestedName)
   if (!asset) return response(404, 'Update asset not found.', 'text/plain')

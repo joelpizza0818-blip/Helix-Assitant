@@ -4,6 +4,7 @@ import type {
   ConfirmationRequest, FallbackEvent, ProviderStatus, ModelDefinition,
   ProviderID, ModelRequestEvent
 } from '../types/global'
+import type { ChatAttachment } from '../types/global'
 import {
   readConversationHistory,
   saveConversation,
@@ -23,7 +24,7 @@ interface UseAgentReturn {
   fallbackEvent: FallbackEvent | null
   providers: ProviderStatus[]
   models: ModelDefinition[]
-  sendMessage: (text: string) => void
+  sendMessage: (text: string, attachments?: ChatAttachment[]) => void
   selectConversation: (id: string) => void
   startNewConversation: () => void
   cancelTask: (taskId: string) => void
@@ -216,11 +217,15 @@ export function useAgent(options: { persistConversation?: boolean } = {}): UseAg
     }
   }, [])
 
-  const sendMessage = useCallback((text: string) => {
-    if (!text.trim()) return
+  const sendMessage = useCallback((text: string, attachments: ChatAttachment[] = []) => {
+    if (!text.trim() && attachments.length === 0) return
+    const attachmentSummary = attachments.length
+      ? `\n\nAdjuntos: ${attachments.map((item) => item.name).join(', ')}`
+      : ''
     const userMessage: AgentMessage = {
       role: 'user',
-      content: text,
+      content: `${text}${attachmentSummary}`,
+      attachments,
       timestamp: new Date().toISOString()
     }
     setMessages((prev) => [...prev, userMessage])
@@ -233,11 +238,12 @@ export function useAgent(options: { persistConversation?: boolean } = {}): UseAg
       }
       return history
     }, [])
-    conversationHistory.push({ role: 'user', content: text })
+    conversationHistory.push({ role: 'user', content: `${text}${attachmentSummary}` })
     window.helix?.sendMessage({
       text,
       conversation_id: conversationId,
-      conversation_history: conversationHistory
+      conversation_history: conversationHistory,
+      attachments,
     })
   }, [messages, conversationId])
 

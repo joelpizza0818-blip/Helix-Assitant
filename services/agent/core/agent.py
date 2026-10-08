@@ -7,6 +7,7 @@ from .task_manager import TaskManager, TaskStatus
 from typing import Optional
 import uuid
 import asyncio
+import base64
 
 try:
     from ..skills.skill_registry import SkillRegistry
@@ -50,7 +51,8 @@ class Agent:
 
     async def handle_user_input(self, event_name: str, payload: dict):
         text = payload.get("text", "")
-        if not text:
+        attachments = payload.get("attachments") or []
+        if not text and not attachments:
             return
 
         task_id = str(uuid.uuid4())
@@ -64,6 +66,10 @@ class Agent:
             len(text),
         )
         context = {"input_source": "voice" if is_voice_input else "text"}
+        if attachments:
+            context["attachments"] = attachments
+            if not text:
+                text = "Please inspect the attached file(s) and describe what they contain."
         if payload.get("conversation_id") is not None:
             context["conversation_id"] = payload["conversation_id"]
             context["conversation_history"] = payload.get("conversation_history", [])
@@ -252,6 +258,18 @@ class Agent:
 
     async def handle_gesture_action(self, _event_name: str, payload: dict):
         action = str(payload.get("action", "")).upper()
+        gesture_handlers = {
+            "CONFIRM": self.handle_gesture_confirm,
+            "REJECT": self.handle_gesture_reject,
+            "SEARCH": self.handle_gesture_search,
+            "STOP": self.handle_gesture_stop,
+            "CLOSE": self.handle_gesture_close,
+            "OPEN": self.handle_gesture_open,
+        }
+        handler = gesture_handlers.get(action)
+        if handler:
+            await handler(_event_name, payload)
+            return
         if action == "SCREENSHOT_ANALYZE":
             await self.event_bus.publish(
                 "USER_TEXT",
@@ -262,9 +280,11 @@ class Agent:
             await self.event_bus.publish("VOICE_TOGGLE", {"source": "gesture"})
             return
         if action != "CUSTOM_COMMAND":
+            logger.warning("Ignoring unsupported learned hand action %r", action)
             return
         command = payload.get("custom_command")
         if not isinstance(command, str) or not command.strip():
+            logger.warning("Ignoring learned custom hand action without a command.")
             return
         shell = self.orchestrator.tool_registry.get_tool("shell_tool")
         if shell is None:

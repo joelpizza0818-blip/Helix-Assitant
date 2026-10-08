@@ -272,12 +272,33 @@
 
 .floating-ui__input-area {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   padding: 12px var(--space-3);
   border-top: 1px solid var(--border);
   flex-shrink: 0;
 }
+
+.floating-ui__file-input { display: none; }
+.floating-ui__attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  width: 100%;
+  flex-basis: 100%;
+  order: -1;
+  padding: 0 0 6px;
+}
+.floating-ui__attachment {
+  border: 1px solid var(--border);
+  color: var(--secondary);
+  padding: 3px 7px;
+  font-size: var(--text-xs);
+  border-radius: 3px;
+  background: var(--carbon);
+}
+.floating-ui__attachment:hover { border-color: var(--orange); color: var(--bone); }
 
 .floating-ui__input-wrapper {
   position: relative;

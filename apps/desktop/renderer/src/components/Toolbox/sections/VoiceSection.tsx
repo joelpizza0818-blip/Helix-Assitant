@@ -23,6 +23,7 @@ export default function VoiceSection({ settings, onSave }: Props) {
   const [customWordInput, setCustomWordInput] = useState(settings.wake_word || 'helix')
   const [newAliasInput, setNewAliasInput] = useState('')
   const [isPlayingTestAudio, setIsPlayingTestAudio] = useState(false)
+  const [testAudioResult, setTestAudioResult] = useState<string | null>(null)
 
   const handlePresetSelect = async (preset: string) => {
     setSelectedPreset(preset)
@@ -50,16 +51,18 @@ export default function VoiceSection({ settings, onSave }: Props) {
     await onSave({ custom_wake_words: currentAliases.filter((a) => a !== alias) })
   }
 
-  const handleTestVoiceAudio = () => {
+  const handleTestVoiceAudio = async () => {
     setIsPlayingTestAudio(true)
-    if ('speechSynthesis' in window) {
-      const utterance = new SpeechSynthesisUtterance(`HELIX activation phrase is set to ${settings.wake_word || 'Helix'}. Audio system online.`)
-      utterance.rate = 1.0
-      utterance.pitch = 1.0
-      utterance.onend = () => setIsPlayingTestAudio(false)
-      window.speechSynthesis.speak(utterance)
-    } else {
-      setTimeout(() => setIsPlayingTestAudio(false), 1500)
+    setTestAudioResult(null)
+    try {
+      const result = await window.helix.testTts(`HELIX activation phrase is set to ${settings.wake_word || 'Helix'}. Audio system online.`)
+      setTestAudioResult(result.fallback_used
+        ? `Played through ${result.provider} fallback. Primary error: ${result.error || 'unavailable'}`
+        : `Played through ${result.provider}.`)
+    } catch (error) {
+      setTestAudioResult(error instanceof Error ? error.message : 'Audio test failed.')
+    } finally {
+      setIsPlayingTestAudio(false)
     }
   }
 
@@ -67,7 +70,7 @@ export default function VoiceSection({ settings, onSave }: Props) {
     <div className="toolbox-section">
       <h2 className="toolbox-section__title">Voice Activation & Persona</h2>
       <p className="toolbox-section__desc">
-        Configure custom activation phrases, wake words, speech-to-text models, and TTS voice persona. Change the default trigger ("Helix") to any custom call name.
+        Configure the wake phrase and speech providers. A custom wake phrase needs a matching trained OpenWakeWord ONNX model in the wakeword models folder; HELIX does not train wake-word models from text.
       </p>
 
       {/* ── Activation & Wake Word Configuration ──────────────── */}
@@ -144,7 +147,7 @@ export default function VoiceSection({ settings, onSave }: Props) {
         {/* Alternate Wake Aliases */}
         <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--color-hairline)' }}>
           <label className="text-xs text-muted" style={{ display: 'block', marginBottom: 8 }}>
-            Alternate Trigger Keywords (Listens for any of these words):
+            Alternate Trigger Keywords (each requires a matching trained ONNX model):
           </label>
 
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
@@ -193,12 +196,13 @@ export default function VoiceSection({ settings, onSave }: Props) {
           <button
             type="button"
             className="validate-btn"
-            onClick={handleTestVoiceAudio}
+            onClick={() => void handleTestVoiceAudio()}
             disabled={isPlayingTestAudio}
           >
             {isPlayingTestAudio ? 'Playing...' : '▶ Test Audio Output'}
           </button>
         </div>
+        {testAudioResult && <p className="text-xs text-muted" role="status">{testAudioResult}</p>}
 
         <div className="form-row">
           <label className="form-label">Speech-To-Text Provider</label>

@@ -43,7 +43,7 @@ class GoogleProvider(BaseAIProvider):
                 if msg.image_bytes:
                     parts.append(types.Part.from_bytes(
                         data=msg.image_bytes,
-                        mime_type="image/jpeg",
+                        mime_type=msg.image_mime_type,
                     ))
                 if msg.tool_calls:
                     parts.extend(types.Part.from_function_call(

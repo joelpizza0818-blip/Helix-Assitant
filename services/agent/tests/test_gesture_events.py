@@ -123,6 +123,60 @@ async def test_gesture_requires_stability_and_is_latched_until_release():
 
 
 @pytest.mark.asyncio
+async def test_learned_hand_command_matches_scaled_pose_once_until_release():
+    event_bus = EventBus()
+    published = []
+
+    async def capture(event_name, payload):
+        published.append((event_name, payload))
+
+    await event_bus.subscribe("GESTURE_ACTION", capture)
+    pose = [
+        [index % 5 * 0.02, index // 5 * 0.03, index * 0.001]
+        for index in range(21)
+    ]
+    pose[0] = [0.0, 0.0, 0.0]
+    pose[9] = [0.08, 0.12, 0.02]
+    scaled_pose = [
+        [point[0] * 2 + 0.4, point[1] * 2 - 0.2, point[2] * 2]
+        for point in pose
+    ]
+    engine = GestureEngine(
+        event_bus,
+        stability_frames=2,
+        hand_commands=[
+            {
+                "id": "learned-open",
+                "name": "Open",
+                "action": "OPEN",
+                "samples": [{"landmarks": pose}],
+                "enabled": True,
+            }
+        ],
+    )
+    engine._loop = asyncio.get_running_loop()
+
+    for _ in range(8):
+        engine._observe_hand_commands(scaled_pose, 0.95)
+    await asyncio.sleep(0.01)
+
+    assert published == [
+        (
+            "GESTURE_ACTION",
+            {"action": "OPEN", "command_id": "learned-open", "name": "Open"},
+        )
+    ]
+
+    engine._observe_hand_commands(scaled_pose, 0.0)
+    engine._observe_hand_commands(scaled_pose, 0.0)
+    engine._observe_hand_commands(scaled_pose, 0.95)
+    engine._observe_hand_commands(scaled_pose, 0.95)
+    await asyncio.sleep(0.01)
+
+    assert len(published) == 2
+
+
+@pytest.mark.asyncio
 async def test_low_confidence_gesture_is_ignored():
     event_bus = EventBus()
     published = []
@@ -217,6 +271,33 @@ async def test_window_gesture_handlers_publish_native_window_actions(handler_nam
         "WINDOW_ACTION",
         {"action": action},
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("action", "handler_name"),
+    [
+        ("CONFIRM", "handle_gesture_confirm"),
+        ("REJECT", "handle_gesture_reject"),
+        ("SEARCH", "handle_gesture_search"),
+        ("STOP", "handle_gesture_stop"),
+        ("CLOSE", "handle_gesture_close"),
+        ("OPEN", "handle_gesture_open"),
+    ],
+)
+async def test_learned_hand_command_routes_builtin_actions(action, handler_name):
+    from services.agent.core.agent import Agent
+
+    agent = Agent.__new__(Agent)
+    handler = AsyncMock()
+    setattr(agent, handler_name, handler)
+    payload = {"action": action, "command_id": "learned-command"}
+
+    await agent.handle_gesture_action("GESTURE_ACTION", payload)
+
+    handler.assert_awaited_once_with("GESTURE_ACTION", payload)
+
+
 def test_gesture_validation_timeout_ignores_gesture_and_cancels_check():
     event_bus = EventBus()
     engine = GestureEngine(event_bus, state_manager=StateManager())
