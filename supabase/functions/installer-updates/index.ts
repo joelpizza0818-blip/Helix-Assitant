@@ -136,7 +136,7 @@ Deno.serve(async (request: Request) => {
   const metadata = await metadataResponse.text()
   if (metadata.length > 64_000) return response(503, 'Update metadata is invalid.', 'text/plain')
 
-  const baseUrl = `${url.origin}/functions/v1/installer-updates/download/`
+  const baseUrl = 'https://zqjktbpymrfjmggjmbfp.supabase.co/functions/v1/installer-updates/download/'
   const rewrittenMetadata = metadata.replace(
     /^(\s*(?:url|path):\s*)(.+?)\s*$/gm,
     (line, prefix: string, value: string) => {
