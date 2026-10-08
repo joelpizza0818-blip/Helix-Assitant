@@ -1,11 +1,13 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { useAuth } from '../../hooks/useAuth';
 import { HelixLogo } from '../HelixLogo/HelixLogo';
 import './Navigation.css';
 
 export function Navigation() {
   const location = useLocation();
   const isHome = location.pathname === '/';
+  const { user } = useAuth();
 
   return (
     <nav className="nav">
@@ -24,7 +26,7 @@ export function Navigation() {
         </div>
         
         <div className="nav-right">
-          <Link to="/login" className="btn-ghost">Log in</Link>
+          {!user && <Link to="/login" className="btn-ghost">Log in</Link>}
           <Link to="/download" className="btn-primary nav-cta">
             Download for Windows
           </Link>
