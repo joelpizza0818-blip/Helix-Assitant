@@ -15,6 +15,7 @@ import SkillsSection from './sections/SkillsSection'
 import MCPSection from './sections/MCPSection'
 import ClipboardSection from './sections/ClipboardSection'
 import BrowserExtensionSection from './sections/BrowserExtensionSection'
+import UpdateSection from './sections/UpdateSection'
 import './Toolbox.css'
 
 type Section =
@@ -31,6 +32,7 @@ type Section =
   | 'mcp'
   | 'clipboard'
   | 'browser-companion'
+  | 'updates'
 
 interface NavItem {
   id: Section
@@ -52,6 +54,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'mcp',      label: 'MCP Servers',   icon: <NavIcon d="M12 3v18m-9-9h18M5 5l14 14m0-14L5 19" /> },
   { id: 'clipboard', label: 'Clipboard', icon: <NavIcon d="M8 4h8l1 2h3v15H4V6h3l1-2zm0 4h8m-8 4h8m-8 4h5" /> },
   { id: 'browser-companion', label: 'Browser Companion', icon: <NavIcon d="M3 4h18v15H3zM3 9h18m-9 10v3m-4 0h8" /> },
+  { id: 'updates', label: 'Updates', icon: <NavIcon d="M20 7v5h-5M4 17v-5h5m-3.5-3A7 7 0 0 1 18 6l2 2M4 16l2 2a7 7 0 0 0 12.5-3" /> },
 ]
 
 function NavIcon({ d }: { d: string }) {
@@ -144,6 +147,7 @@ export default function Toolbox() {
               )}
               {activeSection === 'clipboard' && <ClipboardSection />}
               {activeSection === 'browser-companion' && <BrowserExtensionSection />}
+              {activeSection === 'updates' && <UpdateSection />}
             </>
           )}
         </main>

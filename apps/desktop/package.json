@@ -1,6 +1,6 @@
 {
   "name": "@helix/desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "HELIX - Persistent Windows AI desktop agent",
   "author": "HELIX Team",
   "private": true,
@@ -9,11 +9,12 @@
     "dev": "vite",
     "electron:dev": "cross-env NODE_ENV=development electron .",
     "dev:all": "vite",
-    "build": "tsc -p tsconfig.main.json && vite build && electron-builder",
+    "build": "tsc -p tsconfig.main.json && vite build && electron-builder --publish never",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit"
   },
   "dependencies": {
+    "electron-updater": "^6.8.9",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-markdown": "^10.1.0",
@@ -52,6 +53,12 @@
       "icon": "assets/icon.ico",
       "signAndEditExecutable": false
     },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://zqjktbpymrfjmggjmbfp.supabase.co/functions/v1/installer-updates/"
+      }
+    ],
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,

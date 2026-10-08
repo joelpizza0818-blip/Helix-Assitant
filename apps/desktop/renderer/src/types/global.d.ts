@@ -57,9 +57,22 @@ export interface HelixAPI {
   restoreClipboardItem: (id: string) => Promise<void>
   onClipboardHistoryChanged: (fn: (items: ClipboardHistoryItem[]) => void) => () => void
   onClipboardMonitoringChanged: (fn: (enabled: boolean) => void) => () => void
+  checkForUpdates: () => Promise<{ status: string; version: string }>
+  downloadUpdate: () => Promise<void>
+  installUpdate: () => Promise<void>
+  onUpdaterStatus: (fn: (status: unknown) => void) => () => void
 }
 
 // ── Shared types ──────────────────────────────────────────────────────────────
+
+export type UpdaterStatus =
+  | { status: 'checking'; currentVersion: string }
+  | { status: 'available'; currentVersion: string; version: string }
+  | { status: 'current'; currentVersion: string; version: string }
+  | { status: 'downloading'; percent: number; transferred: number; total: number }
+  | { status: 'downloaded'; currentVersion: string; version: string }
+  | { status: 'error'; message: string }
+  | { status: 'unsupported' }
 
 export type ProviderID = 'openai' | 'anthropic' | 'google' | 'custom' | string
 // API key pools are expandable; the first three slots are always shown.

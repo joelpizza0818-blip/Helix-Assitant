@@ -52,11 +52,12 @@ standalone agent executable before building the NSIS installer.
 The installer is written to `apps/desktop/release/HELIX-Setup-<version>.exe`
 and staged privately at `apps/landing/private-downloads/HELIX-Setup.exe`.
 Publishing a stable release with a tag matching `apps/desktop/package.json`
-(for example, `v0.1.0`) starts the
+(for example, `v0.1.1`) starts the
 [Windows installer workflow](.github/workflows/publish-windows-installer.yml).
-It rebuilds the installer from that exact source tag, uploads the installer and
-its SHA-256 checksum to the private `helix-installer-downloads` repository, and
-verifies the published asset and latest-release tag.
+It rebuilds the installer from that exact source tag, uploads the installer,
+SHA-256 checksum, NSIS blockmap, and `latest.yml` metadata to the private
+`helix-installer-downloads` repository, and verifies the published asset and
+latest-release tag.
 
 Configure the `INSTALLER_REPO_TOKEN` Actions secret with a fine-grained token
 restricted to `helix-installer-downloads`, with Contents read/write access.
@@ -64,6 +65,15 @@ The workflow can also be run manually from `main` to rebuild the current
 desktop package version. The landing download function reads the latest private
 release dynamically, so publishing a new installer does not require a landing
 redeploy. Never place the installer under `apps/landing/public`.
+
+Installed HELIX checks for updates at startup and exposes manual checking,
+download progress, and restart-to-install in Toolbox > Updates. The public
+`installer-updates` Supabase Edge Function serves only update metadata and
+versioned HELIX installer assets; its GitHub token remains server-side. Deploy
+it with the existing `GITHUB_INSTALLER_OWNER`, `GITHUB_INSTALLER_REPO`, and
+`GITHUB_INSTALLER_TOKEN` Supabase secrets before publishing an updater-enabled
+release. Existing v0.1.0 installations do not contain updater code, so they
+must run the v0.1.1 installer once; later versions can update in-app.
 
 ## Desktop companions
 

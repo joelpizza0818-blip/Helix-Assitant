@@ -112,6 +112,15 @@ contextBridge.exposeInMainWorld('helix', {
   restoreClipboardItem: (id: string): Promise<void> =>
     ipcRenderer.invoke('helix:restore-clipboard-item', id),
 
+  checkForUpdates: (): Promise<{ status: string; version: string }> =>
+    ipcRenderer.invoke('helix:updater-check'),
+
+  downloadUpdate: (): Promise<void> =>
+    ipcRenderer.invoke('helix:updater-download'),
+
+  installUpdate: (): Promise<void> =>
+    ipcRenderer.invoke('helix:updater-install'),
+
   // Event subscriptions (return cleanup function)
   onAgentMessage: (fn: (msg: unknown) => void): (() => void) =>
     createEventListener('helix:agent-message', fn),
@@ -154,4 +163,7 @@ contextBridge.exposeInMainWorld('helix', {
 
   onClipboardMonitoringChanged: (fn: (enabled: boolean) => void): (() => void) =>
     createEventListener('helix:clipboard-monitoring-changed', fn),
+
+  onUpdaterStatus: (fn: (status: unknown) => void): (() => void) =>
+    createEventListener('helix:updater-status', fn),
 })

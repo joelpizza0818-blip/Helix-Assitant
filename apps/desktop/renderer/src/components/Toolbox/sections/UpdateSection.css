@@ -1,0 +1,30 @@
+.updates {
+  margin-bottom: var(--space-4);
+}
+
+.updates__status {
+  margin-bottom: 16px;
+}
+
+.updates__status p {
+  margin: 0;
+  color: var(--secondary);
+  font-size: var(--text-sm);
+}
+
+.updates__progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--secondary);
+  font-size: var(--text-xs);
+}
+
+.updates__progress progress {
+  width: 100%;
+  accent-color: var(--orange);
+}
+
+.updates__note {
+  margin-top: 14px;
+}

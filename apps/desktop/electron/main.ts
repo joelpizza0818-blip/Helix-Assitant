@@ -12,6 +12,7 @@ import {
   globalShortcut,
   clipboard
 } from 'electron'
+import { autoUpdater } from 'electron-updater'
 import path from 'path'
 import fs from 'fs'
 import { pathToFileURL } from 'url'
@@ -45,6 +46,8 @@ let pythonManager: PythonManager | null = null
 let ipcBridge: IPCBridge | null = null
 let browserExtensionBridge: BrowserExtensionBridge | null = null
 let clipboardHistory: ClipboardHistory | null = null
+let updaterCheckInProgress = false
+let updateDownloaded = false
 let isQuitting = false
 let shutdownComplete = false
 
@@ -231,6 +234,24 @@ function setupIPC(): void {
   ipcBridge.onSettingsApplied(applyDesktopSettings)
   ipcBridge.setupHandlers(floatingWindow, toolboxWindow, confirmationWindow)
 
+  ipcMain.handle('helix:updater-check', async () => {
+    if (!app.isPackaged || process.platform !== 'win32') return { status: 'unsupported' }
+    await checkForUpdates()
+    return { status: 'checking', version: app.getVersion() }
+  })
+  ipcMain.handle('helix:updater-download', async () => {
+    if (!app.isPackaged || process.platform !== 'win32') {
+      throw new Error('Updates are only available in an installed HELIX Windows build.')
+    }
+    await autoUpdater.downloadUpdate()
+  })
+  ipcMain.handle('helix:updater-install', () => {
+    if (!app.isPackaged || process.platform !== 'win32' || !updateDownloaded) {
+      throw new Error('There is no downloaded HELIX update ready to install.')
+    }
+    autoUpdater.quitAndInstall(false, true)
+  })
+
   ipcMain.handle('helix:get-browser-extension-info', () => {
     if (browserExtensionBridge) return browserExtensionBridge.getInfo()
     return {
@@ -274,6 +295,67 @@ function sendToDesktopWindows(channel: string, payload: unknown): void {
   for (const window of [floatingWindow, toolboxWindow]) {
     if (window && !window.isDestroyed()) window.webContents.send(channel, payload)
   }
+}
+
+async function checkForUpdates(): Promise<void> {
+  if (!app.isPackaged || updaterCheckInProgress) return
+  updaterCheckInProgress = true
+  try {
+    await autoUpdater.checkForUpdates()
+  } finally {
+    updaterCheckInProgress = false
+  }
+}
+
+function setupAutoUpdater(): void {
+  if (!app.isPackaged || process.platform !== 'win32') return
+  autoUpdater.autoDownload = false
+  autoUpdater.autoInstallOnAppQuit = false
+  autoUpdater.on('checking-for-update', () => {
+    sendToDesktopWindows('helix:updater-status', { status: 'checking', currentVersion: app.getVersion() })
+  })
+  autoUpdater.on('update-available', (info) => {
+    sendToDesktopWindows('helix:updater-status', {
+      status: 'available',
+      currentVersion: app.getVersion(),
+      version: info.version,
+    })
+  })
+  autoUpdater.on('update-not-available', (info) => {
+    sendToDesktopWindows('helix:updater-status', {
+      status: 'current',
+      currentVersion: app.getVersion(),
+      version: info.version,
+    })
+  })
+  autoUpdater.on('download-progress', (progress) => {
+    sendToDesktopWindows('helix:updater-status', {
+      status: 'downloading',
+      percent: progress.percent,
+      transferred: progress.transferred,
+      total: progress.total,
+    })
+  })
+  autoUpdater.on('update-downloaded', (info) => {
+    updateDownloaded = true
+    sendToDesktopWindows('helix:updater-status', {
+      status: 'downloaded',
+      currentVersion: app.getVersion(),
+      version: info.version,
+    })
+  })
+  autoUpdater.on('error', (error) => {
+    console.error('[Updater] Update operation failed:', error)
+    sendToDesktopWindows('helix:updater-status', {
+      status: 'error',
+      message: error.message || 'Could not check for updates.',
+    })
+  })
+  setTimeout(() => {
+    void checkForUpdates().catch((error: unknown) => {
+      console.error('[Updater] Initial update check failed:', error)
+    })
+  }, 30_000)
 }
 
 async function startBrowserExtensionBridge(): Promise<void> {
@@ -346,6 +428,7 @@ app.whenReady().then(async () => {
 
   // Disable default menu
   Menu.setApplicationMenu(null)
+  setupAutoUpdater()
 
   // Create windows
   floatingWindow = createFloatingWindow()

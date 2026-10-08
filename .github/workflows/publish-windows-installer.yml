@@ -86,10 +86,21 @@ jobs:
           if ($env:SOURCE_TAG -ne "v$expectedVersion") {
             throw "Staged installer source version does not match $env:SOURCE_TAG."
           }
+          $versionedInstaller = "apps/landing/private-downloads/HELIX-Setup-$expectedVersion.exe"
+          foreach ($requiredAsset in @(
+            $versionedInstaller,
+            "$versionedInstaller.blockmap",
+            "apps/landing/private-downloads/latest.yml"
+          )) {
+            if (-not (Test-Path $requiredAsset -PathType Leaf)) {
+              throw "Required auto-update asset was not produced: $requiredAsset"
+            }
+          }
           $hash = (Get-FileHash $installerPath -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash *HELIX-Setup.exe" | Set-Content "apps/landing/private-downloads/HELIX-Setup.exe.sha256" -Encoding ascii
           "INSTALLER_SHA256=$hash" >> $env:GITHUB_ENV
           "INSTALLER_SIZE=$((Get-Item $installerPath).Length)" >> $env:GITHUB_ENV
+          "VERSION=$expectedVersion" >> $env:GITHUB_ENV
           Write-Host "Version: $expectedVersion"
           Write-Host "SHA-256: $hash"
           Write-Host "Size: $((Get-Item $installerPath).Length) bytes"
@@ -121,6 +132,9 @@ jobs:
           gh release upload $tag `
             "apps/landing/private-downloads/HELIX-Setup.exe" `
             "apps/landing/private-downloads/HELIX-Setup.exe.sha256" `
+            "apps/landing/private-downloads/HELIX-Setup-$($env:VERSION).exe" `
+            "apps/landing/private-downloads/HELIX-Setup-$($env:VERSION).exe.blockmap" `
+            "apps/landing/private-downloads/latest.yml" `
             --repo $installerRepository `
             --clobber
           if ($LASTEXITCODE -ne 0) { throw "Could not upload the installer assets to $tag." }
