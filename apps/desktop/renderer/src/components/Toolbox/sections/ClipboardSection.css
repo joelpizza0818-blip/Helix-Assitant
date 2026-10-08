@@ -1,0 +1,55 @@
+.clipboard-section__privacy {
+  margin-top: 4px;
+  max-width: 480px;
+}
+
+.clipboard-section__controls {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+}
+
+.clipboard-section__list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.clipboard-section__item {
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--canvas);
+}
+
+.clipboard-section__item-meta {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.clipboard-section__text {
+  max-height: 112px;
+  overflow: auto;
+  color: var(--secondary);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.clipboard-section__image {
+  display: block;
+  max-width: 100%;
+  max-height: 180px;
+  margin: 0 auto;
+  object-fit: contain;
+}
+
+.clipboard-section__copy {
+  margin-top: 8px;
+}

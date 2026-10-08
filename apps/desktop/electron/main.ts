@@ -9,7 +9,8 @@ import {
   shell,
   Notification,
   dialog,
-  globalShortcut
+  globalShortcut,
+  clipboard
 } from 'electron'
 import path from 'path'
 import fs from 'fs'
@@ -17,6 +18,8 @@ import { pathToFileURL } from 'url'
 import { PythonManager } from './python-manager'
 import { IPCBridge } from './ipc'
 import { TrayManager } from './tray'
+import { BrowserExtensionBridge } from './browser-extension-bridge'
+import { ClipboardHistory } from './clipboard-history'
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 const rendererPort = Number(process.env.HELIX_RENDERER_PORT || 5173)
@@ -36,9 +39,12 @@ if (isDev) {
 
 let floatingWindow: BrowserWindow | null = null
 let toolboxWindow: BrowserWindow | null = null
+let confirmationWindow: BrowserWindow | null = null
 let trayManager: TrayManager | null = null
 let pythonManager: PythonManager | null = null
 let ipcBridge: IPCBridge | null = null
+let browserExtensionBridge: BrowserExtensionBridge | null = null
+let clipboardHistory: ClipboardHistory | null = null
 let isQuitting = false
 let shutdownComplete = false
 
@@ -134,6 +140,31 @@ function createToolboxWindow(): BrowserWindow {
   return win
 }
 
+function createConfirmationWindow(): BrowserWindow {
+  const { x, y, width } = screen.getPrimaryDisplay().workArea
+  const win = new BrowserWindow({
+    width: 400,
+    height: 360,
+    x: x + width - 416,
+    y: y + 16,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    show: false,
+    backgroundColor: '#00000000',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  })
+  loadWithRetry(win, `${RENDERER_URL}#confirmation`)
+  return win
+}
+
 async function startPythonAgent(): Promise<void> {
   const agentCandidates = isDev
     ? [
@@ -194,11 +225,71 @@ async function startPythonAgent(): Promise<void> {
 }
 
 function setupIPC(): void {
-  if (!floatingWindow || !toolboxWindow) return
+  if (!floatingWindow || !toolboxWindow || !confirmationWindow) return
 
   ipcBridge = new IPCBridge()
   ipcBridge.onSettingsApplied(applyDesktopSettings)
-  ipcBridge.setupHandlers(floatingWindow, toolboxWindow)
+  ipcBridge.setupHandlers(floatingWindow, toolboxWindow, confirmationWindow)
+
+  ipcMain.handle('helix:get-browser-extension-info', () => {
+    if (browserExtensionBridge) return browserExtensionBridge.getInfo()
+    return {
+      token: '',
+      port: 47831,
+      extensionPath: '',
+      listening: false,
+      lastPage: null,
+      error: 'Browser companion is not initialized.',
+    }
+  })
+  ipcMain.handle('helix:open-browser-extension-folder', async () => {
+    if (!browserExtensionBridge) throw new Error('Browser companion is not initialized.')
+    const error = await shell.openPath(browserExtensionBridge.getInfo().extensionPath)
+    if (error) throw new Error(`Could not open the browser extension folder: ${error}`)
+  })
+  ipcMain.handle('helix:copy-text-to-clipboard', (_event, text: string) => {
+    if (typeof text !== 'string') throw new TypeError('Clipboard text must be a string.')
+    clipboard.writeText(text)
+  })
+
+  clipboardHistory = new ClipboardHistory(
+    (items) => sendToDesktopWindows('helix:clipboard-history-changed', items),
+    (enabled) => sendToDesktopWindows('helix:clipboard-monitoring-changed', enabled),
+  )
+  clipboardHistory.start()
+  ipcMain.handle('helix:get-clipboard-history', () => clipboardHistory?.getHistory() ?? [])
+  ipcMain.handle('helix:get-clipboard-monitoring', () => clipboardHistory?.isMonitoring() ?? false)
+  ipcMain.handle('helix:set-clipboard-monitoring', (_event, enabled: boolean) => {
+    if (typeof enabled !== 'boolean') throw new TypeError('Clipboard monitoring state must be a boolean.')
+    clipboardHistory?.setMonitoring(enabled)
+  })
+  ipcMain.handle('helix:clear-clipboard-history', () => clipboardHistory?.clear())
+  ipcMain.handle('helix:restore-clipboard-item', (_event, id: string) => {
+    if (typeof id !== 'string') throw new TypeError('Clipboard history item ID must be a string.')
+    clipboardHistory?.restore(id)
+  })
+}
+
+function sendToDesktopWindows(channel: string, payload: unknown): void {
+  for (const window of [floatingWindow, toolboxWindow]) {
+    if (window && !window.isDestroyed()) window.webContents.send(channel, payload)
+  }
+}
+
+async function startBrowserExtensionBridge(): Promise<void> {
+  const extensionPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'browser-extension')
+    : path.join(app.getAppPath(), 'browser-extension')
+  browserExtensionBridge = new BrowserExtensionBridge(
+    path.join(app.getPath('userData'), 'browser-extension-token'),
+    extensionPath,
+    (snapshot) => ipcBridge?.sendBrowserPageUpdate(snapshot) ?? false,
+  )
+  try {
+    await browserExtensionBridge.start()
+  } catch (error) {
+    console.error('[Main] Browser companion could not start:', error)
+  }
 }
 
 function applyDesktopSettings(settings: Record<string, unknown>): void {
@@ -259,6 +350,7 @@ app.whenReady().then(async () => {
   // Create windows
   floatingWindow = createFloatingWindow()
   toolboxWindow = createToolboxWindow()
+  confirmationWindow = createConfirmationWindow()
   setupIPC()
 
   // Create tray
@@ -312,6 +404,7 @@ app.whenReady().then(async () => {
 
   // Start Python agent
   await startPythonAgent()
+  await startBrowserExtensionBridge()
 
   // Connect WebSocket only after the Python agent reports readiness.
   connectWebSocket()
@@ -339,10 +432,14 @@ app.on('before-quit', (event) => {
   void (async () => {
     floatingWindow?.removeAllListeners('close')
     toolboxWindow?.removeAllListeners('close')
+    confirmationWindow?.removeAllListeners('close')
     floatingWindow?.destroy()
     toolboxWindow?.destroy()
+    confirmationWindow?.destroy()
     trayManager?.destroy()
     ipcBridge?.close()
+    clipboardHistory?.stop()
+    await browserExtensionBridge?.close()
     await pythonManager?.stop()
     shutdownComplete = true
     app.quit()

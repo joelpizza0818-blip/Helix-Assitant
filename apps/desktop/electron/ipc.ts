@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import WebSocket from 'ws'
+import type { BrowserPageSnapshot } from './browser-extension-bridge'
 
 interface AgentMessage {
   type: string
@@ -16,6 +17,9 @@ export class IPCBridge {
   private ws: WebSocket | null = null
   private mainWindow: BrowserWindow | null = null
   private toolboxWindow: BrowserWindow | null = null
+  private confirmationWindow: BrowserWindow | null = null
+  private activeConfirmationId: string | null = null
+  private activeConfirmation: Record<string, unknown> | null = null
   private pendingRequests: Map<string, ResponseResolver> = new Map()
   private queuedRequests: Map<string, AgentMessage & { request_id: string }> = new Map()
   private requestTimeouts: Map<string, NodeJS.Timeout> = new Map()
@@ -24,9 +28,29 @@ export class IPCBridge {
   private reconnecting: boolean = false
   private settingsAppliedHandler: ((settings: Record<string, unknown>) => void) | null = null
 
-  setupHandlers(mainWindow: BrowserWindow, toolboxWindow: BrowserWindow): void {
+  setupHandlers(
+    mainWindow: BrowserWindow,
+    toolboxWindow: BrowserWindow,
+    confirmationWindow: BrowserWindow,
+  ): void {
     this.mainWindow = mainWindow
     this.toolboxWindow = toolboxWindow
+    this.confirmationWindow = confirmationWindow
+    confirmationWindow.webContents.on('did-finish-load', () => {
+      this.sendActiveConfirmation()
+    })
+
+    ipcMain.on('helix:dismiss-confirmation-toast', (event, requestId: string) => {
+      if (
+        event.sender !== this.confirmationWindow?.webContents
+        || requestId !== this.activeConfirmationId
+      ) return
+      this.activeConfirmationId = null
+      this.activeConfirmation = null
+      if (this.confirmationWindow && !this.confirmationWindow.isDestroyed()) {
+        this.confirmationWindow.hide()
+      }
+    })
 
     // Renderer -> Python (fire and forget)
     ipcMain.on('helix:send-message', (_event, payload: {
@@ -124,6 +148,14 @@ export class IPCBridge {
 
   sendEmergencyStop(): void {
     this._sendToPython({ type: 'TASK_CANCEL_ALL', payload: {}, timestamp: new Date().toISOString() })
+  }
+
+  sendBrowserPageUpdate(snapshot: BrowserPageSnapshot): boolean {
+    return this._sendToPython({
+      type: 'BROWSER_PAGE_UPDATE',
+      payload: { ...snapshot },
+      timestamp: new Date().toISOString(),
+    })
   }
 
   close(): void {
@@ -238,12 +270,19 @@ export class IPCBridge {
     }, RECONNECT_DELAY_MS)
   }
 
-  private _sendToPython(message: AgentMessage): void {
+  private _sendToPython(message: AgentMessage): boolean {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(message))
+      return true
     } else {
       console.warn('[IPCBridge] Cannot send: WebSocket not connected')
+      return false
     }
+  }
+
+  private sendActiveConfirmation(): void {
+    if (!this.activeConfirmation || !this.confirmationWindow || this.confirmationWindow.isDestroyed()) return
+    this.confirmationWindow.webContents.send('helix:confirmation-request', this.activeConfirmation)
   }
 
   private _applyStartupSettings(settings: unknown): void {
@@ -306,8 +345,48 @@ export class IPCBridge {
 
     const channel = typeMap[message.type] ?? `helix:${message.type}`
 
-    // Confirmation requests and agent messages are sent once to each window.
-    if (['helix:agent-message', 'helix:confirmation-request'].includes(channel)) {
+    if (channel === 'helix:confirmation-request') {
+      this.activeConfirmation = message.payload
+      this.activeConfirmationId = typeof message.payload.id === 'string' ? message.payload.id : null
+      this._sendToAll(channel, message.payload)
+      this.sendActiveConfirmation()
+      const floatingWindowVisible = this.mainWindow
+        && !this.mainWindow.isDestroyed()
+        && this.mainWindow.isVisible()
+      const toolboxWindowVisible = this.toolboxWindow
+        && !this.toolboxWindow.isDestroyed()
+        && this.toolboxWindow.isVisible()
+      if (
+        !floatingWindowVisible
+        && this.confirmationWindow
+        && !this.confirmationWindow.isDestroyed()
+      ) {
+        this.confirmationWindow.showInactive()
+      } else if (
+        toolboxWindowVisible
+        && this.confirmationWindow
+        && !this.confirmationWindow.isDestroyed()
+      ) {
+        this.confirmationWindow.showInactive()
+      }
+      return
+    }
+
+    if (channel === 'helix:confirmation-resolved') {
+      this._sendToAll(channel, message.payload)
+      if (
+        this.activeConfirmationId
+        && message.payload.request_id === this.activeConfirmationId
+        && this.confirmationWindow
+        && !this.confirmationWindow.isDestroyed()
+      ) {
+        this.confirmationWindow.webContents.send(channel, message.payload)
+      }
+      return
+    }
+
+    // Agent messages are sent once to each window.
+    if (channel === 'helix:agent-message') {
       this.mainWindow?.webContents.send(channel, message.payload)
       if (this.toolboxWindow && !this.toolboxWindow.isDestroyed()) {
         this.toolboxWindow.webContents.send(channel, message.payload)

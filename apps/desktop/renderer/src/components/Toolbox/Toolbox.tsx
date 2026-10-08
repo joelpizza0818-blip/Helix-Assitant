@@ -13,6 +13,8 @@ import SecuritySection from './sections/SecuritySection'
 import StartupSection from './sections/StartupSection'
 import SkillsSection from './sections/SkillsSection'
 import MCPSection from './sections/MCPSection'
+import ClipboardSection from './sections/ClipboardSection'
+import BrowserExtensionSection from './sections/BrowserExtensionSection'
 import './Toolbox.css'
 
 type Section =
@@ -27,6 +29,8 @@ type Section =
   | 'startup'
   | 'skills'
   | 'mcp'
+  | 'clipboard'
+  | 'browser-companion'
 
 interface NavItem {
   id: Section
@@ -46,6 +50,8 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'startup',  label: 'Startup & Tray',icon: <NavIcon d="M5 3l14 9-14 9V3z" /> },
   { id: 'skills',   label: 'Skills',        icon: <NavIcon d="M12 3v18m-9-9h18M5.6 5.6l12.8 12.8m0-12.8L5.6 18.4" /> },
   { id: 'mcp',      label: 'MCP Servers',   icon: <NavIcon d="M12 3v18m-9-9h18M5 5l14 14m0-14L5 19" /> },
+  { id: 'clipboard', label: 'Clipboard', icon: <NavIcon d="M8 4h8l1 2h3v15H4V6h3l1-2zm0 4h8m-8 4h8m-8 4h5" /> },
+  { id: 'browser-companion', label: 'Browser Companion', icon: <NavIcon d="M3 4h18v15H3zM3 9h18m-9 10v3m-4 0h8" /> },
 ]
 
 function NavIcon({ d }: { d: string }) {
@@ -136,6 +142,8 @@ export default function Toolbox() {
               {activeSection === 'mcp' && (
                 <MCPSection settings={settings} onSave={saveSettings} saveError={error} />
               )}
+              {activeSection === 'clipboard' && <ClipboardSection />}
+              {activeSection === 'browser-companion' && <BrowserExtensionSection />}
             </>
           )}
         </main>

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>HELIX Desktop Companion</title>
+    <style>
+      body { background: #101010; color: #eee; font: 15px system-ui, sans-serif; margin: 0; padding: 32px; }
+      main { max-width: 620px; margin: 0 auto; }
+      h1 { color: #ee6018; font-size: 21px; }
+      p { color: #b8b3b0; line-height: 1.5; }
+      label { display: block; margin: 24px 0 8px; }
+      input { box-sizing: border-box; width: 100%; padding: 11px; border: 1px solid #4d4947; border-radius: 6px; background: #1d1a18; color: #eee; }
+      button { margin-top: 14px; padding: 10px 18px; border: 0; border-radius: 999px; background: #ee6018; color: white; cursor: pointer; }
+      #status { min-height: 24px; margin-top: 12px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>HELIX Desktop Companion</h1>
+      <p>
+        Paste the pairing token shown in HELIX Toolbox. The extension sends visible
+        text, links, and form labels from your active Chrome/Edge tab to HELIX on
+        this computer. It never sends values typed into form fields.
+      </p>
+      <label for="pairing-token">Pairing token</label>
+      <input id="pairing-token" type="password" autocomplete="off" spellcheck="false">
+      <button id="save-token" type="button">Save pairing token</button>
+      <p id="status" role="status" aria-live="polite"></p>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>

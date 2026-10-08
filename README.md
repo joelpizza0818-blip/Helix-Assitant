@@ -51,10 +51,27 @@ standalone agent executable before building the NSIS installer.
 
 The installer is written to `apps/desktop/release/HELIX-Setup-<version>.exe`
 and staged privately at `apps/landing/private-downloads/HELIX-Setup.exe`.
-Upload that file as `HELIX-Setup.exe` to a release in a private GitHub repository.
-The landing page only issues a temporary download URL through the authenticated
-`installer-download` Supabase Edge Function; never place the installer under
-`apps/landing/public`.
+Publishing a stable release with a tag matching `apps/desktop/package.json`
+(for example, `v0.1.0`) starts the
+[Windows installer workflow](.github/workflows/publish-windows-installer.yml).
+It rebuilds the installer from that exact source tag, uploads the installer and
+its SHA-256 checksum to the private `helix-installer-downloads` repository, and
+verifies the published asset and latest-release tag.
+
+Configure the `INSTALLER_REPO_TOKEN` Actions secret with a fine-grained token
+restricted to `helix-installer-downloads`, with Contents read/write access.
+The workflow can also be run manually from `main` to rebuild the current
+desktop package version. The landing download function reads the latest private
+release dynamically, so publishing a new installer does not require a landing
+redeploy. Never place the installer under `apps/landing/public`.
+
+## Desktop companions
+
+The Toolbox includes an in-memory clipboard history (up to 30 text/image
+entries) that can be paused or cleared. The browser companion can be loaded
+unpacked in Chrome or Edge from the Toolbox; it sends visible page text, links,
+and form labels to the local HELIX agent, but not form values. Clipboard entries
+and browser page snapshots are not persisted by these features.
 
 ## Directory Structure
 - `apps/desktop`: Electron/React desktop application
@@ -68,3 +85,4 @@ The landing page only issues a temporary download URL through the authenticated
 ## Documentation
 - [Environment & Config](docs/ENVIRONMENT.md)
 - [Architecture](docs/ARCHITECTURE.md)
+- [Project flow](docs/PROJECT_FLOW.md)

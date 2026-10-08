@@ -46,6 +46,17 @@ export interface HelixAPI {
   onHandLandmarks: (fn: (landmarks: HandLandmarkEvent) => void) => () => void
   onSettingsApplied: (fn: (settings: HelixSettings) => void) => () => void
   onShowTasks: (fn: () => void) => () => void
+  dismissConfirmationToast: (requestId: string) => void
+  getBrowserExtensionInfo: () => Promise<BrowserExtensionInfo>
+  openBrowserExtensionFolder: () => Promise<void>
+  copyTextToClipboard: (text: string) => Promise<void>
+  getClipboardHistory: () => Promise<ClipboardHistoryItem[]>
+  getClipboardMonitoring: () => Promise<boolean>
+  setClipboardMonitoring: (enabled: boolean) => Promise<void>
+  clearClipboardHistory: () => Promise<void>
+  restoreClipboardItem: (id: string) => Promise<void>
+  onClipboardHistoryChanged: (fn: (items: ClipboardHistoryItem[]) => void) => () => void
+  onClipboardMonitoringChanged: (fn: (enabled: boolean) => void) => () => void
 }
 
 // ── Shared types ──────────────────────────────────────────────────────────────
@@ -197,6 +208,23 @@ export interface ConfirmationRequest {
   why: string
   level: PermissionLevel
   created_at: string
+}
+
+export interface BrowserExtensionInfo {
+  token: string
+  port: number
+  extensionPath: string
+  listening: boolean
+  lastPage: { title: string; url: string; captured_at: string } | null
+  error: string | null
+}
+
+export interface ClipboardHistoryItem {
+  id: string
+  kind: 'text' | 'image'
+  timestamp: string
+  text?: string
+  dataUrl?: string
 }
 
 export interface ModelRequestEvent {

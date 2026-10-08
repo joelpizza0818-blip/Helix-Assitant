@@ -1,0 +1,58 @@
+.browser-extension {
+  margin-bottom: var(--space-4);
+}
+
+.browser-extension__status {
+  color: var(--red);
+  font-size: var(--text-xs);
+}
+
+.browser-extension__status--ready {
+  color: var(--green);
+}
+
+.browser-extension__privacy,
+.browser-extension__permission,
+.browser-extension__last-page {
+  margin: 8px 0;
+}
+
+.browser-extension__token-label {
+  display: block;
+  margin: 16px 0 6px;
+}
+
+.browser-extension__token-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.browser-extension__token {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.browser-extension__setup {
+  margin-top: 18px;
+  color: var(--secondary);
+  font-size: var(--text-xs);
+}
+
+.browser-extension__setup ol {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 0 20px;
+  line-height: 1.45;
+}
+
+.browser-extension__setup code {
+  color: var(--bone);
+  user-select: text;
+}
+
+.browser-extension__last-page {
+  overflow-wrap: anywhere;
+}

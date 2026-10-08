@@ -28,6 +28,10 @@ contextBridge.exposeInMainWorld('helix', {
     ipcRenderer.send('helix:emergency-stop')
   },
 
+  dismissConfirmationToast: (requestId: string): void => {
+    ipcRenderer.send('helix:dismiss-confirmation-toast', requestId)
+  },
+
   // Confirm a pending action
   confirmAction: (requestId: string): void => {
     ipcRenderer.send('helix:confirm-action', requestId)
@@ -84,6 +88,30 @@ contextBridge.exposeInMainWorld('helix', {
   getMcpServers: (): Promise<unknown[]> =>
     ipcRenderer.invoke('helix:get-mcp-servers'),
 
+  getBrowserExtensionInfo: (): Promise<unknown> =>
+    ipcRenderer.invoke('helix:get-browser-extension-info'),
+
+  openBrowserExtensionFolder: (): Promise<void> =>
+    ipcRenderer.invoke('helix:open-browser-extension-folder'),
+
+  copyTextToClipboard: (text: string): Promise<void> =>
+    ipcRenderer.invoke('helix:copy-text-to-clipboard', text),
+
+  getClipboardHistory: (): Promise<unknown[]> =>
+    ipcRenderer.invoke('helix:get-clipboard-history'),
+
+  getClipboardMonitoring: (): Promise<boolean> =>
+    ipcRenderer.invoke('helix:get-clipboard-monitoring'),
+
+  setClipboardMonitoring: (enabled: boolean): Promise<void> =>
+    ipcRenderer.invoke('helix:set-clipboard-monitoring', enabled),
+
+  clearClipboardHistory: (): Promise<void> =>
+    ipcRenderer.invoke('helix:clear-clipboard-history'),
+
+  restoreClipboardItem: (id: string): Promise<void> =>
+    ipcRenderer.invoke('helix:restore-clipboard-item', id),
+
   // Event subscriptions (return cleanup function)
   onAgentMessage: (fn: (msg: unknown) => void): (() => void) =>
     createEventListener('helix:agent-message', fn),
@@ -120,4 +148,10 @@ contextBridge.exposeInMainWorld('helix', {
 
   onShowTasks: (fn: () => void): (() => void) =>
     createEventListener('helix:show-tasks', fn),
+
+  onClipboardHistoryChanged: (fn: (items: unknown[]) => void): (() => void) =>
+    createEventListener('helix:clipboard-history-changed', fn),
+
+  onClipboardMonitoringChanged: (fn: (enabled: boolean) => void): (() => void) =>
+    createEventListener('helix:clipboard-monitoring-changed', fn),
 })

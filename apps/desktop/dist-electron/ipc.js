@@ -12,6 +12,9 @@ class IPCBridge {
         this.ws = null;
         this.mainWindow = null;
         this.toolboxWindow = null;
+        this.confirmationWindow = null;
+        this.activeConfirmationId = null;
+        this.activeConfirmation = null;
         this.pendingRequests = new Map();
         this.queuedRequests = new Map();
         this.requestTimeouts = new Map();
@@ -20,9 +23,23 @@ class IPCBridge {
         this.reconnecting = false;
         this.settingsAppliedHandler = null;
     }
-    setupHandlers(mainWindow, toolboxWindow) {
+    setupHandlers(mainWindow, toolboxWindow, confirmationWindow) {
         this.mainWindow = mainWindow;
         this.toolboxWindow = toolboxWindow;
+        this.confirmationWindow = confirmationWindow;
+        confirmationWindow.webContents.on('did-finish-load', () => {
+            this.sendActiveConfirmation();
+        });
+        electron_1.ipcMain.on('helix:dismiss-confirmation-toast', (event, requestId) => {
+            if (event.sender !== this.confirmationWindow?.webContents
+                || requestId !== this.activeConfirmationId)
+                return;
+            this.activeConfirmationId = null;
+            this.activeConfirmation = null;
+            if (this.confirmationWindow && !this.confirmationWindow.isDestroyed()) {
+                this.confirmationWindow.hide();
+            }
+        });
         // Renderer -> Python (fire and forget)
         electron_1.ipcMain.on('helix:send-message', (_event, payload) => {
             this._sendToPython({ type: 'USER_TEXT', payload, timestamp: new Date().toISOString() });
@@ -97,6 +114,13 @@ class IPCBridge {
     }
     sendEmergencyStop() {
         this._sendToPython({ type: 'TASK_CANCEL_ALL', payload: {}, timestamp: new Date().toISOString() });
+    }
+    sendBrowserPageUpdate(snapshot) {
+        return this._sendToPython({
+            type: 'BROWSER_PAGE_UPDATE',
+            payload: { ...snapshot },
+            timestamp: new Date().toISOString(),
+        });
     }
     close() {
         for (const timeout of this.requestTimeouts.values())
@@ -205,10 +229,17 @@ class IPCBridge {
     _sendToPython(message) {
         if (this.ws && this.ws.readyState === ws_1.default.OPEN) {
             this.ws.send(JSON.stringify(message));
+            return true;
         }
         else {
             console.warn('[IPCBridge] Cannot send: WebSocket not connected');
+            return false;
         }
+    }
+    sendActiveConfirmation() {
+        if (!this.activeConfirmation || !this.confirmationWindow || this.confirmationWindow.isDestroyed())
+            return;
+        this.confirmationWindow.webContents.send('helix:confirmation-request', this.activeConfirmation);
     }
     _applyStartupSettings(settings) {
         if (!electron_1.app.isPackaged || !settings || typeof settings !== 'object')
@@ -264,8 +295,41 @@ class IPCBridge {
             'hand_landmarks': 'helix:hand-landmarks'
         };
         const channel = typeMap[message.type] ?? `helix:${message.type}`;
-        // Confirmation requests and agent messages are sent once to each window.
-        if (['helix:agent-message', 'helix:confirmation-request'].includes(channel)) {
+        if (channel === 'helix:confirmation-request') {
+            this.activeConfirmation = message.payload;
+            this.activeConfirmationId = typeof message.payload.id === 'string' ? message.payload.id : null;
+            this._sendToAll(channel, message.payload);
+            this.sendActiveConfirmation();
+            const floatingWindowVisible = this.mainWindow
+                && !this.mainWindow.isDestroyed()
+                && this.mainWindow.isVisible();
+            const toolboxWindowVisible = this.toolboxWindow
+                && !this.toolboxWindow.isDestroyed()
+                && this.toolboxWindow.isVisible();
+            if (!floatingWindowVisible
+                && this.confirmationWindow
+                && !this.confirmationWindow.isDestroyed()) {
+                this.confirmationWindow.showInactive();
+            }
+            else if (toolboxWindowVisible
+                && this.confirmationWindow
+                && !this.confirmationWindow.isDestroyed()) {
+                this.confirmationWindow.showInactive();
+            }
+            return;
+        }
+        if (channel === 'helix:confirmation-resolved') {
+            this._sendToAll(channel, message.payload);
+            if (this.activeConfirmationId
+                && message.payload.request_id === this.activeConfirmationId
+                && this.confirmationWindow
+                && !this.confirmationWindow.isDestroyed()) {
+                this.confirmationWindow.webContents.send(channel, message.payload);
+            }
+            return;
+        }
+        // Agent messages are sent once to each window.
+        if (channel === 'helix:agent-message') {
             this.mainWindow?.webContents.send(channel, message.payload);
             if (this.toolboxWindow && !this.toolboxWindow.isDestroyed()) {
                 this.toolboxWindow.webContents.send(channel, message.payload);
