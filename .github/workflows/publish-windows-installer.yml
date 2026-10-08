@@ -1,0 +1,154 @@
+name: Publish Windows installer
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-windows-installer
+  cancel-in-progress: false
+
+jobs:
+  build-and-publish:
+    if: github.event_name != 'release' || !github.event.release.prerelease
+    runs-on: windows-latest
+    timeout-minutes: 180
+    steps:
+      - name: Check out the released source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+
+      - name: Validate release version and publish credentials
+        shell: pwsh
+        env:
+          INSTALLER_REPO_TOKEN: ${{ secrets.INSTALLER_REPO_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:INSTALLER_REPO_TOKEN)) {
+            throw "Configure the INSTALLER_REPO_TOKEN secret with write access to joelpizza0818-blip/helix-installer-downloads."
+          }
+          if ($env:GITHUB_EVENT_NAME -eq "workflow_dispatch" -and $env:GITHUB_REF -ne "refs/heads/main") {
+            throw "Manual installer publishing must run from the main branch."
+          }
+          $desktopVersion = (Get-Content "apps/desktop/package.json" -Raw | ConvertFrom-Json).version
+          $expectedTag = "v$desktopVersion"
+          if ($env:GITHUB_EVENT_NAME -eq "release") {
+            $sourceTag = $env:GITHUB_REF_NAME
+          } else {
+            $sourceTag = $expectedTag
+          }
+          if ($sourceTag -ne $expectedTag) {
+            throw "Source release tag '$sourceTag' must match desktop package version '$expectedTag'. Bump apps/desktop/package.json and publish that tag."
+          }
+          "SOURCE_TAG=$sourceTag" >> $env:GITHUB_ENV
+          "SOURCE_COMMIT=$env:GITHUB_SHA" >> $env:GITHUB_ENV
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: services/agent/requirements.txt
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Install Windows agent build dependencies
+        shell: pwsh
+        run: |
+          python -m venv services/agent/.venv
+          & ".\services\agent\.venv\Scripts\python.exe" -m pip install --upgrade pip
+          if ($LASTEXITCODE -ne 0) { throw "Could not upgrade pip." }
+          & ".\services\agent\.venv\Scripts\python.exe" -m pip install --prefer-binary -r services/agent/requirements.txt
+          if ($LASTEXITCODE -ne 0) { throw "Could not install the Windows agent build dependencies." }
+
+      - name: Build and stage the Windows installer
+        run: npm run build:windows
+
+      - name: Verify installer version and calculate checksum
+        shell: pwsh
+        run: |
+          $installerPath = "apps/landing/private-downloads/HELIX-Setup.exe"
+          if (-not (Test-Path $installerPath -PathType Leaf)) {
+            throw "The expected staged installer was not produced: $installerPath"
+          }
+          $expectedVersion = (Get-Content "apps/desktop/package.json" -Raw | ConvertFrom-Json).version
+          if ($env:SOURCE_TAG -ne "v$expectedVersion") {
+            throw "Staged installer source version does not match $env:SOURCE_TAG."
+          }
+          $hash = (Get-FileHash $installerPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash *HELIX-Setup.exe" | Set-Content "apps/landing/private-downloads/HELIX-Setup.exe.sha256" -Encoding ascii
+          "INSTALLER_SHA256=$hash" >> $env:GITHUB_ENV
+          "INSTALLER_SIZE=$((Get-Item $installerPath).Length)" >> $env:GITHUB_ENV
+          Write-Host "Version: $expectedVersion"
+          Write-Host "SHA-256: $hash"
+          Write-Host "Size: $((Get-Item $installerPath).Length) bytes"
+
+      - name: Publish release asset to the private installer repository
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.INSTALLER_REPO_TOKEN }}
+        run: |
+          $installerRepository = "joelpizza0818-blip/helix-installer-downloads"
+          $tag = $env:SOURCE_TAG
+          $releaseEndpoint = "repos/$installerRepository/releases/tags/$tag"
+          $notes = @"
+          HELIX Windows installer $tag
+
+          Built from joelpizza0818-blip/Helix-Assitant@$($env:SOURCE_COMMIT).
+          SHA-256: $($env:INSTALLER_SHA256)
+          "@
+          gh api $releaseEndpoint *> $null
+          $releaseExists = $LASTEXITCODE -eq 0
+          if (-not $releaseExists) {
+            gh release create $tag `
+              --repo $installerRepository `
+              --title "HELIX $tag" `
+              --notes $notes
+            if ($LASTEXITCODE -ne 0) { throw "Could not create private installer release $tag." }
+          }
+
+          gh release upload $tag `
+            "apps/landing/private-downloads/HELIX-Setup.exe" `
+            "apps/landing/private-downloads/HELIX-Setup.exe.sha256" `
+            --repo $installerRepository `
+            --clobber
+          if ($LASTEXITCODE -ne 0) { throw "Could not upload the installer assets to $tag." }
+
+          gh release edit $tag `
+            --repo $installerRepository `
+            --title "HELIX $tag" `
+            --notes $notes
+          if ($LASTEXITCODE -ne 0) { throw "Could not update the private release metadata for $tag." }
+
+          $release = gh api $releaseEndpoint | ConvertFrom-Json
+          if ($release.draft -or $release.prerelease) {
+            throw "Private installer release $tag must be a published stable release."
+          }
+          $asset = $release.assets | Where-Object { $_.name -eq "HELIX-Setup.exe" }
+          if (-not $asset) { throw "Published release $tag does not contain HELIX-Setup.exe." }
+          if ($asset.size -ne [long]$env:INSTALLER_SIZE) {
+            throw "Published installer size $($asset.size) does not match build size $($env:INSTALLER_SIZE)."
+          }
+          if ($asset.digest -and $asset.digest -ne "sha256:$($env:INSTALLER_SHA256)") {
+            throw "Published installer SHA-256 does not match the locally built artifact."
+          }
+
+          $latestResponse = gh api "repos/$installerRepository/releases/latest"
+          if ($LASTEXITCODE -ne 0) { throw "Could not verify the latest release in the private installer repository." }
+          $latest = $latestResponse | ConvertFrom-Json
+          if ($latest.tag_name -ne $tag) {
+            throw "The private repository latest release is $($latest.tag_name), not $tag. Refusing to report a stale installer as published."
+          }
+          Write-Host "Verified $tag is the latest private installer release."
+          Write-Host "Installer SHA-256: $($env:INSTALLER_SHA256)"
