@@ -45,6 +45,8 @@ $$;
 ALTER TABLE public.release_policies ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.release_backups ENABLE ROW LEVEL SECURITY;
 
+GRANT SELECT, INSERT, UPDATE ON TABLE public.release_policies, public.release_backups TO service_role;
+
 INSERT INTO public.release_policies (id, public_version, channel, auto_update, check_interval_hours)
 VALUES ('global', '0.1.2', 'stable', true, 24)
 ON CONFLICT (id) DO NOTHING;
