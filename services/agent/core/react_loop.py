@@ -13,6 +13,7 @@ except ImportError:
     pass
 
 logger = logging.getLogger(__name__)
+CONFIRMATION_TIMEOUT_SECONDS = 300
 _SHELL_TOOL_NAMES = {"shell_tool", "cmd_tool", "powershell_tool"}
 _SHELL_OUTPUT_LIMIT = 600
 
@@ -102,7 +103,7 @@ class ReActLoop:
                     "level": permission_level,
                 },
             )
-            return await asyncio.wait_for(future, timeout=60)
+            return await asyncio.wait_for(future, timeout=CONFIRMATION_TIMEOUT_SECONDS)
         finally:
             self._pending_confirmations.pop(request_id, None)
             await self.event_bus.publish(

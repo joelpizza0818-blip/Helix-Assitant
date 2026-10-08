@@ -7,6 +7,9 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
+
+from services.agent.core.browser_page_context import update_current_page
 
 try:
     from ..ai.base_provider import ModelDefinition, ModelCapabilities
@@ -162,7 +165,9 @@ class DesktopRequestHandler:
         return {"request_id": request_id, "payload": result}
 
     async def _dispatch_event(self, message_type: str, payload: dict) -> None:
-        if message_type == "USER_TEXT":
+        if message_type == "BROWSER_PAGE_UPDATE":
+            self._update_browser_page(payload)
+        elif message_type == "USER_TEXT":
             text = payload.get("text")
             if not isinstance(text, str) or not text.strip():
                 raise ValueError("USER_TEXT requires a non-empty text value")
@@ -207,6 +212,75 @@ class DesktopRequestHandler:
             await self.task_manager.event_bus.publish(message_type, payload)
         else:
             raise ValueError(f"Unsupported desktop event: {message_type}")
+
+    @staticmethod
+    def _update_browser_page(payload: dict) -> None:
+        title = payload.get("title")
+        url = payload.get("url")
+        text = payload.get("text")
+        captured_at = payload.get("captured_at")
+        if (
+            not isinstance(title, str)
+            or not isinstance(url, str)
+            or not isinstance(text, str)
+            or not isinstance(captured_at, str)
+            or len(title) > 500
+            or len(url) > 4096
+            or len(text) > 80000
+        ):
+            raise ValueError("BROWSER_PAGE_UPDATE contains invalid page data")
+
+        parsed_url = urlparse(url)
+        if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
+            raise ValueError("BROWSER_PAGE_UPDATE requires an HTTP or HTTPS page URL")
+
+        raw_links = payload.get("links", [])
+        raw_forms = payload.get("forms", [])
+        if (
+            not isinstance(raw_links, list)
+            or len(raw_links) > 120
+            or not isinstance(raw_forms, list)
+            or len(raw_forms) > 80
+        ):
+            raise ValueError("BROWSER_PAGE_UPDATE contains too many links or form fields")
+
+        links = []
+        for link in raw_links:
+            if not isinstance(link, dict):
+                continue
+            link_text = link.get("text")
+            link_url = link.get("url")
+            if (
+                isinstance(link_text, str)
+                and len(link_text) <= 300
+                and isinstance(link_url, str)
+                and len(link_url) <= 4096
+                and urlparse(link_url).scheme in {"http", "https"}
+            ):
+                links.append({"text": link_text, "url": link_url})
+
+        forms = []
+        for form in raw_forms:
+            if not isinstance(form, dict):
+                continue
+            label = form.get("label")
+            field_type = form.get("type")
+            if (
+                isinstance(label, str)
+                and len(label) <= 300
+                and isinstance(field_type, str)
+                and len(field_type) <= 40
+            ):
+                forms.append({"label": label, "type": field_type})
+
+        update_current_page({
+            "title": title,
+            "url": url,
+            "text": text,
+            "links": links,
+            "forms": forms,
+            "captured_at": captured_at,
+        })
 
     async def _get_tasks(self) -> list[dict]:
         tasks = await self.task_manager.get_tasks()

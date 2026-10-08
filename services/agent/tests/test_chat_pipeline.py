@@ -525,8 +525,18 @@ def test_react_loop_preserves_google_thought_signature_after_tool_execution():
     assert provider.tool_call.await_count == 2
 
 
-def test_tool_confirmation_is_required_and_resolved_by_request_id():
+def test_tool_confirmation_is_required_and_resolved_by_request_id(monkeypatch):
     from services.agent.core.react_loop import ReActLoop
+    from services.agent.core import react_loop as react_loop_module
+
+    actual_wait_for = asyncio.wait_for
+    observed_timeout = {}
+
+    async def record_timeout(awaitable, *, timeout):
+        observed_timeout["seconds"] = timeout
+        return await actual_wait_for(awaitable, timeout=timeout)
+
+    monkeypatch.setattr(react_loop_module.asyncio, "wait_for", record_timeout)
 
     class ConfirmingEventBus:
         def __init__(self):
@@ -570,6 +580,7 @@ def test_tool_confirmation_is_required_and_resolved_by_request_id():
         )
 
     assert asyncio.run(request_confirmation()) is True
+    assert observed_timeout["seconds"] == 300
     assert event_bus.confirmation_payload["task_id"] == "task-1"
     assert event_bus.confirmation_payload["action"] == "shell_tool"
     assert event_bus.confirmation_payload["level"] == "EXECUTE"

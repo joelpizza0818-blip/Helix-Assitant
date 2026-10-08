@@ -21,6 +21,7 @@ _TOOL_TERM_GROUPS = (
     {"file", "files", "folder", "directory", "archivo", "archivos", "carpeta"},
     {"screen", "screenshot", "desktop", "pantalla", "escritorio", "captura"},
     {"browser", "web", "website", "internet", "navegador", "sitio", "pagina"},
+    {"dom", "page", "tab", "form", "email", "correo", "pestaña", "formulario"},
     {"command", "shell", "terminal", "powershell", "cmd", "bash", "comando"},
     {"click", "press", "type", "keyboard", "mouse", "clic", "escribe", "teclado"},
     {"read", "open", "view", "inspect", "leer", "abrir", "ver", "revisar"},

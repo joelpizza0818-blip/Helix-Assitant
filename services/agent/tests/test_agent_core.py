@@ -24,6 +24,16 @@ def test_tool_registry():
     tools = registry.get_all_tools()
     assert isinstance(tools, list)
 
+def test_indexed_search_and_browser_dom_tools_are_discoverable(tmp_path):
+    registry = ToolRegistry()
+    (tmp_path / "indexed_file_search_tool.py").write_text("", encoding="utf-8")
+    (tmp_path / "browser_page_tool.py").write_text("", encoding="utf-8")
+    registry.auto_discover(str(tmp_path))
+
+    names = {tool.name for tool in registry.get_all_tools()}
+    assert "indexed_file_search" in names
+    assert "read_active_browser_page" in names
+
 
 def test_tool_registry_filters_external_tools_by_relevance_but_keeps_native_tools():
     registry = ToolRegistry()

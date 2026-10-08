@@ -1,5 +1,6 @@
 import pytest
 from pathlib import Path
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
 from services.agent.ai.anthropic_provider import AnthropicProvider
@@ -11,6 +12,7 @@ from services.agent.ai.provider_registry import ProviderRegistry
 from services.agent.ai.base_provider import KeyHealth
 from services.agent.core.desktop_bridge import DesktopRequestHandler
 from services.agent.core.event_bus import EventBus
+from services.agent.core.browser_page_context import clear_current_page, get_current_page
 from services.agent.core.task_manager import TaskManager
 from services.agent.skills.skill_loader import SkillLoader
 from services.agent.skills.skill_registry import SkillRegistry
@@ -85,6 +87,43 @@ async def test_custom_skill_can_be_created_listed_and_deleted(request_handler):
         "payload": {"name": "meeting-notes"},
     })
     assert request_handler.skill_registry.get_skill("meeting-notes") is None
+
+
+@pytest.mark.asyncio
+async def test_browser_page_update_is_available_to_agent_tools(request_handler):
+    clear_current_page()
+    page = {
+        "title": "Search results",
+        "url": "https://example.com/search",
+        "text": "Visible result text",
+        "links": [{"text": "First result", "url": "https://example.com/first"}],
+        "forms": [{"label": "Search", "type": "search"}],
+        "captured_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    await request_handler.dispatch({
+        "type": "BROWSER_PAGE_UPDATE",
+        "payload": page,
+    })
+
+    assert get_current_page() == page
+    clear_current_page()
+
+
+@pytest.mark.asyncio
+async def test_browser_page_update_rejects_invalid_urls(request_handler):
+    with pytest.raises(ValueError, match="HTTP or HTTPS"):
+        await request_handler.dispatch({
+            "type": "BROWSER_PAGE_UPDATE",
+            "payload": {
+                "title": "Invalid",
+                "url": "file:///private/data",
+                "text": "not allowed",
+                "captured_at": "2026-01-01T00:00:00+00:00",
+                "links": [],
+                "forms": [],
+            },
+        })
 
 
 @pytest.mark.asyncio
