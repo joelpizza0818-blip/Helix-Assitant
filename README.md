@@ -52,7 +52,7 @@ standalone agent executable before building the NSIS installer.
 The installer is written to `apps/desktop/release/HELIX-Setup-<version>.exe`
 and staged privately at `apps/landing/private-downloads/HELIX-Setup.exe`.
 Publishing a stable release with a tag matching `apps/desktop/package.json`
-(for example, `v0.1.1`) starts the
+(for example, `v0.1.2`) starts the
 [Windows installer workflow](.github/workflows/publish-windows-installer.yml).
 It rebuilds the installer from that exact source tag, uploads the installer,
 SHA-256 checksum, NSIS blockmap, and `latest.yml` metadata to the private
@@ -73,7 +73,8 @@ versioned HELIX installer assets; its GitHub token remains server-side. Deploy
 it with the existing `GITHUB_INSTALLER_OWNER`, `GITHUB_INSTALLER_REPO`, and
 `GITHUB_INSTALLER_TOKEN` Supabase secrets before publishing an updater-enabled
 release. Existing v0.1.0 installations do not contain updater code, so they
-must run the v0.1.1 installer once; later versions can update in-app.
+must install the current Windows installer once; later versions can update
+in-app.
 
 ## Desktop companions
 

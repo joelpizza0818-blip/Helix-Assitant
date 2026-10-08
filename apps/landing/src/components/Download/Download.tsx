@@ -1,11 +1,28 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import './Download.css';
 import { InstallerDownloadButton } from './InstallerDownloadButton';
+import { getLatestInstallerVersion } from '../../lib/downloads';
 
 export const Download: React.FC<{ requireAuthenticatedDownload?: boolean }> = ({
   requireAuthenticatedDownload = false,
 }) => {
+  const [installerVersion, setInstallerVersion] = useState<string | null>(null);
+  const [versionError, setVersionError] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    getLatestInstallerVersion(controller.signal)
+      .then(setInstallerVersion)
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        console.error('Could not load the current Windows installer version.', error);
+        setVersionError(true);
+      });
+
+    return () => controller.abort();
+  }, []);
+
   return (
     <section className="download-section" id="download">
       <div className="download-container">
@@ -28,7 +45,16 @@ export const Download: React.FC<{ requireAuthenticatedDownload?: boolean }> = ({
                 Sign in to download HELIX
               </Link>
             )}
-            <span className="build-tag">VERSION: v0.1.0-PREVIEW (x64)</span>
+            <span
+              className="build-tag"
+              role="status"
+              aria-live="polite"
+              aria-label={versionError
+                ? 'The current installer version could not be loaded. Refresh the page to try again.'
+                : undefined}
+            >
+              VERSION: {installerVersion ? `v${installerVersion}` : versionError ? 'unavailable' : 'checking…'} (x64)
+            </span>
           </div>
 
           <div className="source-instructions" id="source-code-instructions">
