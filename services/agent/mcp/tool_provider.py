@@ -72,7 +72,7 @@ class MCPToolBridge:
             for mcp_tool in tools:
                 wrapper = self.create_tool_wrapper(server_name, mcp_tool)
                 if hasattr(self.tool_registry, 'register_tool'):
-                    self.tool_registry.register_tool(wrapper)
+                    self.tool_registry.register_tool(wrapper, source="mcp")
                 else:
                     logger.warning("Tool registry missing register_tool method")
 

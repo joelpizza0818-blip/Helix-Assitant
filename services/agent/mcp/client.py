@@ -1,6 +1,8 @@
 import json
 import asyncio
 import logging
+import os
+import shlex
 from typing import List, Dict, Any, Optional
 from .protocol import (
     MCPRequest, MCPResponse, MCPToolDefinition, MCPResource,
@@ -18,30 +20,45 @@ class MCPClient:
         self._req_id = 0
         self._pending_requests: Dict[int, asyncio.Future] = {}
         self._reader_task = None
+        self._stderr_task = None
 
     async def connect(self):
         if self.server_command:
-            import shlex
-            args = shlex.split(self.server_command)
-            self.process = await asyncio.create_subprocess_exec(
-                *args,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
+            if os.name == "nt":
+                self.process = await asyncio.create_subprocess_shell(
+                    self.server_command,
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+            else:
+                args = shlex.split(self.server_command)
+                self.process = await asyncio.create_subprocess_exec(
+                    *args,
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
             self._reader_task = asyncio.create_task(self._read_responses())
-            logger.info(f"Connected to MCP server via command: {self.server_command}")
+            self._stderr_task = asyncio.create_task(self._drain_stderr())
+            logger.info("Connected to MCP server process.")
         elif self.server_url:
             raise NotImplementedError("HTTP/URL transport not yet implemented")
         else:
             raise ValueError("Must provide either server_command or server_url")
 
     async def disconnect(self):
-        if self._reader_task:
-            self._reader_task.cancel()
         if self.process:
-            self.process.terminate()
-            await self.process.wait()
+            if self.process.returncode is None:
+                self.process.terminate()
+                await self.process.wait()
+        for task in (self._reader_task, self._stderr_task):
+            if task:
+                task.cancel()
+        await asyncio.gather(
+            *(task for task in (self._reader_task, self._stderr_task) if task),
+            return_exceptions=True,
+        )
         logger.info("Disconnected from MCP server")
 
     async def initialize(self) -> dict:
@@ -95,10 +112,20 @@ class MCPClient:
             self.process.stdin.write(req_str.encode('utf-8'))
             await self.process.stdin.drain()
             
-        result = await future
+        try:
+            result = await asyncio.wait_for(future, timeout=60)
+        except asyncio.TimeoutError as error:
+            self._pending_requests.pop(req_id, None)
+            raise TimeoutError(f"MCP request {method} timed out") from error
         if result.error:
             raise Exception(f"MCP Error: {result.error}")
         return result.result
+
+    async def _drain_stderr(self):
+        if not self.process or not self.process.stderr:
+            return
+        while await self.process.stderr.readline():
+            pass
 
     async def _read_responses(self):
         try:
@@ -124,6 +151,11 @@ class MCPClient:
                     logger.error(f"Failed to parse MCP response: {line}")
         except asyncio.CancelledError:
             pass
+        finally:
+            for future in self._pending_requests.values():
+                if not future.done():
+                    future.set_exception(ConnectionError("MCP server closed its output stream"))
+            self._pending_requests.clear()
 
 class MCPClientManager:
     """Manages multiple MCP client connections."""

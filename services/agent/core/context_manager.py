@@ -2,13 +2,15 @@ from typing import List, Dict
 
 try:
     from services.agent.ai.base_provider import ChatMessage
+    from services.agent.core.runtime_context import get_runtime_command_context
 except ImportError:
-    pass
+    from core.runtime_context import get_runtime_command_context
 
 class ContextManager:
-    def __init__(self, max_tokens: int = 100000):
+    def __init__(self, max_tokens: int = 100000, tool_registry=None):
         self.max_tokens = max_tokens
         self._conversations: Dict[str, List['ChatMessage']] = {}
+        self.tool_registry = tool_registry
 
     def add_message(self, conversation_id: str, message: 'ChatMessage'):
         if conversation_id not in self._conversations:
@@ -22,7 +24,12 @@ class ContextManager:
         prompt = f"You are an AI agent fulfilling the role of: {role}.\n"
         if skills:
             prompt += f"You have the following skills: {', '.join(skills)}.\n"
-        prompt += "Use your tools to accomplish tasks efficiently."
+        prompt += (
+            f"{get_runtime_command_context(self.tool_registry)} "
+            "For a clear single-action request, prefer one direct tool action. "
+            "Use tools and commands for the detected operating system; if no "
+            "reliable shortcut applies, continue with normal reasoning."
+        )
         return prompt
 
     async def compress_if_needed(self, conversation_id: str, provider_fn):

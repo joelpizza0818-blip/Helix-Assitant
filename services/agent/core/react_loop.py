@@ -2,6 +2,8 @@ import asyncio
 import logging
 import json
 import uuid
+import inspect
+from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
 from typing import List
 
@@ -11,10 +13,47 @@ except ImportError:
     pass
 
 logger = logging.getLogger(__name__)
+_SHELL_TOOL_NAMES = {"shell_tool", "cmd_tool", "powershell_tool"}
+_SHELL_OUTPUT_LIMIT = 600
+
+
+def _model_tool_output(tool_name: str, output) -> str:
+    if tool_name not in _SHELL_TOOL_NAMES:
+        return str(output)
+    if is_dataclass(output) and not isinstance(output, type):
+        output = asdict(output)
+    serialized = (
+        json.dumps(output, ensure_ascii=False, default=str)
+        if isinstance(output, (dict, list, tuple))
+        else str(output)
+    )
+    if len(serialized) <= _SHELL_OUTPUT_LIMIT:
+        return serialized
+    marker = "[... Output truncated ...]"
+    return serialized[:_SHELL_OUTPUT_LIMIT - len(marker)] + marker
+
+try:
+    from .task_manager import _safe_text
+except ImportError:
+    from core.task_manager import _safe_text
+
+
+def _safe_confirmation_value(value):
+    if isinstance(value, dict):
+        return {
+            str(key): "[REDACTED]"
+            if any(token in str(key).casefold() for token in ("key", "token", "secret", "password", "authorization", "credential"))
+            else _safe_confirmation_value(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_safe_confirmation_value(item) for item in value]
+    return _safe_text(value, 240)
 
 class ReActLoop:
     def __init__(self, provider_registry, model_router, fallback_manager, 
-                 tool_registry, key_manager, event_bus, role_config):
+                 tool_registry, key_manager, event_bus, role_config,
+                 permission_manager=None):
         self.provider_registry = provider_registry
         self.model_router = model_router
         self.fallback_manager = fallback_manager
@@ -22,8 +61,10 @@ class ReActLoop:
         self.key_manager = key_manager
         self.event_bus = event_bus
         self.role_config = role_config
+        self.permission_manager = permission_manager
         self._pending_confirmations = {}
         self.auto_approve_up_to = "LOW_RISK"
+        self.permissions_mode = "SMART_APPROVAL"
 
     async def _ensure_confirmation_subscriptions(self):
         subscribe = getattr(self.event_bus, "subscribe", None)
@@ -53,7 +94,9 @@ class ReActLoop:
                     "action": tool.name,
                     "created_at": datetime.now(timezone.utc).isoformat(),
                     "what_will_change": json.dumps(
-                        arguments, ensure_ascii=False, sort_keys=True
+                        _safe_confirmation_value(arguments),
+                        ensure_ascii=False,
+                        sort_keys=True,
                     ),
                     "why": "This tool requires your explicit approval before it can run.",
                     "level": permission_level,
@@ -68,7 +111,8 @@ class ReActLoop:
             )
 
     async def execute(self, messages: List['ChatMessage'], role: str = 'main',
-                      max_iterations: int = 10, task_id: str = None) -> 'ChatResponse':
+                      max_iterations: int = 10, task_id: str = None,
+                      preferred_tool_names: List[str] = None) -> 'ChatResponse':
         await self._ensure_confirmation_subscriptions()
         assignment = self.role_config.get_assignment(role)
         requirements = assignment.requirements
@@ -92,7 +136,24 @@ class ReActLoop:
             
             async def provider_call(candidate, context):
                 provider = self.provider_registry.get_provider(candidate.provider_id)
-                tools = self.tool_registry.get_tool_schemas()
+                request_text = "\n".join(
+                    message.content
+                    for message in current_messages[-8:]
+                    if message.role == "user" and isinstance(message.content, str)
+                )
+                schemas_getter = self.tool_registry.get_tool_schemas
+                schema_parameters = inspect.signature(schemas_getter).parameters
+                supports_routing = "query" in schema_parameters or any(
+                    parameter.kind == inspect.Parameter.VAR_KEYWORD
+                    for parameter in schema_parameters.values()
+                )
+                if supports_routing:
+                    tools = schemas_getter(
+                        query=request_text,
+                        preferred_tool_names=preferred_tool_names,
+                    )
+                else:
+                    tools = schemas_getter()
                 api_key = self.key_manager.get_key(candidate.provider_id, candidate.key_slot)
                 if not api_key:
                     raise RuntimeError(
@@ -147,7 +208,10 @@ class ReActLoop:
                             "SYSTEM": 4,
                             "CRITICAL": 5,
                         }
-                        permission_level = str(tool.permission_level).upper()
+                        # Third-party and test tools may omit an explicit
+                        # permission declaration; treat them as read-only
+                        # until their arguments prove otherwise.
+                        permission_level = str(getattr(tool, "permission_level", "READ_ONLY")).upper()
                         rank = permission_ranks.get(permission_level, 4)
                         approval_ceiling = permission_ranks.get(
                             self.auto_approve_up_to,
@@ -156,9 +220,32 @@ class ReActLoop:
                         requires_confirmation = (
                             tool.requires_confirmation or rank >= permission_ranks["EXECUTE"]
                         )
-                        confirmed = (
-                            not requires_confirmation
-                            or rank <= approval_ceiling
+                        risk_requires_confirmation = False
+                        if self.permission_manager is not None:
+                            evaluation = self.permission_manager.evaluate_risk(
+                                tool.name, tc.arguments, permission_level
+                            )
+                            permission_level = evaluation.level.name
+                            rank = permission_ranks.get(permission_level, rank)
+                            requires_confirmation = (
+                                tool.requires_confirmation or evaluation.requires_confirmation
+                            )
+                            risk_requires_confirmation = evaluation.requires_confirmation
+                        elif self.permissions_mode == "ALWAYS_ASK":
+                            requires_confirmation = True
+                        elif self.permissions_mode == "AUTO_APPROVE":
+                            requires_confirmation = (
+                                tool.requires_confirmation
+                                or rank >= permission_ranks["SYSTEM"]
+                            )
+                        # A tool's explicit confirmation requirement must not
+                        # be bypassed just because its declared risk tier is
+                        # below the user's auto-approval ceiling.
+                        confirmed = not requires_confirmation or (
+                            not tool.requires_confirmation
+                            and not risk_requires_confirmation
+                            and self.permissions_mode != "ALWAYS_ASK"
+                            and rank <= approval_ceiling
                         )
                         output = None
                         if not confirmed:
@@ -198,12 +285,19 @@ class ReActLoop:
                             "tool": tc.name,
                             "task_id": task_id,
                             "success": tool_succeeded,
+                            # Keep execution events safe for renderer subscribers:
+                            # the actual tool output may contain private context.
+                            "result_summary": (
+                                "Tool returned a result."
+                                if tool_succeeded
+                                else "Tool did not complete successfully."
+                            ),
                         },
                     )
                     
                     current_messages.append(ChatMessage(
                         role="tool",
-                        content=str(output),
+                        content=_model_tool_output(tc.name, output),
                         tool_call_id=tc.id,
                         tool_name=tc.name,
                     ))

@@ -38,7 +38,7 @@ export default function SystemSection({ settings, onSave }: Props) {
 
         <div className="form-row">
           <label className="form-label">Default Shell Environment</label>
-          <select className="form-input" defaultValue="powershell">
+          <select className="form-input" value={settings.shell_type || 'powershell'} onChange={(e) => void onSave({ shell_type: e.target.value as HelixSettings['shell_type'] })}>
             <option value="powershell">PowerShell 7 / Windows PowerShell (pwsh.exe / powershell.exe)</option>
             <option value="cmd">Command Prompt (cmd.exe)</option>
             <option value="wsl">WSL 2 (Ubuntu / Linux Bash)</option>
@@ -47,13 +47,13 @@ export default function SystemSection({ settings, onSave }: Props) {
 
         <div className="form-row">
           <label className="form-label">Execution Timeout (seconds)</label>
-          <input className="form-input" type="number" min={5} max={300} defaultValue={60} />
+          <input className="form-input" type="number" min={5} max={300} value={settings.shell_timeout_seconds ?? 60} onChange={(e) => void onSave({ shell_timeout_seconds: Number(e.target.value) })} />
         </div>
 
         <div className="form-row">
           <label className="form-label">Block Elevated Admin Execution without Confirmation</label>
           <label className="toggle">
-            <input type="checkbox" defaultChecked={true} />
+            <input type="checkbox" checked={settings.block_elevated_execution ?? true} onChange={(e) => void onSave({ block_elevated_execution: e.target.checked })} />
             <span className="toggle__slider" />
           </label>
         </div>

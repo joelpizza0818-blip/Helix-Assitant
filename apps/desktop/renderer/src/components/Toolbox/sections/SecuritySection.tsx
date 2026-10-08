@@ -56,8 +56,24 @@ export default function SecuritySection({ settings, onSave }: Props) {
           <span className="toolbox-card__title">Confirmation Policy</span>
         </div>
         <p className="text-xs text-muted" style={{ marginBottom: 12 }}>
-          Actions above this risk tier require approval. Execute, system, and critical actions always require explicit confirmation.
+          Choose how HELIX evaluates tool risk. Protected paths, protected processes, and destructive operations remain gated in every mode.
         </p>
+        <label className="form-label" htmlFor="permissions-mode">
+          Approval mode
+        </label>
+        <select
+          id="permissions-mode"
+          className="form-input"
+          value={settings.permissions_mode || 'SMART_APPROVAL'}
+          onChange={(event) => onSave({
+            permissions_mode: event.target.value as HelixSettings['permissions_mode']
+          })}
+        >
+          <option value="ALWAYS_ASK">Always Ask — confirm every tool action</option>
+          <option value="AUTO_APPROVE">Auto Approve — gate system and critical actions</option>
+          <option value="SMART_APPROVAL">Smart Approval — gate modifications and risky context</option>
+        </select>
+        <div style={{ height: 10 }} />
         <label className="form-label" htmlFor="auto-approve-up-to">
           Allow without confirmation up to
         </label>

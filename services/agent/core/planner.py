@@ -4,8 +4,9 @@ from typing import List
 
 try:
     from services.agent.ai.base_provider import ChatMessage
+    from services.agent.core.runtime_context import get_runtime_command_context
 except ImportError:
-    pass
+    from core.runtime_context import get_runtime_command_context
 
 @dataclass
 class PlanStep:
@@ -61,9 +62,15 @@ class Planner:
         return f"""
         Task: {task}
         Context: {json.dumps(context)}
+        Runtime and command guidance: {get_runtime_command_context(self.tool_registry)}
         Available Tools: {json.dumps([t['name'] for t in tools])}
         
-        Decompose this task into a series of steps. 
+        Prefer the shortest reliable path. For a clear single-action task, use one
+        direct tool step; do not add planning/delegation steps without a dependency
+        or real need. Use commands and paths for the detected operating system and
+        configured shell. If a reliable direct action is not apparent, continue with
+        the normal plan rather than blocking or guessing.
+        Decompose this task into a series of steps only when needed.
         Each step must have:
         - "id": string identifier
         - "action": tool name or 'delegate'

@@ -14,6 +14,7 @@ export class PythonManager {
   private agentDir: string = ''
   private wsPort: number = 8765
   private settingsPath: string = ''
+  private packagedAgent: string | null = null
   private restartCount: number = 0
   private maxRestarts: number = 5
   private stopping: boolean = false
@@ -23,10 +24,16 @@ export class PythonManager {
   private stderrHandlers: StdoutHandler[] = []
   private exitHandlers: ExitHandler[] = []
 
-  async start(agentDir: string, wsPort: number, settingsPath: string): Promise<number> {
+  async start(
+    agentDir: string,
+    wsPort: number,
+    settingsPath: string,
+    packagedAgent?: string
+  ): Promise<number> {
     this.agentDir = agentDir
     this.wsPort = await this.findAvailablePort(wsPort)
     this.settingsPath = settingsPath
+    this.packagedAgent = packagedAgent ?? null
     if (this.wsPort !== wsPort) {
       console.warn(`[PythonManager] Port ${wsPort} is already in use; using ${this.wsPort} instead`)
     }
@@ -110,8 +117,8 @@ export class PythonManager {
   }
 
   private async _spawn(): Promise<void> {
-    const pythonExe = this._findPython()
-    if (!pythonExe) {
+    const executable = this.packagedAgent || this._findPython()
+    if (!executable) {
       throw new Error('Python executable not found. Install Python 3.11+ and ensure it is in PATH.')
     }
 
@@ -120,11 +127,18 @@ export class PythonManager {
       throw new Error(`Python agent main.py not found at: ${mainScript}`)
     }
 
-    console.log(`[PythonManager] Spawning: ${pythonExe} main.py --ws-port ${this.wsPort}`)
-    console.log(`[PythonManager] Working dir: ${this.agentDir}`)
+    const args = this.packagedAgent
+      ? ['--ws-port', String(this.wsPort)]
+      : ['main.py', '--ws-port', String(this.wsPort)]
+    const workingDirectory = this.packagedAgent
+      ? path.dirname(this.packagedAgent)
+      : this.agentDir
 
-    this.process = spawn(pythonExe, ['main.py', '--ws-port', String(this.wsPort)], {
-      cwd: this.agentDir,
+    console.log(`[PythonManager] Spawning: ${executable} ${args.join(' ')}`)
+    console.log(`[PythonManager] Working dir: ${workingDirectory}`)
+
+    this.process = spawn(executable, args, {
+      cwd: workingDirectory,
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
       env: {

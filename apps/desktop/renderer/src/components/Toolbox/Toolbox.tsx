@@ -11,6 +11,8 @@ import WebSection from './sections/WebSection'
 import MemorySection from './sections/MemorySection'
 import SecuritySection from './sections/SecuritySection'
 import StartupSection from './sections/StartupSection'
+import SkillsSection from './sections/SkillsSection'
+import MCPSection from './sections/MCPSection'
 import './Toolbox.css'
 
 type Section =
@@ -23,6 +25,8 @@ type Section =
   | 'memory'
   | 'security'
   | 'startup'
+  | 'skills'
+  | 'mcp'
 
 interface NavItem {
   id: Section
@@ -40,6 +44,8 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'memory',   label: 'Memory & RAG',  icon: <NavIcon d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" /> },
   { id: 'security', label: 'Zero-Trust',    icon: <NavIcon d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /> },
   { id: 'startup',  label: 'Startup & Tray',icon: <NavIcon d="M5 3l14 9-14 9V3z" /> },
+  { id: 'skills',   label: 'Skills',        icon: <NavIcon d="M12 3v18m-9-9h18M5.6 5.6l12.8 12.8m0-12.8L5.6 18.4" /> },
+  { id: 'mcp',      label: 'MCP Servers',   icon: <NavIcon d="M12 3v18m-9-9h18M5 5l14 14m0-14L5 19" /> },
 ]
 
 function NavIcon({ d }: { d: string }) {
@@ -52,7 +58,7 @@ function NavIcon({ d }: { d: string }) {
 
 export default function Toolbox() {
   const [activeSection, setActiveSection] = useState<Section>('ai')
-  const { settings, isLoading, isSaving, isApplied, loadSettings, saveSettings } = useSettings()
+  const { settings, isLoading, isSaving, isApplied, error, loadSettings, saveSettings } = useSettings()
   const { providers, models, loadProviders, loadModels } = useAgent()
 
   useEffect(() => {
@@ -125,6 +131,10 @@ export default function Toolbox() {
               )}
               {activeSection === 'startup' && (
                 <StartupSection settings={settings} onSave={saveSettings} />
+              )}
+              {activeSection === 'skills' && <SkillsSection />}
+              {activeSection === 'mcp' && (
+                <MCPSection settings={settings} onSave={saveSettings} saveError={error} />
               )}
             </>
           )}

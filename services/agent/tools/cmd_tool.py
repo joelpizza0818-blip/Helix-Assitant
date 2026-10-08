@@ -14,7 +14,7 @@ class CmdTool(ShellTool):
 
     @property
     def description(self) -> str:
-        return "Tool for executing Windows CMD commands."
+        return "Execute Windows CMD commands only; use CMD syntax, not PowerShell or Bash."
 
     def validate_command(self, command: str) -> bool:
         cmd_lower = command.lower()

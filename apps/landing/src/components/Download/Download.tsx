@@ -1,5 +1,6 @@
 import React from 'react';
 import './Download.css';
+import { WINDOWS_INSTALLER_URL } from '../../lib/downloads';
 
 export const Download: React.FC = () => {
   return (
@@ -10,21 +11,18 @@ export const Download: React.FC = () => {
             <span className="section-label">GET HELIX FOR WINDOWS</span>
             <h2 className="download-title">Resident Autonomous Intelligence</h2>
             <p className="download-desc">
-              HELIX is ready for local deployment. Run natively as an Electron shell connected to an asynchronous Python agent service.
+              Download the Windows installer. HELIX launches its tray shell and local agent automatically after setup — no terminal command is required.
             </p>
           </div>
 
           <div className="download-actions">
-            <button
-              type="button"
+            <a
               className="btn-primary"
-              onClick={() => {
-                const el = document.getElementById('source-code-instructions');
-                if (el) el.scrollIntoView({ behavior: 'smooth' });
-              }}
+              href={WINDOWS_INSTALLER_URL}
+              download
             >
-              Get Started with Windows Setup
-            </button>
+              Download HELIX for Windows
+            </a>
             <span className="build-tag">VERSION: v0.1.0-PREVIEW (x64)</span>
           </div>
 
@@ -53,7 +51,7 @@ npm run dev:desktop`}</code>
             </div>
             <div className="req-item">
               <span className="req-title">RUNTIME</span>
-              <span className="req-val">Python 3.11+ & Node 18+</span>
+              <span className="req-val">Bundled HELIX runtime</span>
             </div>
             <div className="req-item">
               <span className="req-title">HARDWARE</span>

@@ -4,6 +4,14 @@ from typing import Any, Dict, Tuple
 from .base_tool import BaseTool, ToolResult
 
 class MouseTool(BaseTool):
+    def __init__(self):
+        self.move_duration = 0.1
+
+    def configure(self, settings: Dict[str, Any]) -> None:
+        value = settings.get('mouse_move_duration_ms', 200)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            self.move_duration = max(0.05, min(1.0, float(value) / 1000))
+
     @property
     def name(self) -> str:
         return "mouse_tool"
@@ -31,7 +39,7 @@ class MouseTool(BaseTool):
         }
 
     async def move(self, x: int, y: int) -> None:
-        pyautogui.moveTo(x, y, duration=0.1)
+        pyautogui.moveTo(x, y, duration=self.move_duration)
         await asyncio.sleep(0.05)
 
     async def click(self, x: int, y: int, button: str = 'left') -> None:

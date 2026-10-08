@@ -117,6 +117,30 @@ export default function VoiceSection({ settings, onSave }: Props) {
           </div>
         </div>
 
+        <div className="form-row">
+          <label className="form-label" htmlFor="wake-word-threshold">
+            Wake phrase detection threshold
+          </label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
+            <input
+              id="wake-word-threshold"
+              className="form-input"
+              type="range"
+              min={0.1}
+              max={0.9}
+              step={0.05}
+              value={settings.wake_word_threshold ?? 0.5}
+              onChange={(e) => onSave({ wake_word_threshold: Number(e.target.value) })}
+            />
+            <span className="text-xs" style={{ minWidth: 40 }}>
+              {Math.round((settings.wake_word_threshold ?? 0.5) * 100)}%
+            </span>
+          </div>
+        </div>
+        <p className="text-xs text-muted">
+          Lower values make “Hey HELIX” easier to detect but may cause false activations. Default: 50%.
+        </p>
+
         {/* Alternate Wake Aliases */}
         <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--color-hairline)' }}>
           <label className="text-xs text-muted" style={{ display: 'block', marginBottom: 8 }}>
@@ -193,27 +217,78 @@ export default function VoiceSection({ settings, onSave }: Props) {
           <label className="form-label">Text-To-Speech Voice Persona</label>
           <select
             className="form-input"
-            value={settings.voice_tts_provider || 'openai_tts'}
-            onChange={(e) => onSave({ voice_tts_provider: e.target.value })}
+            value={settings.voice_tts_provider || 'edge_tts'}
+            onChange={(e) => {
+              const provider = e.target.value
+              const defaultVoice =
+                provider === 'edge_tts' ? 'en-US-AndrewMultilingualNeural'
+                  : provider === 'openai_tts' ? 'echo'
+                    : provider === 'elevenlabs' ? '21m00Tcm4TlvDq8ikWAM'
+                      : ''
+              onSave({
+                voice_tts_provider: provider,
+                voice_tts_voice: defaultVoice,
+              })
+            }}
           >
-            <option value="openai_tts">OpenAI TTS (Neural Voice - Alloy / Onyx)</option>
+            <option value="edge_tts">Microsoft Edge TTS · Andrew (multilingual)</option>
+            <option value="openai_tts">OpenAI TTS · Echo (masculina, multilingüe)</option>
             <option value="elevenlabs">ElevenLabs (Ultra-Realistic Streaming)</option>
             <option value="windows_sapi">Windows Native SAPI Voice (Microsoft David / Zira)</option>
           </select>
         </div>
+        {settings.voice_tts_provider === 'edge_tts' && (
+          <div className="form-row">
+            <label className="form-label">Edge TTS voice</label>
+            <select
+              className="form-input"
+              value={settings.voice_tts_voice || 'en-US-AndrewMultilingualNeural'}
+              onChange={(e) => onSave({ voice_tts_voice: e.target.value })}
+            >
+              <option value="en-US-AndrewMultilingualNeural">Andrew · masculine, multilingual</option>
+            </select>
+          </div>
+        )}
+        {settings.voice_tts_provider === 'openai_tts' && (
+          <div className="form-row">
+            <label className="form-label">OpenAI TTS voice</label>
+            <select
+              className="form-input"
+              value={settings.voice_tts_voice || 'echo'}
+              onChange={(e) => onSave({ voice_tts_voice: e.target.value })}
+            >
+              <option value="echo">Echo · masculine, multilingual</option>
+            </select>
+          </div>
+        )}
+        {settings.voice_tts_provider === 'edge_tts' && (
+          <p className="text-xs text-muted">
+            Edge TTS requires internet and sends response text to Microsoft.
+          </p>
+        )}
+        <p className="text-xs text-muted">
+          If cloud speech is unavailable or fails, HELIX falls back to your current Windows system voice.
+        </p>
 
         <div className="form-row">
-          <label className="form-label">VAD Silence Threshold (ms)</label>
+          <label className="form-label" htmlFor="vad-threshold">Microphone sensitivity (RMS)</label>
           <input
+            id="vad-threshold"
             className="form-input"
             type="number"
-            min={300}
-            max={3000}
-            step={100}
-            value={settings.vad_threshold || 800}
-            onChange={(e) => onSave({ vad_threshold: parseInt(e.target.value, 10) || 800 })}
+            min={50}
+            max={2000}
+            step={25}
+            value={settings.vad_threshold ?? 250}
+            onChange={(e) => {
+              const threshold = Number.parseInt(e.target.value, 10)
+              if (Number.isFinite(threshold)) onSave({ vad_threshold: threshold })
+            }}
           />
         </div>
+        <p className="text-xs text-muted">
+          Lower values detect quieter speech. The default is more sensitive; valid range: 50–2000 RMS.
+        </p>
       </div>
     </div>
   )

@@ -8,6 +8,7 @@ const child_process_1 = require("child_process");
 const net_1 = require("net");
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
+const ws_1 = __importDefault(require("ws"));
 const RESTART_DELAYS_MS = [1000, 2000, 5000, 10000, 30000];
 class PythonManager {
     constructor() {
@@ -15,24 +16,66 @@ class PythonManager {
         this.agentDir = '';
         this.wsPort = 8765;
         this.settingsPath = '';
+        this.packagedAgent = null;
         this.restartCount = 0;
         this.maxRestarts = 5;
         this.stopping = false;
+        this.restartTimer = null;
         this.stdoutHandlers = [];
         this.stderrHandlers = [];
         this.exitHandlers = [];
     }
-    async start(agentDir, wsPort, settingsPath) {
+    async start(agentDir, wsPort, settingsPath, packagedAgent) {
         this.agentDir = agentDir;
         this.wsPort = await this.findAvailablePort(wsPort);
         this.settingsPath = settingsPath;
+        this.packagedAgent = packagedAgent ?? null;
         if (this.wsPort !== wsPort) {
             console.warn(`[PythonManager] Port ${wsPort} is already in use; using ${this.wsPort} instead`);
         }
         this.stopping = false;
         this.restartCount = 0;
         await this._spawn();
+        try {
+            await this._waitForReady();
+        }
+        catch (error) {
+            await this.stop();
+            throw error;
+        }
         return this.wsPort;
+    }
+    async _waitForReady(timeoutMs = 90000) {
+        const deadline = Date.now() + timeoutMs;
+        while (Date.now() < deadline) {
+            const child = this.process;
+            if (!child || child.exitCode !== null || child.signalCode !== null) {
+                throw new Error('Python agent exited before its WebSocket became ready');
+            }
+            const ready = await new Promise((resolve) => {
+                const socket = new ws_1.default(`ws://127.0.0.1:${this.wsPort}`);
+                let settled = false;
+                let timeout = null;
+                const finish = (connected) => {
+                    if (settled)
+                        return;
+                    settled = true;
+                    if (timeout)
+                        clearTimeout(timeout);
+                    socket.close();
+                    resolve(connected);
+                };
+                timeout = setTimeout(() => finish(false), 1000);
+                socket.once('open', () => finish(true));
+                socket.once('error', () => finish(false));
+            });
+            if (ready) {
+                console.log(`[PythonManager] Agent WebSocket ready on port ${this.wsPort}`);
+                return;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+        throw new Error(`Python agent WebSocket did not become ready on port ${this.wsPort} within ${timeoutMs}ms`);
     }
     findAvailablePort(preferredPort) {
         return new Promise((resolve, reject) => {
@@ -70,22 +113,30 @@ class PythonManager {
         });
     }
     async _spawn() {
-        const pythonExe = this._findPython();
-        if (!pythonExe) {
+        const executable = this.packagedAgent || this._findPython();
+        if (!executable) {
             throw new Error('Python executable not found. Install Python 3.11+ and ensure it is in PATH.');
         }
         const mainScript = path_1.default.join(this.agentDir, 'main.py');
         if (!fs_1.default.existsSync(mainScript)) {
             throw new Error(`Python agent main.py not found at: ${mainScript}`);
         }
-        console.log(`[PythonManager] Spawning: ${pythonExe} main.py --ws-port ${this.wsPort}`);
-        console.log(`[PythonManager] Working dir: ${this.agentDir}`);
-        this.process = (0, child_process_1.spawn)(pythonExe, ['main.py', '--ws-port', String(this.wsPort)], {
-            cwd: this.agentDir,
+        const args = this.packagedAgent
+            ? ['--ws-port', String(this.wsPort)]
+            : ['main.py', '--ws-port', String(this.wsPort)];
+        const workingDirectory = this.packagedAgent
+            ? path_1.default.dirname(this.packagedAgent)
+            : this.agentDir;
+        console.log(`[PythonManager] Spawning: ${executable} ${args.join(' ')}`);
+        console.log(`[PythonManager] Working dir: ${workingDirectory}`);
+        this.process = (0, child_process_1.spawn)(executable, args, {
+            cwd: workingDirectory,
             stdio: ['pipe', 'pipe', 'pipe'],
             windowsHide: true,
             env: {
                 ...process.env,
+                PYTHONIOENCODING: 'utf-8',
+                PYTHONUTF8: '1',
                 PYTHONPATH: [
                     path_1.default.resolve(this.agentDir, '../..'),
                     process.env.PYTHONPATH
@@ -122,7 +173,11 @@ class PythonManager {
                 const delay = RESTART_DELAYS_MS[Math.min(this.restartCount, RESTART_DELAYS_MS.length - 1)];
                 console.warn(`[PythonManager] Process exited (code ${code}). Restarting in ${delay}ms... (attempt ${this.restartCount + 1}/${this.maxRestarts})`);
                 this.restartCount++;
-                setTimeout(() => this._spawn(), delay);
+                this.restartTimer = setTimeout(() => {
+                    this.restartTimer = null;
+                    if (!this.stopping)
+                        void this._spawn();
+                }, delay);
             }
             else if (!this.stopping) {
                 console.error('[PythonManager] Max restarts reached. Agent is permanently down.');
@@ -134,6 +189,10 @@ class PythonManager {
     }
     async stop() {
         this.stopping = true;
+        if (this.restartTimer) {
+            clearTimeout(this.restartTimer);
+            this.restartTimer = null;
+        }
         const agentProcess = this.process;
         if (!agentProcess)
             return;

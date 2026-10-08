@@ -1,13 +1,48 @@
 import logging
 import asyncio
+from urllib.parse import urlparse
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 class BrowserSession:
-    def __init__(self, headless: bool = True, browser_type: str = 'chromium'):
-        self.headless = headless
-        self.browser_type = browser_type
+    default_headless = True
+    default_browser_type = 'chromium'
+    default_search_provider = 'google'
+    default_research_depth = 2
+    default_block_downloads = True
+    default_block_untrusted_domains = True
+    default_trusted_domains = []
+
+    @classmethod
+    def configure_defaults(cls, settings: dict) -> None:
+        browser_type = settings.get('browser_engine', cls.default_browser_type)
+        if browser_type in {'chromium', 'firefox', 'webkit'}:
+            cls.default_browser_type = browser_type
+        if isinstance(settings.get('browser_headless'), bool):
+            cls.default_headless = settings['browser_headless']
+        if settings.get('search_provider') in {'google', 'duckduckgo', 'bing'}:
+            cls.default_search_provider = settings['search_provider']
+        if isinstance(settings.get('research_depth'), int) and settings['research_depth'] >= 1:
+            cls.default_research_depth = min(settings['research_depth'], 10)
+        for setting_name, attribute in (
+            ('block_downloads', 'default_block_downloads'),
+            ('block_untrusted_domains', 'default_block_untrusted_domains'),
+        ):
+            if isinstance(settings.get(setting_name), bool):
+                setattr(cls, attribute, settings[setting_name])
+        trusted = settings.get('trusted_domains', [])
+        if isinstance(trusted, list):
+            cls.default_trusted_domains = [str(domain).casefold() for domain in trusted if str(domain).strip()]
+
+    def __init__(self, headless: bool | None = None, browser_type: str | None = None):
+        self.headless = self.default_headless if headless is None else headless
+        self.browser_type = browser_type or self.default_browser_type
+        self.search_provider = self.default_search_provider
+        self.research_depth = self.default_research_depth
+        self.block_downloads = self.default_block_downloads
+        self.block_untrusted_domains = self.default_block_untrusted_domains
+        self.trusted_domains = list(self.default_trusted_domains)
         self._playwright = None
         self._browser = None
         self._context = None
@@ -22,7 +57,9 @@ class BrowserSession:
         
         browser_class = getattr(self._playwright, self.browser_type)
         self._browser = await browser_class.launch(headless=self.headless)
-        self._context = await self._browser.new_context()
+        self._context = await self._browser.new_context(
+            accept_downloads=not self.block_downloads,
+        )
         self._page = await self._context.new_page()
         logger.info(f"BrowserSession started: {self.browser_type} (headless={self.headless})")
 
@@ -46,6 +83,14 @@ class BrowserSession:
     async def navigate(self, url: str):
         if not self._page:
             raise RuntimeError("Browser not started")
+        parsed = urlparse(url)
+        host = (parsed.hostname or '').casefold()
+        if self.block_untrusted_domains:
+            trusted = set(self.trusted_domains)
+            if parsed.scheme not in {'http', 'https'}:
+                raise PermissionError("Blocked non-web URL by browser safety policy")
+            if trusted and not any(host == domain or host.endswith('.' + domain) for domain in trusted):
+                raise PermissionError(f"Blocked untrusted domain: {host}")
         logger.info(f"Navigating to {url}")
         await self._page.goto(url, wait_until="domcontentloaded")
 

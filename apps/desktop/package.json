@@ -47,12 +47,17 @@
       "target": [
         "nsis"
       ],
+      "artifactName": "HELIX-Setup-${version}.${ext}",
       "icon": "assets/icon.ico",
       "signAndEditExecutable": false
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "HELIX",
+      "runAfterFinish": true
     },
     "files": [
       "dist/**/*",
@@ -62,12 +67,20 @@
     "extraResources": [
       {
         "from": "../../services/agent",
-        "to": "agent",
+        "to": "services/agent",
         "filter": [
           "**/*",
           "!.venv/**",
           "!__pycache__/**",
           "!*.pyc"
+        ]
+      },
+      {
+        "from": "agent-runtime",
+        "to": "agent-runtime",
+        "filter": [
+          "**/*",
+          "!.gitkeep"
         ]
       }
     ]

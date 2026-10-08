@@ -9,6 +9,14 @@ import json
 from .base_provider import BaseAIProvider, ChatMessage, ChatResponse, StreamChunk, ToolCallResponse, Usage, ModelDefinition, ModelCapabilities, AgentError, KeyHealth, ToolCall
 
 class OpenAIProvider(BaseAIProvider):
+    def _client(self, api_key: str, base_url: str | None = None):
+        if not openai:
+            raise RuntimeError("openai SDK not installed")
+        options = {"api_key": api_key}
+        if base_url:
+            options["base_url"] = base_url.rstrip("/")
+        return AsyncOpenAI(**options)
+
     @property
     def provider_id(self) -> str:
         return "openai"
@@ -67,7 +75,7 @@ class OpenAIProvider(BaseAIProvider):
     async def chat(self, messages: List[ChatMessage], model: str, **kwargs) -> ChatResponse:
         if not openai: raise RuntimeError("openai SDK not installed")
         api_key = kwargs.get("api_key")
-        client = AsyncOpenAI(api_key=api_key)
+        client = self._client(api_key, kwargs.get("base_url"))
         try:
             response = await client.chat.completions.create(
                 model=model,
@@ -91,7 +99,7 @@ class OpenAIProvider(BaseAIProvider):
     async def stream(self, messages: List[ChatMessage], model: str, **kwargs) -> AsyncIterator[StreamChunk]:
         if not openai: raise RuntimeError("openai SDK not installed")
         api_key = kwargs.get("api_key")
-        client = AsyncOpenAI(api_key=api_key)
+        client = self._client(api_key, kwargs.get("base_url"))
         try:
             response = await client.chat.completions.create(
                 model=model,
@@ -108,7 +116,7 @@ class OpenAIProvider(BaseAIProvider):
     async def tool_call(self, messages: List[ChatMessage], tools: List[Dict], model: str, **kwargs) -> ToolCallResponse:
         if not openai: raise RuntimeError("openai SDK not installed")
         api_key = kwargs.get("api_key")
-        client = AsyncOpenAI(api_key=api_key)
+        client = self._client(api_key, kwargs.get("base_url"))
         try:
             response = await client.chat.completions.create(
                 model=model,
@@ -132,7 +140,7 @@ class OpenAIProvider(BaseAIProvider):
     async def structured_output(self, messages: List[ChatMessage], schema: Dict, model: str, **kwargs) -> dict:
         if not openai: raise RuntimeError("openai SDK not installed")
         api_key = kwargs.get("api_key")
-        client = AsyncOpenAI(api_key=api_key)
+        client = self._client(api_key, kwargs.get("base_url"))
         try:
             response = await client.chat.completions.create(
                 model=model,
@@ -153,7 +161,7 @@ class OpenAIProvider(BaseAIProvider):
     async def validate_key(self, api_key: str) -> KeyHealth:
         if not openai: return KeyHealth.UNCONFIGURED
         try:
-            client = AsyncOpenAI(api_key=api_key)
+            client = self._client(api_key)
             await client.models.list()
             return KeyHealth.HEALTHY
         except Exception as e:

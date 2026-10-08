@@ -144,6 +144,35 @@ def test_voice_engine_speaks_only_its_active_voice_conversation_response():
     assert engine.state == VoiceState.LISTENING
 
 
+def test_voice_engine_falls_back_to_system_voice_when_primary_tts_fails():
+    engine = VoiceEngine.__new__(VoiceEngine)
+    engine._conversation_id = "conversation-1"
+    engine._conversation_history = []
+    engine._is_active = False
+    engine.state_manager = None
+    engine.state = VoiceState.WAITING_RESPONSE
+    engine.tts = SimpleNamespace(
+        provider="edge_tts",
+        speak=AsyncMock(side_effect=RuntimeError("TTS unavailable")),
+    )
+    engine.fallback_tts = SimpleNamespace(speak=AsyncMock())
+
+    asyncio.run(
+        engine._handle_response_event(
+            "ORCHESTRATION_COMPLETED",
+            {
+                "input_source": "voice",
+                "conversation_id": "conversation-1",
+                "response": "¡Hola!",
+            },
+        )
+    )
+
+    engine.tts.speak.assert_awaited_once_with("¡Hola!")
+    engine.fallback_tts.speak.assert_awaited_once_with("¡Hola!")
+    assert engine.state == VoiceState.IDLE
+
+
 def test_voice_engine_ignores_non_voice_and_other_conversation_responses():
     engine = VoiceEngine.__new__(VoiceEngine)
     engine._conversation_id = "conversation-1"
@@ -176,6 +205,22 @@ def test_voice_engine_ignores_non_voice_and_other_conversation_responses():
     engine.tts.speak.assert_not_awaited()
     assert engine._conversation_history == []
     assert engine.state == VoiceState.WAITING_RESPONSE
+
+
+def test_voice_conversation_history_uses_configured_turn_limit():
+    engine = VoiceEngine.__new__(VoiceEngine)
+    engine._conversation_history = [
+        {"role": "user", "content": f"turn {index}"}
+        for index in range(12)
+    ]
+
+    engine.configure_memory(3)
+
+    assert engine._conversation_history_limit == 6
+    assert engine._conversation_history == [
+        {"role": "user", "content": f"turn {index}"}
+        for index in range(6, 12)
+    ]
 
 
 def test_vad_stops_waiting_after_initial_silence_timeout():
@@ -306,12 +351,59 @@ def test_openai_tts_plays_wav_audio_with_sounddevice(monkeypatch):
 
     speech_create.assert_awaited_once_with(
         model="tts-1",
-        voice="alloy",
+        voice="echo",
         input="Hola, Helix.",
         response_format="wav",
+        speed=1.0,
     )
     assert len(playback_calls) == 1
     assert playback_calls[0][0][1] == 16000
+    assert playback_calls[0][1] == {"blocking": True}
+
+
+def test_edge_tts_synthesizes_with_multilingual_voice(monkeypatch):
+    calls = {}
+
+    class FakeCommunicate:
+        def __init__(self, text, voice, rate):
+            calls.update(text=text, voice=voice, rate=rate)
+
+        async def stream(self):
+            yield {"type": "audio", "data": b"audio"}
+            yield {"type": "WordBoundary", "data": b"ignored"}
+
+    edge_tts_module = ModuleType("edge_tts")
+    edge_tts_module.Communicate = FakeCommunicate
+    monkeypatch.setitem(sys.modules, "edge_tts", edge_tts_module)
+
+    tts = TextToSpeech(
+        provider="edge_tts", voice_id="en-US-AndrewMultilingualNeural"
+    )
+    assert asyncio.run(tts.synthesize("Hola, Helix.")) == b"audio"
+    assert calls == {
+        "text": "Hola, Helix.",
+        "voice": "en-US-AndrewMultilingualNeural",
+        "rate": "+0%",
+    }
+
+
+def test_edge_tts_decodes_audio_and_plays_with_sounddevice(monkeypatch):
+    wav_buffer = io.BytesIO()
+    with wave.open(wav_buffer, "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(24000)
+        audio.writeframes(b"\x00\x00" * 160)
+
+    playback_calls = []
+    sounddevice_module = ModuleType("sounddevice")
+    sounddevice_module.play = lambda *args, **kwargs: playback_calls.append((args, kwargs))
+    monkeypatch.setitem(sys.modules, "sounddevice", sounddevice_module)
+
+    TextToSpeech._play_edge_audio(wav_buffer.getvalue())
+
+    assert len(playback_calls) == 1
+    assert playback_calls[0][0][1] == 24000
     assert playback_calls[0][1] == {"blocking": True}
 
 

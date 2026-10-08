@@ -24,6 +24,10 @@ contextBridge.exposeInMainWorld('helix', {
     ipcRenderer.send('helix:cancel-task', taskId)
   },
 
+  emergencyStop: (): void => {
+    ipcRenderer.send('helix:emergency-stop')
+  },
+
   // Confirm a pending action
   confirmAction: (requestId: string): void => {
     ipcRenderer.send('helix:confirm-action', requestId)
@@ -68,6 +72,18 @@ contextBridge.exposeInMainWorld('helix', {
   validateKey: (provider: string, slot: number, key: string): Promise<string> =>
     ipcRenderer.invoke('helix:validate-key', provider, slot, key),
 
+  getSkills: (): Promise<unknown[]> =>
+    ipcRenderer.invoke('helix:get-skills'),
+
+  saveSkill: (skill: object): Promise<unknown> =>
+    ipcRenderer.invoke('helix:save-skill', skill),
+
+  deleteSkill: (name: string): Promise<void> =>
+    ipcRenderer.invoke('helix:delete-skill', name),
+
+  getMcpServers: (): Promise<unknown[]> =>
+    ipcRenderer.invoke('helix:get-mcp-servers'),
+
   // Event subscriptions (return cleanup function)
   onAgentMessage: (fn: (msg: unknown) => void): (() => void) =>
     createEventListener('helix:agent-message', fn),
@@ -95,6 +111,9 @@ contextBridge.exposeInMainWorld('helix', {
 
   onProviderUpdate: (fn: (providers: unknown) => void): (() => void) =>
     createEventListener('helix:provider-update', fn),
+
+  onHandLandmarks: (fn: (landmarks: unknown) => void): (() => void) =>
+    createEventListener('helix:hand-landmarks', fn),
 
   onSettingsApplied: (fn: (settings: unknown) => void): (() => void) =>
     createEventListener('helix:settings-applied', fn),

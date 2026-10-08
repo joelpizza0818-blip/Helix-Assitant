@@ -35,6 +35,11 @@ class ModelRouter:
         self.provider_registry = provider_registry
         self.key_manager = key_manager
         self.unavailable_models: set[Tuple[str, str]] = set()
+        self.default_cost_preference = "balanced"
+        self.default_speed_preference = "balanced"
+        self.default_quality_preference = "balanced"
+        self.default_provider: Optional[str] = None
+        self.default_model: Optional[str] = None
 
     def mark_model_unavailable(self, provider_id: str, model_id: str) -> None:
         self.unavailable_models.add((provider_id, model_id))
@@ -54,6 +59,15 @@ class ModelRouter:
         return sorted(valid, key=lambda c: c.score, reverse=True)
 
     def _get_all_candidates(self, reqs: TaskRequirements) -> List[RouteCandidate]:
+        cost_preference = (
+            self.default_cost_preference
+            if reqs.cost_preference == "balanced"
+            else reqs.cost_preference
+        )
+        speed_preference = self.default_speed_preference if reqs.speed_preference == "balanced" else reqs.speed_preference
+        quality_preference = self.default_quality_preference if reqs.quality_preference == "balanced" else reqs.quality_preference
+        preferred_provider = reqs.preferred_provider or self.default_provider
+        preferred_model = reqs.preferred_model or self.default_model
         required_caps = {}
         for attr in ['text', 'vision', 'audio', 'computer_use', 'tool_calling', 'streaming', 'low_latency', 'coding', 'reasoning']:
             if getattr(reqs, attr): required_caps[attr] = True
@@ -71,12 +85,20 @@ class ModelRouter:
             if (model.provider, model.id) in self.unavailable_models:
                 continue
             score = 100 + model.priority
-            if reqs.preferred_model == model.id:
+            if preferred_model == model.id:
                 score += 500
-            if reqs.preferred_provider == model.provider:
+            if preferred_provider == model.provider:
                 score += 100
-            if reqs.cost_preference == model.capabilities.cost_tier:
+            if cost_preference == model.capabilities.cost_tier:
                 score += 50
+            if speed_preference == "low":
+                score += 35 if model.capabilities.low_latency or model.capabilities.cost_tier == "low" else 0
+            elif speed_preference == "high":
+                score += 15 if model.capabilities.streaming else 0
+            if quality_preference == "high":
+                score += 35 if model.capabilities.reasoning or model.capabilities.long_context else 0
+            elif quality_preference == "low":
+                score += 20 if model.capabilities.cost_tier == "low" else 0
 
             for slot, _key in self.key_manager.get_available_keys(model.provider):
                 candidates.append(RouteCandidate(

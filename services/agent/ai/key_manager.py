@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import logging
 from typing import Optional, Tuple, List
@@ -9,21 +10,66 @@ logger = logging.getLogger(__name__)
 
 class KeyManager:
     KEYRING_SERVICE = "helix_agent"
+    CUSTOM_ENDPOINT_PREFIX = "custom_endpoint_api_key_"
 
     def __init__(self):
-        self.keys = {
-            "openai": [],
-            "anthropic": [],
-            "google": []
-        }
+        self.keys = {"openai": [], "anthropic": [], "google": []}
         self._load_keys()
         self.key_states = {p: {i: {"health": KeyHealth.HEALTHY if k else KeyHealth.UNCONFIGURED, "failures": 0, "cooldown_until": 0} for i, k in enumerate(slots)} for p, slots in self.keys.items()}
+
+    def configure_custom_endpoint(self, endpoint_id: str, api_key: str | None = None, allow_empty: bool = True) -> None:
+        """Expose a custom endpoint as a normal one-key provider pool."""
+        if not isinstance(endpoint_id, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+", endpoint_id):
+            raise ValueError("Custom endpoint id contains unsupported characters")
+        stored = api_key.strip() if isinstance(api_key, str) and api_key.strip() else None
+        if stored:
+            self.save_custom_endpoint_key(endpoint_id, stored)
+        if not stored:
+            try:
+                stored = keyring.get_password(
+                    self.KEYRING_SERVICE,
+                    f"{self.CUSTOM_ENDPOINT_PREFIX}{endpoint_id}",
+                )
+            except Exception:
+                stored = None
+        if not stored and allow_empty:
+            # OpenAI-compatible local servers ignore the token, but the SDK
+            # requires a non-empty value.
+            stored = "helix-local-endpoint"
+        self.keys[endpoint_id] = [stored] if stored else []
+        self.key_states[endpoint_id] = {
+            0: {
+                "health": KeyHealth.HEALTHY if stored else KeyHealth.UNCONFIGURED,
+                "failures": 0,
+                "cooldown_until": 0,
+            }
+        }
 
     def _load_keys(self):
         for provider in self.keys.keys():
             prefix = provider.upper()
+            # Three slots remain the minimum for compatibility, but the pool is
+            # intentionally unbounded.  Keyring-backed slots beyond three are
+            # discovered through the persisted count; environment slots are
+            # discovered by name so deployments can provide any number.
+            count = 3
+            try:
+                saved_count = keyring.get_password(
+                    self.KEYRING_SERVICE, f"{provider}_api_key_count"
+                )
+                if saved_count and saved_count.isdigit():
+                    count = max(count, int(saved_count))
+            except Exception as error:
+                logger.warning("Could not read key count for %s (%s)", provider, type(error).__name__)
+            env_slots = [
+                int(match.group(1))
+                for name in os.environ
+                if (match := re.fullmatch(rf"{re.escape(prefix)}_API_KEY_(\d+)", name))
+            ]
+            if env_slots:
+                count = max(count, max(env_slots))
             self.keys[provider] = []
-            for i in range(1, 4):
+            for i in range(1, count + 1):
                 try:
                     key = keyring.get_password(
                         self.KEYRING_SERVICE,
@@ -43,8 +89,8 @@ class KeyManager:
     def save_key(self, provider: str, slot: int, value: str) -> None:
         if provider not in self.keys:
             raise ValueError(f"Unsupported API key provider: {provider}")
-        if isinstance(slot, bool) or not isinstance(slot, int) or not 0 <= slot < 3:
-            raise ValueError("API key slot must be between 0 and 2")
+        if isinstance(slot, bool) or not isinstance(slot, int) or slot < 0:
+            raise ValueError("API key slot must be a non-negative integer")
         if not isinstance(value, str) or not value.strip():
             raise ValueError("A non-empty API key is required")
 
@@ -55,12 +101,26 @@ class KeyManager:
                 f"{provider}_api_key_{slot + 1}",
                 normalized_key,
             )
+            if slot >= 3:
+                keyring.set_password(
+                    self.KEYRING_SERVICE,
+                    f"{provider}_api_key_count",
+                    str(max(len(self.keys[provider]), slot + 1)),
+                )
         except Exception as error:
             logger.exception("Could not securely store API key for %s slot %s", provider, slot + 1)
             raise RuntimeError(
                 "Could not save the API key in Windows Credential Manager."
             ) from error
 
+        if slot >= len(self.keys[provider]):
+            self.keys[provider].extend([None] * (slot + 1 - len(self.keys[provider])))
+            for new_slot in range(len(self.key_states.get(provider, {})), slot + 1):
+                self.key_states.setdefault(provider, {})[new_slot] = {
+                    "health": KeyHealth.HEALTHY,
+                    "failures": 0,
+                    "cooldown_until": 0,
+                }
         self.keys[provider][slot] = normalized_key
         state = self.key_states[provider][slot]
         state.update(
@@ -68,6 +128,35 @@ class KeyManager:
             failures=0,
             cooldown_until=0,
         )
+
+    def save_custom_endpoint_key(self, endpoint_id: str, value: str) -> None:
+        """Store a custom endpoint credential in the OS credential vault."""
+        if not isinstance(endpoint_id, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+", endpoint_id):
+            raise ValueError("Custom endpoint id contains unsupported characters")
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("A non-empty endpoint API key is required")
+        try:
+            keyring.set_password(
+                self.KEYRING_SERVICE,
+                f"{self.CUSTOM_ENDPOINT_PREFIX}{endpoint_id}",
+                value.strip(),
+            )
+        except Exception as error:
+            logger.exception("Could not securely store custom endpoint key")
+            raise RuntimeError(
+                "Could not save the custom endpoint key in Windows Credential Manager."
+            ) from error
+
+    def has_custom_endpoint_key(self, endpoint_id: str) -> bool:
+        if not isinstance(endpoint_id, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+", endpoint_id):
+            return False
+        try:
+            return bool(keyring.get_password(
+                self.KEYRING_SERVICE,
+                f"{self.CUSTOM_ENDPOINT_PREFIX}{endpoint_id}",
+            ))
+        except Exception:
+            return False
 
     def get_available_key(self, provider: str) -> Optional[Tuple[int, str]]:
         available_keys = self.get_available_keys(provider)

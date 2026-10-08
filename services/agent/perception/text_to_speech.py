@@ -34,9 +34,10 @@ class TextToSpeech:
                 client = AsyncOpenAI(api_key=self.api_key)
                 response = await client.audio.speech.create(
                     model=self.model,
-                    voice=self.voice_id or "alloy",
+                    voice=self.voice_id or "echo",
                     input=text,
                     response_format="wav",
+                    speed=1.0,
                 )
                 return response.read()
             except Exception as e:
@@ -61,6 +62,26 @@ class TextToSpeech:
             except Exception as e:
                 logger.error(f"ElevenLabs TTS exception: {e}")
                 raise RuntimeError("ElevenLabs text-to-speech failed") from e
+
+        elif self.provider == 'edge_tts':
+            try:
+                import edge_tts
+
+                communicate = edge_tts.Communicate(
+                    text,
+                    self.voice_id or "en-US-AndrewMultilingualNeural",
+                    rate="+0%",
+                )
+                audio = bytearray()
+                async for chunk in communicate.stream():
+                    if chunk.get("type") == "audio":
+                        audio.extend(chunk["data"])
+                if not audio:
+                    raise RuntimeError("Edge TTS returned empty audio.")
+                return bytes(audio)
+            except Exception as e:
+                logger.error("Edge TTS error: %s", e)
+                raise RuntimeError("Microsoft Edge text-to-speech failed") from e
                 
         elif self.provider == 'system':
             return b"" # System TTS typically speaks directly rather than returning bytes easily
@@ -97,6 +118,10 @@ class TextToSpeech:
             await asyncio.to_thread(sd.play, frames, sample_rate, blocking=True)
             return
 
+        if self.provider == "edge_tts":
+            await asyncio.to_thread(self._play_edge_audio, audio_bytes)
+            return
+
         if importlib.util.find_spec('pygame') is not None:
             import tempfile
             import os
@@ -120,6 +145,39 @@ class TextToSpeech:
             raise RuntimeError(
                 "pygame is required to play ElevenLabs audio; install it or use OpenAI TTS."
             )
+
+    @staticmethod
+    def _play_edge_audio(audio_bytes: bytes) -> None:
+        import av
+        import numpy as np
+        import sounddevice as sd
+
+        sample_rate = 24000
+        samples = []
+        with av.open(io.BytesIO(audio_bytes)) as container:
+            audio_stream = next(
+                (stream for stream in container.streams if stream.type == "audio"),
+                None,
+            )
+            if audio_stream is None:
+                raise RuntimeError("Edge TTS audio contains no audio stream.")
+            resampler = av.AudioResampler(
+                format="s16", layout="mono", rate=sample_rate
+            )
+            for frame in container.decode(audio_stream):
+                samples.extend(
+                    output.to_ndarray().reshape(-1)
+                    for output in resampler.resample(frame)
+                )
+            samples.extend(
+                output.to_ndarray().reshape(-1)
+                for output in resampler.resample(None)
+            )
+
+        if not samples:
+            raise RuntimeError("Edge TTS audio could not be decoded.")
+        audio_samples = np.concatenate(samples)
+        sd.play(audio_samples, sample_rate, blocking=True)
 
     def _speak_system(self, text: str):
         if importlib.util.find_spec('pyttsx3') is not None:

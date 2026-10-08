@@ -1,13 +1,16 @@
 import asyncio
 import logging
+import time
 from typing import Callable, Coroutine, Dict, Set
 
 logger = logging.getLogger(__name__)
+HAND_LANDMARKS_LOG_INTERVAL_SECONDS = 180
 
 class EventBus:
     def __init__(self):
         self.subscribers: Dict[str, Set[Callable]] = {}
         self.lock = asyncio.Lock()
+        self._last_hand_landmarks_log = None
 
     async def subscribe(self, event_name: str, handler: Callable):
         async with self.lock:
@@ -21,7 +24,18 @@ class EventBus:
                 self.subscribers[event_name].discard(handler)
 
     async def publish(self, event_name: str, payload: dict):
-        logger.info(f"Event published: {event_name}")
+        if event_name == "HAND_LANDMARKS":
+            now = time.monotonic()
+            if (
+                self._last_hand_landmarks_log is None
+                or now - self._last_hand_landmarks_log
+                >= HAND_LANDMARKS_LOG_INTERVAL_SECONDS
+            ):
+                logger.info(f"Event published: {event_name}")
+                self._last_hand_landmarks_log = now
+        else:
+            logger.info(f"Event published: {event_name}")
+
         handlers = set()
         async with self.lock:
             if event_name in self.subscribers:

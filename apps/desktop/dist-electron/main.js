@@ -3,6 +3,7 @@ Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 const electron = require("electron");
 const path = require("path");
 const fs = require("fs");
+const url = require("url");
 const child_process = require("child_process");
 const net = require("net");
 const WebSocket = require("ws");
@@ -13,6 +14,7 @@ class PythonManager {
     this.agentDir = "";
     this.wsPort = 8765;
     this.settingsPath = "";
+    this.packagedAgent = null;
     this.restartCount = 0;
     this.maxRestarts = 5;
     this.stopping = false;
@@ -21,10 +23,11 @@ class PythonManager {
     this.stderrHandlers = [];
     this.exitHandlers = [];
   }
-  async start(agentDir, wsPort2, settingsPath) {
+  async start(agentDir, wsPort2, settingsPath, packagedAgent) {
     this.agentDir = agentDir;
     this.wsPort = await this.findAvailablePort(wsPort2);
     this.settingsPath = settingsPath;
+    this.packagedAgent = packagedAgent ?? null;
     if (this.wsPort !== wsPort2) {
       console.warn(`[PythonManager] Port ${wsPort2} is already in use; using ${this.wsPort} instead`);
     }
@@ -104,18 +107,20 @@ class PythonManager {
   }
   async _spawn() {
     var _a, _b;
-    const pythonExe = this._findPython();
-    if (!pythonExe) {
+    const executable = this.packagedAgent || this._findPython();
+    if (!executable) {
       throw new Error("Python executable not found. Install Python 3.11+ and ensure it is in PATH.");
     }
     const mainScript = path.join(this.agentDir, "main.py");
     if (!fs.existsSync(mainScript)) {
       throw new Error(`Python agent main.py not found at: ${mainScript}`);
     }
-    console.log(`[PythonManager] Spawning: ${pythonExe} main.py --ws-port ${this.wsPort}`);
-    console.log(`[PythonManager] Working dir: ${this.agentDir}`);
-    this.process = child_process.spawn(pythonExe, ["main.py", "--ws-port", String(this.wsPort)], {
-      cwd: this.agentDir,
+    const args = this.packagedAgent ? ["--ws-port", String(this.wsPort)] : ["main.py", "--ws-port", String(this.wsPort)];
+    const workingDirectory = this.packagedAgent ? path.dirname(this.packagedAgent) : this.agentDir;
+    console.log(`[PythonManager] Spawning: ${executable} ${args.join(" ")}`);
+    console.log(`[PythonManager] Working dir: ${workingDirectory}`);
+    this.process = child_process.spawn(executable, args, {
+      cwd: workingDirectory,
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
       env: {
@@ -270,6 +275,7 @@ class IPCBridge {
     this.reconnectAttempts = 0;
     this.wsUrl = "";
     this.reconnecting = false;
+    this.settingsAppliedHandler = null;
   }
   setupHandlers(mainWindow, toolboxWindow) {
     this.mainWindow = mainWindow;
@@ -279,6 +285,9 @@ class IPCBridge {
     });
     electron.ipcMain.on("helix:cancel-task", (_event, taskId) => {
       this._sendToPython({ type: "TASK_CANCEL", payload: { task_id: taskId }, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
+    });
+    electron.ipcMain.on("helix:emergency-stop", () => {
+      this._sendToPython({ type: "TASK_CANCEL_ALL", payload: {}, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
     });
     electron.ipcMain.on("helix:confirm-action", (_event, requestId) => {
       this._sendToPython({ type: "CONFIRMATION_GRANTED", payload: { request_id: requestId }, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
@@ -299,17 +308,49 @@ class IPCBridge {
       return this._request({ type: "GET_SETTINGS", payload: {} });
     });
     electron.ipcMain.handle("helix:save-settings", async (event, settings) => {
+      var _a;
       const result = await this._request({ type: "SAVE_SETTINGS", payload: { settings } });
+      this._applyStartupSettings(result);
+      if (result && typeof result === "object") {
+        (_a = this.settingsAppliedHandler) == null ? void 0 : _a.call(this, result);
+      }
       event.sender.send("helix:settings-applied", result);
       return result;
     });
     electron.ipcMain.handle("helix:validate-key", async (_event, provider, slot, key) => {
       return this._request({ type: "VALIDATE_KEY", payload: { provider, slot, key } });
     });
+    electron.ipcMain.handle("helix:get-skills", async () => {
+      return this._request({ type: "GET_SKILLS", payload: {} });
+    });
+    electron.ipcMain.handle("helix:save-skill", async (_event, skill) => {
+      return this._request({ type: "SAVE_SKILL", payload: { skill } });
+    });
+    electron.ipcMain.handle("helix:delete-skill", async (_event, name) => {
+      return this._request({ type: "DELETE_SKILL", payload: { name } });
+    });
+    electron.ipcMain.handle("helix:get-mcp-servers", async () => {
+      return this._request({ type: "GET_MCP_SERVERS", payload: {} });
+    });
   }
   async connectToPython(wsUrl) {
     this.wsUrl = wsUrl;
     return this._connect();
+  }
+  async loadSettings() {
+    var _a;
+    const settings = await this._request({ type: "GET_SETTINGS", payload: {} });
+    this._applyStartupSettings(settings);
+    if (settings && typeof settings === "object") {
+      (_a = this.settingsAppliedHandler) == null ? void 0 : _a.call(this, settings);
+    }
+    return settings && typeof settings === "object" ? settings : {};
+  }
+  onSettingsApplied(handler) {
+    this.settingsAppliedHandler = handler;
+  }
+  sendEmergencyStop() {
+    this._sendToPython({ type: "TASK_CANCEL_ALL", payload: {}, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
   }
   close() {
     for (const timeout of this.requestTimeouts.values()) clearTimeout(timeout);
@@ -412,6 +453,15 @@ class IPCBridge {
       console.warn("[IPCBridge] Cannot send: WebSocket not connected");
     }
   }
+  _applyStartupSettings(settings) {
+    if (!electron.app.isPackaged || !settings || typeof settings !== "object") return;
+    const values = settings;
+    if (typeof values.start_with_windows !== "boolean") return;
+    electron.app.setLoginItemSettings({
+      openAtLogin: values.start_with_windows,
+      path: process.execPath
+    });
+  }
   _request(message, timeoutMs = 1e4) {
     return new Promise((resolve, reject) => {
       const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -449,7 +499,8 @@ class IPCBridge {
       "confirmation_resolved": "helix:confirmation-resolved",
       "error": "helix:error",
       "provider_update": "helix:provider-update",
-      "model_update": "helix:model-update"
+      "model_update": "helix:model-update",
+      "hand_landmarks": "helix:hand-landmarks"
     };
     const channel = typeMap[message.type] ?? `helix:${message.type}`;
     if (["helix:agent-message", "helix:confirmation-request"].includes(channel)) {
@@ -537,7 +588,7 @@ class TrayManager {
 }
 const isDev = process.env.NODE_ENV === "development" || !electron.app.isPackaged;
 const rendererPort = Number(process.env.HELIX_RENDERER_PORT || 5173);
-const RENDERER_URL = isDev ? `http://127.0.0.1:${rendererPort}` : `file://${path.join(__dirname, "../dist/index.html")}`;
+const RENDERER_URL = isDev ? `http://127.0.0.1:${rendererPort}` : url.pathToFileURL(path.join(__dirname, "../dist/index.html")).toString();
 const DEFAULT_WS_PORT = parseInt(process.env.AGENT_WS_PORT || "8765", 10);
 let wsPort = DEFAULT_WS_PORT;
 if (isDev) {
@@ -567,16 +618,16 @@ electron.app.on("second-instance", () => {
   window.show();
   window.focus();
 });
-function loadWithRetry(win, url, maxRetries = 30, intervalMs = 1500) {
-  win.loadURL(url).catch(() => {
+function loadWithRetry(win, url2, maxRetries = 30, intervalMs = 1500) {
+  win.loadURL(url2).catch(() => {
     if (maxRetries > 0) {
       setTimeout(() => {
         if (!win.isDestroyed()) {
-          loadWithRetry(win, url, maxRetries - 1, intervalMs);
+          loadWithRetry(win, url2, maxRetries - 1, intervalMs);
         }
       }, intervalMs);
     } else {
-      console.error(`[Main] Failed to load ${url} after all retries`);
+      console.error(`[Main] Failed to load ${url2} after all retries`);
     }
   });
 }
@@ -635,12 +686,33 @@ function createToolboxWindow() {
   return win;
 }
 async function startPythonAgent() {
-  const agentDir = isDev ? path.resolve(electron.app.getAppPath(), "..", "..", "services", "agent") : path.join(process.resourcesPath, "agent");
-  if (!fs.existsSync(path.join(agentDir, "main.py"))) {
-    throw new Error(`Python agent main.py not found at expected path: ${agentDir}`);
+  const agentCandidates = isDev ? [
+    path.resolve(electron.app.getAppPath(), "..", "..", "services", "agent"),
+    path.resolve(__dirname, "../../../services/agent"),
+    path.resolve(process.cwd(), "services/agent")
+  ] : [
+    // Keep the package root aligned with the Python import path: the
+    // bundled entrypoint imports services.agent.*.
+    path.join(process.resourcesPath, "services", "agent"),
+    // Accept packages produced by older HELIX builds during upgrades.
+    path.join(process.resourcesPath, "agent")
+  ];
+  const agentDir = agentCandidates.find(
+    (candidate) => fs.existsSync(path.join(candidate, "main.py"))
+  );
+  if (!agentDir) {
+    throw new Error(
+      `Python agent main.py not found. Checked:
+${agentCandidates.join("\n")}`
+    );
   }
   console.log(`[Main] Desktop app root: ${electron.app.getAppPath()}`);
   console.log(`[Main] Found Python agent at: ${agentDir}`);
+  const packagedAgentCandidates = [
+    path.join(process.resourcesPath, "agent-runtime", "helix-agent", "helix-agent.exe"),
+    path.join(process.resourcesPath, "agent-runtime", "helix-agent.exe")
+  ];
+  const packagedAgent = !isDev ? packagedAgentCandidates.find((candidate) => fs.existsSync(candidate)) : void 0;
   pythonManager = new PythonManager();
   pythonManager.onStdout((line) => {
     console.log(`[Python] ${line}`);
@@ -655,20 +727,51 @@ async function startPythonAgent() {
   wsPort = await pythonManager.start(
     agentDir,
     DEFAULT_WS_PORT,
-    path.join(electron.app.getPath("userData"), "settings.json")
+    path.join(electron.app.getPath("userData"), "settings.json"),
+    packagedAgent
   );
   console.log("[Main] Python agent started");
 }
 function setupIPC() {
   if (!exports.floatingWindow || !exports.toolboxWindow) return;
   exports.ipcBridge = new IPCBridge();
+  exports.ipcBridge.onSettingsApplied(applyDesktopSettings);
   exports.ipcBridge.setupHandlers(exports.floatingWindow, exports.toolboxWindow);
 }
+function applyDesktopSettings(settings) {
+  var _a;
+  if (typeof settings.always_on_top === "boolean") {
+    (_a = exports.floatingWindow) == null ? void 0 : _a.setAlwaysOnTop(settings.always_on_top);
+  }
+  electron.globalShortcut.unregisterAll();
+  const summon = settings.global_summon_shortcut;
+  if (typeof summon === "string" && summon.trim()) {
+    electron.globalShortcut.register(summon, () => {
+      if (!exports.floatingWindow || exports.floatingWindow.isDestroyed()) return;
+      if (exports.floatingWindow.isMinimized()) exports.floatingWindow.restore();
+      exports.floatingWindow.show();
+      exports.floatingWindow.focus();
+    });
+  }
+  const emergency = settings.emergency_stop_shortcut;
+  if (typeof emergency === "string" && emergency.trim()) {
+    electron.globalShortcut.register(emergency, () => {
+      var _a2;
+      return (_a2 = exports.ipcBridge) == null ? void 0 : _a2.sendEmergencyStop();
+    });
+  }
+}
 async function connectWebSocket(retryCount = 0, maxRetries = 15) {
+  var _a, _b;
   if (!exports.ipcBridge) return;
   try {
     await exports.ipcBridge.connectToPython(`ws://127.0.0.1:${wsPort}`);
     console.log("[Main] Connected to Python agent WebSocket");
+    const settings = await exports.ipcBridge.loadSettings();
+    if (settings.start_minimized === false) {
+      (_a = exports.floatingWindow) == null ? void 0 : _a.show();
+      (_b = exports.floatingWindow) == null ? void 0 : _b.focus();
+    }
     trayManager == null ? void 0 : trayManager.updateStatus("idle");
   } catch (err) {
     console.error(`[Main] Could not connect to Python WebSocket (attempt ${retryCount + 1}/${maxRetries}):`, err.message);
@@ -682,7 +785,6 @@ async function connectWebSocket(retryCount = 0, maxRetries = 15) {
   }
 }
 electron.app.whenReady().then(async () => {
-  var _a, _b;
   if (process.platform === "win32") {
     electron.app.setAppUserModelId("com.helix.agent");
   }
@@ -707,34 +809,34 @@ electron.app.whenReady().then(async () => {
       {
         label: "Open HELIX",
         click: () => {
-          var _a2, _b2;
-          (_a2 = exports.floatingWindow) == null ? void 0 : _a2.show();
-          (_b2 = exports.floatingWindow) == null ? void 0 : _b2.focus();
+          var _a, _b;
+          (_a = exports.floatingWindow) == null ? void 0 : _a.show();
+          (_b = exports.floatingWindow) == null ? void 0 : _b.focus();
         }
       },
       {
         label: "Toolbox",
         click: () => {
-          var _a2, _b2;
-          (_a2 = exports.toolboxWindow) == null ? void 0 : _a2.show();
-          (_b2 = exports.toolboxWindow) == null ? void 0 : _b2.focus();
+          var _a, _b;
+          (_a = exports.toolboxWindow) == null ? void 0 : _a.show();
+          (_b = exports.toolboxWindow) == null ? void 0 : _b.focus();
         }
       },
       {
         label: "Task Manager",
         click: () => {
-          var _a2, _b2;
-          (_a2 = exports.floatingWindow) == null ? void 0 : _a2.show();
-          (_b2 = exports.floatingWindow) == null ? void 0 : _b2.webContents.send("helix:show-tasks");
+          var _a, _b;
+          (_a = exports.floatingWindow) == null ? void 0 : _a.show();
+          (_b = exports.floatingWindow) == null ? void 0 : _b.webContents.send("helix:show-tasks");
         }
       },
       { type: "separator" },
       {
         label: "Settings",
         click: () => {
-          var _a2, _b2;
-          (_a2 = exports.toolboxWindow) == null ? void 0 : _a2.show();
-          (_b2 = exports.toolboxWindow) == null ? void 0 : _b2.focus();
+          var _a, _b;
+          (_a = exports.toolboxWindow) == null ? void 0 : _a.show();
+          (_b = exports.toolboxWindow) == null ? void 0 : _b.focus();
         }
       },
       { type: "separator" },
@@ -749,8 +851,6 @@ electron.app.whenReady().then(async () => {
   trayManager.setContextMenu(buildContextMenu());
   await startPythonAgent();
   connectWebSocket();
-  (_a = exports.floatingWindow) == null ? void 0 : _a.show();
-  (_b = exports.floatingWindow) == null ? void 0 : _b.focus();
   trayManager.updateStatus("idle");
 }).catch((error) => {
   const message = error instanceof Error ? error.message : String(error);
@@ -795,8 +895,8 @@ electron.ipcMain.on("helix:open-toolbox", () => {
 electron.ipcMain.on("helix:quit", () => {
   electron.app.quit();
 });
-electron.ipcMain.on("helix:open-external", (_event, url) => {
-  if (url.startsWith("https://") || url.startsWith("http://")) {
-    electron.shell.openExternal(url);
+electron.ipcMain.on("helix:open-external", (_event, url2) => {
+  if (url2.startsWith("https://") || url2.startsWith("http://")) {
+    electron.shell.openExternal(url2);
   }
 });

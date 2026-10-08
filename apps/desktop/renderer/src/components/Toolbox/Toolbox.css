@@ -107,6 +107,75 @@
   padding: var(--space-3);
 }
 
+.toolbox-error {
+  margin-bottom: var(--space-2);
+  padding: 10px 12px;
+  color: var(--red);
+  background: var(--carbon);
+  border: 1px solid var(--red);
+  border-radius: var(--radius-card);
+  font-size: var(--text-sm);
+}
+
+.toolbox-skill-instructions-label {
+  display: block;
+  margin: 4px 0 8px;
+}
+
+.toolbox-skill-instructions {
+  display: block;
+  width: 100%;
+  min-height: 160px;
+  padding: 10px;
+  resize: vertical;
+}
+
+.toolbox-action-button {
+  margin-top: 12px;
+}
+
+.toolbox-skill-list-title {
+  margin: 20px 0 10px;
+}
+
+.toolbox-skill-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.toolbox-danger-button {
+  color: var(--red);
+}
+
+.toolbox-mcp-command {
+  display: block;
+  max-width: 540px;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.toolbox-mcp-status {
+  margin-top: 6px;
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.toolbox-mcp-status--connected {
+  color: var(--green);
+}
+
+.toolbox-mcp-status--connecting,
+.toolbox-mcp-status--pending {
+  color: var(--orange);
+}
+
+.toolbox-mcp-status--error {
+  color: var(--red);
+}
+
 /* ── Section common styles ─────────────────────────────────────────────────── */
 
 .toolbox-section {

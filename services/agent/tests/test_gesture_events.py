@@ -67,6 +67,26 @@ async def test_detected_gesture_is_published_to_event_bus():
 
 
 @pytest.mark.asyncio
+async def test_hand_landmarks_publish_local_preview_frame():
+    event_bus = EventBus()
+    received = asyncio.get_running_loop().create_future()
+
+    async def capture(event_name, payload):
+        if event_name == "HAND_LANDMARKS" and not received.done():
+            received.set_result(payload)
+
+    await event_bus.subscribe("HAND_LANDMARKS", capture)
+    engine = GestureEngine(event_bus)
+    engine._loop = asyncio.get_running_loop()
+
+    engine._publish_landmarks([], "encoded-preview")
+    payload = await asyncio.wait_for(received, timeout=1)
+
+    assert payload["preview_frame"] == "encoded-preview"
+    assert payload["hands"] == []
+
+
+@pytest.mark.asyncio
 async def test_gesture_requires_stability_and_is_latched_until_release():
     event_bus = EventBus()
     published = []

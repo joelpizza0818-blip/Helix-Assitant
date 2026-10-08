@@ -1,4 +1,5 @@
 import os
+import json
 try:
     import yaml
 except ImportError:
@@ -102,18 +103,27 @@ class SkillLoader:
                 if line_str.startswith('- ') and current_key:
                     if not isinstance(frontmatter.get(current_key), list):
                         frontmatter[current_key] = []
-                    frontmatter[current_key].append(line_str[2:].strip())
+                    frontmatter[current_key].append(
+                        self._parse_simple_yaml_value(line_str[2:].strip())
+                    )
                 elif ':' in line_str:
                     key, val = line_str.split(':', 1)
                     current_key = key.strip()
                     val_str = val.strip()
                     if val_str:
-                        frontmatter[current_key] = val_str
+                        frontmatter[current_key] = self._parse_simple_yaml_value(val_str)
                     else:
                         frontmatter[current_key] = []
             return frontmatter, parts[2]
                 
         return {}, content
+
+    @staticmethod
+    def _parse_simple_yaml_value(value: str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return value
 
 
     def _extract_triggers(self, frontmatter: dict, body: str) -> List[str]:

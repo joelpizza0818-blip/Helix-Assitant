@@ -7,7 +7,6 @@ exports.IPCBridge = void 0;
 const electron_1 = require("electron");
 const ws_1 = __importDefault(require("ws"));
 const RECONNECT_DELAY_MS = 3000;
-const MAX_RECONNECT_ATTEMPTS = 10;
 class IPCBridge {
     constructor() {
         this.ws = null;
@@ -19,16 +18,20 @@ class IPCBridge {
         this.reconnectAttempts = 0;
         this.wsUrl = '';
         this.reconnecting = false;
+        this.settingsAppliedHandler = null;
     }
     setupHandlers(mainWindow, toolboxWindow) {
         this.mainWindow = mainWindow;
         this.toolboxWindow = toolboxWindow;
         // Renderer -> Python (fire and forget)
-        electron_1.ipcMain.on('helix:send-message', (_event, text) => {
-            this._sendToPython({ type: 'USER_TEXT', payload: { text }, timestamp: new Date().toISOString() });
+        electron_1.ipcMain.on('helix:send-message', (_event, payload) => {
+            this._sendToPython({ type: 'USER_TEXT', payload, timestamp: new Date().toISOString() });
         });
         electron_1.ipcMain.on('helix:cancel-task', (_event, taskId) => {
             this._sendToPython({ type: 'TASK_CANCEL', payload: { task_id: taskId }, timestamp: new Date().toISOString() });
+        });
+        electron_1.ipcMain.on('helix:emergency-stop', () => {
+            this._sendToPython({ type: 'TASK_CANCEL_ALL', payload: {}, timestamp: new Date().toISOString() });
         });
         electron_1.ipcMain.on('helix:confirm-action', (_event, requestId) => {
             this._sendToPython({ type: 'CONFIRMATION_GRANTED', payload: { request_id: requestId }, timestamp: new Date().toISOString() });
@@ -51,6 +54,10 @@ class IPCBridge {
         });
         electron_1.ipcMain.handle('helix:save-settings', async (event, settings) => {
             const result = await this._request({ type: 'SAVE_SETTINGS', payload: { settings } });
+            this._applyStartupSettings(result);
+            if (result && typeof result === 'object') {
+                this.settingsAppliedHandler?.(result);
+            }
             event.sender.send('helix:settings-applied', result);
             return result;
         });
@@ -58,10 +65,38 @@ class IPCBridge {
             // SECURITY: key goes directly to Python for validation, never stored in main process logs
             return this._request({ type: 'VALIDATE_KEY', payload: { provider, slot, key } });
         });
+        electron_1.ipcMain.handle('helix:get-skills', async () => {
+            return this._request({ type: 'GET_SKILLS', payload: {} });
+        });
+        electron_1.ipcMain.handle('helix:save-skill', async (_event, skill) => {
+            return this._request({ type: 'SAVE_SKILL', payload: { skill } });
+        });
+        electron_1.ipcMain.handle('helix:delete-skill', async (_event, name) => {
+            return this._request({ type: 'DELETE_SKILL', payload: { name } });
+        });
+        electron_1.ipcMain.handle('helix:get-mcp-servers', async () => {
+            return this._request({ type: 'GET_MCP_SERVERS', payload: {} });
+        });
     }
     async connectToPython(wsUrl) {
         this.wsUrl = wsUrl;
         return this._connect();
+    }
+    async loadSettings() {
+        const settings = await this._request({ type: 'GET_SETTINGS', payload: {} });
+        this._applyStartupSettings(settings);
+        if (settings && typeof settings === 'object') {
+            this.settingsAppliedHandler?.(settings);
+        }
+        return (settings && typeof settings === 'object')
+            ? settings
+            : {};
+    }
+    onSettingsApplied(handler) {
+        this.settingsAppliedHandler = handler;
+    }
+    sendEmergencyStop() {
+        this._sendToPython({ type: 'TASK_CANCEL_ALL', payload: {}, timestamp: new Date().toISOString() });
     }
     close() {
         for (const timeout of this.requestTimeouts.values())
@@ -114,6 +149,10 @@ class IPCBridge {
                             resolver(message.payload, message.error);
                             return;
                         }
+                        if (message.type === 'window_action') {
+                            this._handleWindowAction(message.payload);
+                            return;
+                        }
                         // Forward event messages to renderer windows
                         this._forwardToRenderer(message);
                     }
@@ -150,17 +189,6 @@ class IPCBridge {
     _scheduleReconnect() {
         if (this.reconnecting)
             return;
-        if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-            console.error('[IPCBridge] Max reconnect attempts reached.');
-            this._sendToAll('helix:error', { message: 'Lost connection to HELIX agent. Please restart.' });
-            for (const [requestId] of this.queuedRequests) {
-                const resolver = this.pendingRequests.get(requestId);
-                this.queuedRequests.delete(requestId);
-                this.pendingRequests.delete(requestId);
-                resolver?.(undefined, 'Lost connection to HELIX agent. Please restart.');
-            }
-            return;
-        }
         this.reconnecting = true;
         this.reconnectAttempts++;
         console.log(`[IPCBridge] Reconnecting in ${RECONNECT_DELAY_MS}ms (attempt ${this.reconnectAttempts})...`);
@@ -181,6 +209,17 @@ class IPCBridge {
         else {
             console.warn('[IPCBridge] Cannot send: WebSocket not connected');
         }
+    }
+    _applyStartupSettings(settings) {
+        if (!electron_1.app.isPackaged || !settings || typeof settings !== 'object')
+            return;
+        const values = settings;
+        if (typeof values.start_with_windows !== 'boolean')
+            return;
+        electron_1.app.setLoginItemSettings({
+            openAtLogin: values.start_with_windows,
+            path: process.execPath,
+        });
     }
     _request(message, timeoutMs = 10000) {
         return new Promise((resolve, reject) => {
@@ -218,17 +257,43 @@ class IPCBridge {
             'status_update': 'helix:status-update',
             'fallback_event': 'helix:fallback-event',
             'confirmation_request': 'helix:confirmation-request',
+            'confirmation_resolved': 'helix:confirmation-resolved',
             'error': 'helix:error',
             'provider_update': 'helix:provider-update',
-            'model_update': 'helix:model-update'
+            'model_update': 'helix:model-update',
+            'hand_landmarks': 'helix:hand-landmarks'
         };
         const channel = typeMap[message.type] ?? `helix:${message.type}`;
-        // confirmation requests and agent messages go to floating window
+        // Confirmation requests and agent messages are sent once to each window.
         if (['helix:agent-message', 'helix:confirmation-request'].includes(channel)) {
             this.mainWindow?.webContents.send(channel, message.payload);
+            if (this.toolboxWindow && !this.toolboxWindow.isDestroyed()) {
+                this.toolboxWindow.webContents.send(channel, message.payload);
+            }
+            return;
         }
         // Everything else goes to both windows
         this._sendToAll(channel, message.payload);
+    }
+    _handleWindowAction(payload) {
+        const floatingWindow = this.mainWindow;
+        const toolboxWindow = this.toolboxWindow;
+        const floatingVisible = floatingWindow && !floatingWindow.isDestroyed() && floatingWindow.isVisible();
+        const toolboxVisible = toolboxWindow && !toolboxWindow.isDestroyed() && toolboxWindow.isVisible();
+        if (payload.action === 'HIDE_FLOATING_OR_TOOLBOX') {
+            const windowToHide = floatingVisible ? floatingWindow : toolboxVisible ? toolboxWindow : null;
+            windowToHide?.hide();
+            return;
+        }
+        if (payload.action === 'SHOW_FLOATING_OR_TOOLBOX') {
+            const windowToShow = floatingVisible ? toolboxWindow : floatingWindow;
+            if (!windowToShow || windowToShow.isDestroyed())
+                return;
+            if (windowToShow.isMinimized())
+                windowToShow.restore();
+            windowToShow.show();
+            windowToShow.focus();
+        }
     }
     _sendToAll(channel, data) {
         this.mainWindow?.webContents.send(channel, data);

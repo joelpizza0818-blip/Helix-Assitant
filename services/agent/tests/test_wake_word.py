@@ -21,9 +21,34 @@ def test_custom_phrase_requires_a_trained_model(tmp_path, monkeypatch):
     )
 
     assert detector.wake_word == "hey helix"
-    assert detector.threshold == 0.05
+    assert detector.threshold == wake_word.DEFAULT_WAKE_WORD_THRESHOLD
     assert detector.provider is None
     assert detector._model is None
+
+
+def test_wake_word_threshold_has_a_false_activation_floor(tmp_path, monkeypatch):
+    monkeypatch.setattr(wake_word.importlib.util, "find_spec", lambda _name: None)
+    detector = wake_word.WakeWordDetector(
+        threshold=0.1,
+        model_path=tmp_path / "missing.onnx",
+    )
+
+    assert detector.threshold == 0.1
+
+
+def test_wake_word_threshold_rejects_values_outside_supported_range(tmp_path, monkeypatch):
+    monkeypatch.setattr(wake_word.importlib.util, "find_spec", lambda _name: None)
+
+    for threshold in (0.05, 0.95):
+        try:
+            wake_word.WakeWordDetector(
+                threshold=threshold,
+                model_path=tmp_path / "missing.onnx",
+            )
+        except ValueError as error:
+            assert "between 0.1 and 0.9" in str(error)
+        else:
+            raise AssertionError(f"Threshold {threshold} should have been rejected")
 
 
 def test_custom_onnx_model_is_loaded(tmp_path, monkeypatch):
@@ -77,11 +102,12 @@ def test_wake_event_uses_async_event_bus():
     )
 
 
-def test_wake_detector_triggers_at_configured_low_score(monkeypatch):
+def test_wake_detector_ignores_other_model_output_and_requires_confirmed_phrase(monkeypatch):
     event_bus = type("EventBusStub", (), {"publish": AsyncMock()})()
     detector = wake_word.WakeWordDetector.__new__(wake_word.WakeWordDetector)
     detector.wake_word = "hey helix"
-    detector.threshold = 0.05
+    detector.threshold = 0.5
+    detector._expected_model_output = "hey_helix"
     detector.input_device = 1
     detector.event_bus = event_bus
     detector._is_running = True
@@ -92,9 +118,24 @@ def test_wake_detector_triggers_at_configured_low_score(monkeypatch):
     )()
 
     class ModelStub:
+        predictions = [
+            {"unrelated_model": 0.99},
+            {"hey_helix": 0.9},
+            {"hey_helix": 0.1},
+            {"hey_helix": 0.9},
+            {"hey_helix": 0.9},
+            {"hey_helix": 0.9},
+        ]
+
+        def __init__(self):
+            self.index = 0
+
         def predict(self, _audio):
-            detector._is_running = False
-            return {"hey_helix": 0.06}
+            prediction = self.predictions[self.index]
+            self.index += 1
+            if self.index == len(self.predictions):
+                detector._is_running = False
+            return prediction
 
     detector._model = ModelStub()
     monkeypatch.setattr(wake_word.asyncio, "sleep", AsyncMock())

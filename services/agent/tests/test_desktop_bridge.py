@@ -1,4 +1,5 @@
 import pytest
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 from services.agent.ai.anthropic_provider import AnthropicProvider
@@ -11,6 +12,8 @@ from services.agent.ai.base_provider import KeyHealth
 from services.agent.core.desktop_bridge import DesktopRequestHandler
 from services.agent.core.event_bus import EventBus
 from services.agent.core.task_manager import TaskManager
+from services.agent.skills.skill_loader import SkillLoader
+from services.agent.skills.skill_registry import SkillRegistry
 
 
 @pytest.fixture
@@ -27,6 +30,85 @@ def request_handler(tmp_path, clean_env):
         key_manager,
         tmp_path / "settings.json",
     )
+
+
+def test_microphone_sensitivity_default_is_more_sensitive(request_handler):
+    assert request_handler.get_settings()["vad_threshold"] == 250
+
+
+def test_wake_word_threshold_default_and_range_validation(request_handler):
+    assert request_handler.get_settings()["wake_word_threshold"] == 0.5
+
+    for invalid_threshold in (True, 0.05, 0.95):
+        with pytest.raises(ValueError, match="wake_word_threshold must be between 0.1 and 0.9"):
+            request_handler._apply_runtime_settings({
+                **request_handler.get_settings(),
+                "wake_word_threshold": invalid_threshold,
+            })
+
+
+@pytest.mark.asyncio
+async def test_custom_skill_can_be_created_listed_and_deleted(request_handler):
+    request_handler.skill_registry = SkillRegistry(SkillLoader())
+    request_handler.skill_registry.discover_skills(
+        str(Path(__file__).parents[1] / "skills")
+    )
+
+    saved = await request_handler.dispatch({
+        "type": "SAVE_SKILL",
+        "request_id": "create-skill",
+        "payload": {
+            "skill": {
+                "name": "meeting-notes",
+                "description": "Summarize meeting notes",
+                "triggers": ["minutes", "meeting notes"],
+                "tools": [],
+                "instructions": "Summarize decisions and action items.",
+            },
+        },
+    })
+    assert saved["payload"]["custom"] is True
+    assert request_handler.skill_registry.get_skill("meeting-notes").instructions == (
+        "Summarize decisions and action items."
+    )
+
+    listed = await request_handler.dispatch({
+        "type": "GET_SKILLS",
+        "request_id": "list-skills",
+        "payload": {},
+    })
+    assert any(skill["name"] == "meeting-notes" for skill in listed["payload"])
+
+    await request_handler.dispatch({
+        "type": "DELETE_SKILL",
+        "request_id": "delete-skill",
+        "payload": {"name": "meeting-notes"},
+    })
+    assert request_handler.skill_registry.get_skill("meeting-notes") is None
+
+
+@pytest.mark.asyncio
+async def test_custom_skill_cannot_overwrite_builtin(request_handler):
+    request_handler.skill_registry = SkillRegistry(SkillLoader())
+    request_handler.skill_registry.discover_skills(
+        str(Path(__file__).parents[1] / "skills")
+    )
+
+    with pytest.raises(ValueError, match="Cannot replace built-in"):
+        await request_handler.dispatch({
+            "type": "SAVE_SKILL",
+            "request_id": "replace-builtin",
+            "payload": {
+                "skill": {
+                    "name": "coding",
+                    "description": "overwrite",
+                    "triggers": [],
+                    "tools": [],
+                    "instructions": "no",
+                },
+            },
+        })
+
 
 @pytest.mark.asyncio
 async def test_validated_key_is_saved_for_model_routing(request_handler, monkeypatch):
@@ -54,6 +136,27 @@ async def test_validated_key_is_saved_for_model_routing(request_handler, monkeyp
         and model["capabilities"]["vision"]
         and model["capabilities"]["tool_calling"]
         for model in models["payload"]
+    )
+
+@pytest.mark.asyncio
+async def test_validated_key_supports_slots_beyond_three(request_handler, monkeypatch):
+    provider = request_handler.provider_registry.get_registered_provider("openai")
+
+    async def validate_key(_api_key):
+        return KeyHealth.HEALTHY
+
+    monkeypatch.setattr(provider, "validate_key", validate_key)
+    response = await request_handler.dispatch({
+        "type": "VALIDATE_KEY",
+        "request_id": "save-openai-key-4",
+        "payload": {"provider": "openai", "slot": 4, "key": "validated-key-4"},
+    })
+
+    assert response["payload"] == "healthy"
+    assert request_handler.key_manager.get_key("openai", 3) == "validated-key-4"
+    assert request_handler.key_manager.get_available_keys("openai")[-1] == (
+        3,
+        "validated-key-4",
     )
 
 @pytest.mark.asyncio
@@ -125,6 +228,39 @@ async def test_settings_are_saved_and_loaded(request_handler):
     assert saved["payload"]["wake_word"] == "computer"
     assert saved["payload"]["voice_enabled"] is True
     assert loaded["payload"] == saved["payload"]
+
+@pytest.mark.asyncio
+async def test_custom_endpoint_key_is_not_written_to_settings(request_handler, monkeypatch):
+    stored = {}
+    monkeypatch.setattr(
+        "services.agent.ai.key_manager.keyring.set_password",
+        lambda service, name, value: stored.__setitem__((service, name), value),
+    )
+    monkeypatch.setattr(
+        "services.agent.ai.key_manager.keyring.get_password",
+        lambda service, name: stored.get((service, name)),
+    )
+
+    saved = await request_handler.dispatch({
+        "type": "SAVE_SETTINGS",
+        "request_id": "save-custom-endpoint",
+        "payload": {
+            "settings": {
+                "custom_endpoints": [{
+                    "id": "local_ollama",
+                    "name": "Ollama",
+                    "baseUrl": "http://localhost:11434/v1",
+                    "apiKey": "endpoint-secret",
+                    "enabled": True,
+                }]
+            }
+        },
+    })
+
+    assert "apiKey" not in saved["payload"]["custom_endpoints"][0]
+    assert saved["payload"]["custom_endpoints"][0]["api_key_configured"] is True
+    assert "endpoint-secret" not in request_handler.settings_path.read_text()
+    assert stored[("helix_agent", "custom_endpoint_api_key_local_ollama")] == "endpoint-secret"
 
 @pytest.mark.asyncio
 async def test_camera_settings_default_to_environment(request_handler, monkeypatch):

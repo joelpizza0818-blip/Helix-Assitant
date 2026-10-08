@@ -29,6 +29,7 @@ class VoiceEngine:
         self._stt_warmup_task = None
         self._conversation_id = None
         self._conversation_history = []
+        self.configure_memory(config.get("MEMORY_CONTEXT_LIMIT", 20))
         
         if not self.enabled:
             logger.info("VoiceEngine is disabled in config.")
@@ -50,7 +51,7 @@ class VoiceEngine:
         wake_word_threshold = float(
             config.get(
                 'WAKE_WORD_THRESHOLD',
-                os.environ.get('WAKE_WORD_THRESHOLD', '0.05'),
+                os.environ.get('WAKE_WORD_THRESHOLD', '0.5'),
             )
         )
         
@@ -61,7 +62,11 @@ class VoiceEngine:
             event_bus=self.event_bus,
             threshold=wake_word_threshold,
         )
-        self.vad = VADDetector()
+        try:
+            vad_threshold = float(config.get("VAD_THRESHOLD", config.get("VAD_SILENCE_THRESHOLD_MS", 250)))
+        except (TypeError, ValueError):
+            vad_threshold = 250
+        self.vad = VADDetector(min_speech_rms=max(50.0, min(2000.0, vad_threshold)))
         self.stt = SpeechToText(
             provider=config.get('STT_PROVIDER', 'whisper_local'),
             model=config.get('STT_MODEL', 'base'),
@@ -69,7 +74,12 @@ class VoiceEngine:
         )
         self.tts = TextToSpeech(
             provider=config.get('TTS_PROVIDER', 'system'),
-            api_key=openai_key
+            model=config.get('TTS_MODEL', 'tts-1'),
+            api_key=openai_key,
+            voice_id=config.get('TTS_VOICE', 'echo'),
+        )
+        self.fallback_tts = TextToSpeech(
+            provider='system',
         )
         
         self._subscriptions = [
@@ -142,17 +152,64 @@ class VoiceEngine:
     def is_active(self) -> bool:
         return self._is_active
 
+    def configure_memory(self, turn_limit: int) -> None:
+        try:
+            turns = int(turn_limit)
+        except (TypeError, ValueError):
+            turns = 20
+        self._conversation_history_limit = max(1, min(100, turns)) * 2
+        self._trim_conversation_history()
+
+    def _trim_conversation_history(self) -> None:
+        history_limit = getattr(self, "_conversation_history_limit", 40)
+        self._conversation_history = self._conversation_history[-history_limit:]
+
     async def speak(self, text: str):
         if not self.enabled:
             return
         self.state = VoiceState.SPEAKING
         try:
-            await self.tts.speak(text)
+            await self._speak_with_fallback(text)
         except Exception as e:
-            logger.error(f"VoiceEngine speak error: {e}")
+            logger.exception("VoiceEngine could not speak the response: %s", e)
             self.state = VoiceState.ERROR
         finally:
             self.state = VoiceState.IDLE
+
+    async def configure_tts(
+        self, provider: str, model: str, voice_id: str
+    ) -> None:
+        if __package__ == "perception":
+            from .text_to_speech import TextToSpeech
+        else:
+            from services.agent.perception.text_to_speech import TextToSpeech
+
+        key_info = self.key_manager.get_available_key("openai")
+        self.tts = TextToSpeech(
+            provider=provider,
+            model=model,
+            api_key=key_info[1] if key_info else None,
+            voice_id=voice_id,
+        )
+        self.config.update(
+            {
+                "TTS_PROVIDER": provider,
+                "TTS_MODEL": model,
+                "TTS_VOICE": voice_id,
+            }
+        )
+
+    async def _speak_with_fallback(self, text: str) -> None:
+        try:
+            await self.tts.speak(text)
+        except Exception:
+            if getattr(self.tts, "provider", "system") == "system":
+                raise
+            logger.exception(
+                "Primary TTS provider %s failed; falling back to the Windows system voice.",
+                getattr(self.tts, "provider", "unknown"),
+            )
+            await self.fallback_tts.speak(text)
 
     async def _handle_wake_event(self, _event_name: str, payload: dict):
         if self.state != VoiceState.IDLE:
@@ -187,6 +244,7 @@ class VoiceEngine:
                 self._conversation_history.append(
                     {"role": "user", "content": transcription}
                 )
+                self._trim_conversation_history()
                 self.state = VoiceState.WAITING_RESPONSE
                 logger.info(
                     "VOICE_USER_TEXT_EMITTED source=voice characters=%d conversation_id=%s",
@@ -365,7 +423,7 @@ class VoiceEngine:
 
         response = response.strip()
         self._conversation_history.append({"role": "assistant", "content": response})
-        self._conversation_history = self._conversation_history[-20:]
+        self._trim_conversation_history()
         self.state = VoiceState.SPEAKING
         logger.info(
             "TTS_STARTED provider=%s characters=%d conversation_id=%s",
@@ -374,7 +432,7 @@ class VoiceEngine:
             self._conversation_id,
         )
         try:
-            await self.tts.speak(response)
+            await self._speak_with_fallback(response)
         except Exception:
             logger.exception("Failed to speak the voice response.")
             await self._end_conversation()

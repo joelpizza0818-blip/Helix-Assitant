@@ -24,3 +24,15 @@ def test_memory_types_defined():
     expected = {"SHORT_TERM", "CONVERSATION", "LONG_TERM", "SEMANTIC"}
     actual = set(t.name for t in MemoryType)
     assert expected == actual
+
+
+def test_memory_settings_control_turn_limit_and_auto_compaction():
+    memory = MemoryManager()
+
+    memory.configure({
+        "memory_context_limit": 6,
+        "memory_auto_compaction": False,
+    })
+
+    assert memory.context_limit == 6
+    assert memory.auto_compaction is False

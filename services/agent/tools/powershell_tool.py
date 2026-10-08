@@ -14,7 +14,10 @@ class PowerShellTool(ShellTool):
 
     @property
     def description(self) -> str:
-        return "Tool for executing PowerShell commands and scripts."
+        return (
+            "Execute PowerShell commands and scripts. Use PowerShell syntax and "
+            "Windows paths when the runtime OS is Windows."
+        )
 
     def validate_command(self, command: str) -> bool:
         cmd_lower = command.lower()

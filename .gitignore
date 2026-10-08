@@ -21,6 +21,11 @@ venv/
 # Electron & Apps
 /apps/desktop/out/
 /apps/desktop/dist/
+/apps/desktop/.pyinstaller-work/
+/apps/desktop/.pyinstaller-spec/
+/apps/desktop/agent-runtime/*
+!/apps/desktop/agent-runtime/.gitkeep
+/apps/landing/public/downloads/
 release/
 *.asar
 

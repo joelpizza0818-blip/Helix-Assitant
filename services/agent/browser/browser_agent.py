@@ -14,7 +14,10 @@ class BrowserAgent:
     async def _ensure_started(self):
         if not self._session:
             from services.agent.browser.browser_session import BrowserSession
-            self._session = BrowserSession(headless=False) # Agent actions visible by default
+            self._session = BrowserSession(
+                headless=BrowserSession.default_headless,
+                browser_type=BrowserSession.default_browser_type,
+            )
             await self._session.start()
             
         if not self._researcher:

@@ -164,7 +164,7 @@ class PluginManager:
         try:
             tools = plugin.get_tools()
             for tool in tools:
-                self.tool_registry.register_tool(tool)
+                self.tool_registry.register_tool(tool, source="plugin")
         except Exception as e:
             logger.error(f"Failed to register tools for plugin: {e}")
 

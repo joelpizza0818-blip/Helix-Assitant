@@ -90,6 +90,97 @@
   gap: 10px;
 }
 
+.conversation-history {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-3);
+}
+
+.conversation-history__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: var(--space-3);
+}
+
+.conversation-history__title {
+  color: var(--bone);
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+}
+
+.conversation-history__description,
+.conversation-history__empty {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  margin-top: 4px;
+}
+
+.conversation-history__new {
+  color: var(--orange);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-btn);
+  padding: 6px 10px;
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.conversation-history__new:hover {
+  background: var(--carbon);
+}
+
+.conversation-history__new:disabled,
+.conversation-history__item:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.conversation-history__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.conversation-history__item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 12px;
+  color: var(--secondary);
+  text-align: left;
+  background: var(--carbon);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+}
+
+.conversation-history__item:hover {
+  border-color: var(--orange);
+}
+
+.conversation-history__item-title {
+  color: var(--bone);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.conversation-history__item-preview {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-history__item-date {
+  color: var(--graphite);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
 .floating-ui__empty {
   display: flex;
   flex-direction: column;
@@ -188,8 +279,14 @@
   flex-shrink: 0;
 }
 
-.floating-ui__input {
+.floating-ui__input-wrapper {
+  position: relative;
   flex: 1;
+  min-width: 0;
+}
+
+.floating-ui__input {
+  width: 100%;
   height: 38px;
   padding: 0 16px;
   background: var(--carbon);
@@ -206,6 +303,48 @@
 
 .floating-ui__input:disabled {
   opacity: 0.5;
+}
+
+.floating-ui__mention-suggestions {
+  position: absolute;
+  z-index: 20;
+  right: 0;
+  bottom: calc(100% + 8px);
+  left: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--carbon);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.floating-ui__mention-option {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  color: var(--secondary);
+  text-align: left;
+}
+
+.floating-ui__mention-option--selected,
+.floating-ui__mention-option:hover {
+  background: rgba(238, 96, 24, 0.14);
+}
+
+.floating-ui__mention-name {
+  color: var(--bone);
+  font-size: var(--text-sm);
+}
+
+.floating-ui__mention-description {
+  color: var(--muted);
+  font-size: var(--text-xs);
 }
 
 /* ── Icon Buttons ──────────────────────────────────────────────────────────── */

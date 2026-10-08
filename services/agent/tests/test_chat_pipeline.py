@@ -14,7 +14,12 @@ from services.agent.ai.google_provider import GoogleProvider
 from services.agent.ai.model_router import RouteCandidate, TaskRequirements
 from services.agent.ai.openai_provider import OpenAIProvider
 from google.genai.errors import ClientError
-from services.agent.core.orchestrator import Orchestrator
+from services.agent.core.orchestrator import (
+    Orchestrator,
+    _compact_conversation_history,
+    _fast_os_answer,
+)
+from services.agent.core.runtime_context import describe_runtime_os
 from services.agent.core.task_manager import TaskStatus
 from services.agent.core.tool_registry import ToolRegistry
 from services.agent.core.agent import Agent
@@ -323,6 +328,23 @@ def test_react_loop_passes_candidate_key_and_named_tools():
     assert provider.tool_call.await_args.args[1][0]["name"] == "lookup"
 
 
+def test_shell_output_is_truncated_before_being_added_to_model_history():
+    from services.agent.core.react_loop import _SHELL_OUTPUT_LIMIT, _model_tool_output
+    from services.agent.tools.shell_tool import ShellResult
+
+    output = ShellResult(
+        stdout="x" * 5000,
+        stderr="",
+        exit_code=0,
+        execution_time_ms=1,
+    )
+
+    serialized = _model_tool_output("powershell_tool", output)
+
+    assert len(serialized) == _SHELL_OUTPUT_LIMIT
+    assert serialized.endswith("[... Output truncated ...]")
+
+
 def test_react_loop_keeps_execution_model_exclusions_between_tool_iterations():
     from services.agent.core.react_loop import ReActLoop
 
@@ -594,6 +616,8 @@ def test_text_chat_uses_conversation_loop_and_returns_renderable_message():
     planner.create_plan.assert_not_awaited()
     messages = react_loop.execute.await_args.args[0]
     assert messages[0].role == "system"
+    assert "Runtime OS:" in messages[0].content
+    assert "one direct tool action" in messages[0].content
     assert messages[-3:] == [
         ChatMessage(role="user", content="Hola."),
         ChatMessage(role="assistant", content="Hola, ¿en qué ayudo?"),
@@ -610,6 +634,239 @@ def test_text_chat_uses_conversation_loop_and_returns_renderable_message():
     assert message_events[0][1]["role"] == "assistant"
     assert message_events[0][1]["content"] == "Hola."
     assert message_events[0][1]["model"] == "claude-sonnet-5-5"
+
+
+def test_long_conversation_history_is_compacted_without_losing_current_request():
+    history = [
+        {
+            "role": "user" if index % 2 == 0 else "assistant",
+            "content": f"Turn {index}: " + ("context " * 100),
+        }
+        for index in range(12)
+    ]
+    history.append({"role": "user", "content": "Current request must stay exact."})
+
+    compacted, summary = _compact_conversation_history(history, turn_limit=3)
+
+    assert compacted[-1] == history[-1]
+    assert len(compacted) < len(history)
+    assert summary.startswith("Earlier conversation, compact extract")
+    assert len(compacted) == 6
+    assert len(summary) <= 900
+
+
+def test_disabled_auto_compaction_slides_window_without_summary():
+    history = [
+        {"role": "user", "content": f"request {index}"}
+        for index in range(8)
+    ]
+
+    compacted, summary = _compact_conversation_history(
+        history,
+        turn_limit=2,
+        auto_compaction=False,
+    )
+
+    assert compacted == history[-4:]
+    assert summary == ""
+
+
+def test_operating_system_question_is_answered_locally_without_model_call():
+    events = []
+
+    async def publish(event_name, payload):
+        events.append((event_name, payload))
+
+    task_manager = SimpleNamespace(
+        update_status=AsyncMock(),
+        set_result=AsyncMock(),
+    )
+    react_loop = SimpleNamespace(execute=AsyncMock())
+    orchestrator = Orchestrator(
+        planner=SimpleNamespace(create_plan=AsyncMock()),
+        task_manager=task_manager,
+        event_bus=SimpleNamespace(publish=publish),
+        react_loop=react_loop,
+        agent_manager=None,
+        tool_registry=None,
+        role_config=None,
+    )
+
+    asyncio.run(
+        orchestrator.execute_task(
+            "task-os",
+            "¿Qué sistema operativo está ejecutando HELIX?",
+            {"input_source": "text", "conversation_id": "conversation-os"},
+        )
+    )
+
+    react_loop.execute.assert_not_awaited()
+    task_manager.update_status.assert_awaited_with("task-os", TaskStatus.COMPLETED)
+    response = next(payload for event, payload in events if event == "AGENT_MESSAGE")
+    assert response["provider"] == "local"
+    assert describe_runtime_os() in response["content"]
+    assert any(event == "ORCHESTRATION_COMPLETED" for event, _payload in events)
+
+
+def test_os_fast_path_only_handles_questions_about_the_current_runtime():
+    assert _fast_os_answer("What OS is HELIX running on?")
+    assert _fast_os_answer("¿Qué sistema operativo usa este equipo?")
+    assert _fast_os_answer("What is my operating system?")
+    assert _fast_os_answer("Which OS should I use for this project?") is None
+
+
+def test_explicit_skill_mention_adds_only_requested_skill_context():
+    from services.agent.skills.skill_loader import SkillDefinition
+
+    skill = SkillDefinition(
+        name="coding",
+        description="Help with code",
+        version="1.0.0",
+        triggers=["code", "fix"],
+        tools=["execute_code"],
+        instructions="Follow the coding workflow.",
+    )
+    orchestrator = SimpleNamespace(execute_task=AsyncMock())
+    agent = Agent.__new__(Agent)
+    agent.intent_matcher = SimpleNamespace(
+        match=lambda _text: (_ for _ in ()).throw(AssertionError("Auto-match called"))
+    )
+    agent.skill_registry = SimpleNamespace(
+        get_skill=lambda name: skill if name == "coding" else None,
+        get_all_skills=lambda: [skill],
+    )
+    agent.task_manager = SimpleNamespace(create_task=AsyncMock())
+    agent.orchestrator = orchestrator
+    agent.state_manager = StateManager()
+
+    async def send_text():
+        await agent.handle_user_input(
+            "USER_TEXT",
+            {"text": "@coding fix the parser"},
+        )
+        await asyncio.sleep(0)
+
+    asyncio.run(send_text())
+
+    context = orchestrator.execute_task.await_args.kwargs["context"]
+    assert context["requested_skills"] == ["coding"]
+    assert context["requested_skill_tools"] == ["execute_code"]
+    assert "Follow the coding workflow." in context["requested_skill_instructions"]
+
+
+def test_agent_automatically_selects_a_unique_matching_skill():
+    from services.agent.skills.intent_matcher import SkillMatch
+    from services.agent.skills.skill_loader import SkillDefinition
+
+    skill = SkillDefinition(
+        name="coding",
+        description="Help with code",
+        version="1.0.0",
+        triggers=["debug", "fix bug"],
+        tools=["execute_code"],
+        instructions="Follow the coding workflow.",
+    )
+    matcher = SimpleNamespace(match=lambda text: [
+        SkillMatch(
+            skill=skill,
+            confidence=0.3,
+            matched_triggers=["debug"],
+            reasoning="Matched keywords: debug",
+        )
+    ])
+    orchestrator = SimpleNamespace(execute_task=AsyncMock())
+    agent = Agent.__new__(Agent)
+    agent.intent_matcher = matcher
+    agent.skill_registry = SimpleNamespace(
+        get_skill=lambda name: skill if name == "coding" else None,
+        get_all_skills=lambda: [skill],
+    )
+    agent.task_manager = SimpleNamespace(create_task=AsyncMock())
+    agent.orchestrator = orchestrator
+    agent.state_manager = StateManager()
+
+    async def send_text():
+        await agent.handle_user_input(
+            "USER_TEXT",
+            {"text": "Please debug this"},
+        )
+        await asyncio.sleep(0)
+
+    asyncio.run(send_text())
+
+    context = orchestrator.execute_task.await_args.kwargs["context"]
+    assert context["requested_skills"] == ["coding"]
+    assert context["requested_skill_tools"] == ["execute_code"]
+    assert "Follow the coding workflow." in context["requested_skill_instructions"]
+
+
+def test_automatic_skill_selection_skips_ambiguous_matches():
+    from services.agent.skills.intent_matcher import SkillMatch
+    from services.agent.skills.skill_loader import SkillDefinition
+
+    skills = [
+        SkillDefinition(
+            name=name,
+            description=name,
+            version="1.0.0",
+            triggers=["search"],
+            tools=[],
+            instructions=f"{name} instructions",
+        )
+        for name in ("research", "browser")
+    ]
+    matches = [
+        SkillMatch(skill, 0.3, ["search"], "Matched keywords: search")
+        for skill in skills
+    ]
+    agent = Agent.__new__(Agent)
+    agent.intent_matcher = SimpleNamespace(match=lambda _text: matches)
+    agent.skill_registry = SimpleNamespace(
+        get_skill=lambda _name: None,
+        get_all_skills=lambda: skills,
+    )
+    agent.orchestrator = SimpleNamespace(execute_task=AsyncMock())
+    agent.task_manager = SimpleNamespace(create_task=AsyncMock())
+    agent.state_manager = StateManager()
+
+    async def send_text():
+        await agent.handle_user_input("USER_TEXT", {"text": "search"})
+        await asyncio.sleep(0)
+
+    asyncio.run(send_text())
+
+    context = agent.orchestrator.execute_task.await_args.kwargs["context"]
+    assert "requested_skills" not in context
+
+
+def test_explicit_mcp_server_mention_prioritizes_its_tools():
+    mcp_tool = SimpleNamespace(name="github_search_issues", server_name="github")
+    other_tool = SimpleNamespace(name="filesystem_search", server_name="files")
+    tool_registry = SimpleNamespace(
+        get_tools_by_source=lambda source: [mcp_tool, other_tool] if source == "mcp" else [],
+    )
+    agent = Agent.__new__(Agent)
+    agent.skill_registry = None
+    agent.orchestrator = SimpleNamespace(
+        execute_task=AsyncMock(),
+        tool_registry=tool_registry,
+    )
+    agent.task_manager = SimpleNamespace(create_task=AsyncMock())
+    agent.state_manager = StateManager()
+
+    async def send_text():
+        await agent.handle_user_input(
+            "USER_TEXT",
+            {"text": "/github search for the issue"},
+        )
+        await asyncio.sleep(0)
+
+    asyncio.run(send_text())
+
+    context = agent.orchestrator.execute_task.await_args.kwargs["context"]
+    assert context["requested_mcp_servers"] == ["github"]
+    assert context["requested_skill_tools"] == ["github_search_issues"]
+    assert "Prefer their tools" in context["requested_mcp_instructions"]
 
 
 def test_text_chat_surfaces_provider_failure_instead_of_marking_task_complete():

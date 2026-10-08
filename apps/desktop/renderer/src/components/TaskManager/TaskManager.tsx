@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { useAgent } from '../../hooks/useAgent'
 import type { TaskStatus, TaskDefinition } from '../../types/global'
+import { safeInputSummary, safeSummaryText } from '../FloatingUI/taskExecutionSummary'
 import './TaskManager.css'
 
 export default function TaskManager() {
@@ -120,7 +121,7 @@ export default function TaskManager() {
                           <span className={`task-log-level task-log-level--${log.level.toLowerCase()}`}>
                             [{log.level}]
                           </span>
-                          <span className="task-log-msg selectable">{log.message}</span>
+                          <span className="task-log-msg selectable">{safeSummaryText(log.message)}</span>
                         </div>
                       ))
                     )}
@@ -137,9 +138,12 @@ export default function TaskManager() {
                             <span>{new Date(request.timestamp).toLocaleTimeString()}</span>
                           </summary>
                           <div className="task-request__body">
-                            <pre className="task-request__payload">
-                              {JSON.stringify(request.request, null, 2)}
-                            </pre>
+                            <div className="task-request__payload">
+                              {(() => {
+                                const input = safeInputSummary(request.input_summary)
+                                return `${input.message_count} messages · ${input.character_count} characters · roles: ${input.roles.join(', ') || 'none'}${input.context_labels.length ? ` · context: ${input.context_labels.map((label) => safeSummaryText(label, 80)).join(', ')}` : ''}`
+                              })()}
+                            </div>
                             {request.error && (
                               <div className="task-request__error">
                                 {request.error.code}: {request.error.message}

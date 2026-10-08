@@ -9,12 +9,22 @@ class ScreenEngine:
     def __init__(self):
         self._watch_task = None
         self._is_watching = False
-        
+        self.display_index = 0
+        self.capture_interval_ms = 1000
+
+    def configure(self, settings: dict) -> None:
+        value = settings.get('display_index', 0)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            self.display_index = value
+        interval = settings.get('screen_capture_interval_ms', self.capture_interval_ms)
+        if isinstance(interval, (int, float)) and not isinstance(interval, bool):
+            self.capture_interval_ms = max(100, min(60000, int(interval)))
+
     def capture_full(self) -> bytes:
         import mss
         from PIL import Image
         with mss.mss() as sct:
-            monitor = sct.monitors[1] # Primary monitor
+            monitor = sct.monitors[min(self.display_index + 1, len(sct.monitors) - 1)]
             sct_img = sct.grab(monitor)
             img = Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
             
@@ -77,13 +87,14 @@ class ScreenEngine:
     def get_screen_resolution(self) -> tuple[int, int]:
         import mss
         with mss.mss() as sct:
-            monitor = sct.monitors[1]
+            monitor = sct.monitors[min(self.display_index + 1, len(sct.monitors) - 1)]
             return monitor["width"], monitor["height"]
 
-    async def watch_for_changes(self, callback, interval_s: float = 1.0):
+    async def watch_for_changes(self, callback, interval_s: float | None = None):
         if self._is_watching:
             return
         self._is_watching = True
+        interval_s = self.capture_interval_ms / 1000 if interval_s is None else max(0.1, interval_s)
         
         async def _loop():
             last_screen = self.capture_full()

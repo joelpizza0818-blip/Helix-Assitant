@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain } from 'electron'
 import WebSocket from 'ws'
 
 interface AgentMessage {
@@ -22,6 +22,7 @@ export class IPCBridge {
   private reconnectAttempts: number = 0
   private wsUrl: string = ''
   private reconnecting: boolean = false
+  private settingsAppliedHandler: ((settings: Record<string, unknown>) => void) | null = null
 
   setupHandlers(mainWindow: BrowserWindow, toolboxWindow: BrowserWindow): void {
     this.mainWindow = mainWindow
@@ -38,6 +39,10 @@ export class IPCBridge {
 
     ipcMain.on('helix:cancel-task', (_event, taskId: string) => {
       this._sendToPython({ type: 'TASK_CANCEL', payload: { task_id: taskId }, timestamp: new Date().toISOString() })
+    })
+
+    ipcMain.on('helix:emergency-stop', () => {
+      this._sendToPython({ type: 'TASK_CANCEL_ALL', payload: {}, timestamp: new Date().toISOString() })
     })
 
     ipcMain.on('helix:confirm-action', (_event, requestId: string) => {
@@ -67,6 +72,10 @@ export class IPCBridge {
 
     ipcMain.handle('helix:save-settings', async (event, settings: Record<string, unknown>) => {
       const result = await this._request({ type: 'SAVE_SETTINGS', payload: { settings } })
+      this._applyStartupSettings(result)
+      if (result && typeof result === 'object') {
+        this.settingsAppliedHandler?.(result as Record<string, unknown>)
+      }
       event.sender.send('helix:settings-applied', result)
       return result
     })
@@ -75,11 +84,46 @@ export class IPCBridge {
       // SECURITY: key goes directly to Python for validation, never stored in main process logs
       return this._request({ type: 'VALIDATE_KEY', payload: { provider, slot, key } })
     })
+
+    ipcMain.handle('helix:get-skills', async () => {
+      return this._request({ type: 'GET_SKILLS', payload: {} })
+    })
+
+    ipcMain.handle('helix:save-skill', async (_event, skill: Record<string, unknown>) => {
+      return this._request({ type: 'SAVE_SKILL', payload: { skill } })
+    })
+
+    ipcMain.handle('helix:delete-skill', async (_event, name: string) => {
+      return this._request({ type: 'DELETE_SKILL', payload: { name } })
+    })
+
+    ipcMain.handle('helix:get-mcp-servers', async () => {
+      return this._request({ type: 'GET_MCP_SERVERS', payload: {} })
+    })
   }
 
   async connectToPython(wsUrl: string): Promise<void> {
     this.wsUrl = wsUrl
     return this._connect()
+  }
+
+  async loadSettings(): Promise<Record<string, unknown>> {
+    const settings = await this._request({ type: 'GET_SETTINGS', payload: {} })
+    this._applyStartupSettings(settings)
+    if (settings && typeof settings === 'object') {
+      this.settingsAppliedHandler?.(settings as Record<string, unknown>)
+    }
+    return (settings && typeof settings === 'object')
+      ? settings as Record<string, unknown>
+      : {}
+  }
+
+  onSettingsApplied(handler: (settings: Record<string, unknown>) => void): void {
+    this.settingsAppliedHandler = handler
+  }
+
+  sendEmergencyStop(): void {
+    this._sendToPython({ type: 'TASK_CANCEL_ALL', payload: {}, timestamp: new Date().toISOString() })
   }
 
   close(): void {
@@ -202,6 +246,16 @@ export class IPCBridge {
     }
   }
 
+  private _applyStartupSettings(settings: unknown): void {
+    if (!app.isPackaged || !settings || typeof settings !== 'object') return
+    const values = settings as Record<string, unknown>
+    if (typeof values.start_with_windows !== 'boolean') return
+    app.setLoginItemSettings({
+      openAtLogin: values.start_with_windows,
+      path: process.execPath,
+    })
+  }
+
   private _request(message: AgentMessage, timeoutMs: number = 10000): Promise<unknown> {
     return new Promise((resolve, reject) => {
       const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2)}`
@@ -246,7 +300,8 @@ export class IPCBridge {
       'confirmation_resolved': 'helix:confirmation-resolved',
       'error': 'helix:error',
       'provider_update': 'helix:provider-update',
-      'model_update': 'helix:model-update'
+      'model_update': 'helix:model-update',
+      'hand_landmarks': 'helix:hand-landmarks'
     }
 
     const channel = typeMap[message.type] ?? `helix:${message.type}`

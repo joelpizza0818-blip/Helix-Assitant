@@ -17,16 +17,36 @@ _SAFE_HOTKEYS = {
 
 
 class _KeyboardController:
+    default_interval = 0.02
+    default_fail_safe = True
+
     def __init__(self):
         import pyautogui
 
-        pyautogui.FAILSAFE = True
+        pyautogui.FAILSAFE = self.default_fail_safe
 
-    async def type_text(self, text: str, interval: float = 0.02) -> None:
+    async def type_text(self, text: str, interval: float | None = None) -> None:
         import pyautogui
 
         logger.info("Typing text with keyboard fallback")
-        await asyncio.to_thread(pyautogui.write, text, interval)
+        await asyncio.to_thread(
+            pyautogui.write,
+            text,
+            self.default_interval if interval is None else interval,
+        )
+
+    @classmethod
+    def configure(cls, settings: dict) -> None:
+        value = settings.get('keystroke_delay_ms', 30)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            cls.default_interval = max(0.01, min(0.2, float(value) / 1000))
+        try:
+            import pyautogui
+            pyautogui.PAUSE = cls.default_interval
+            cls.default_fail_safe = bool(settings.get('pyautogui_fail_safe', True))
+            pyautogui.FAILSAFE = cls.default_fail_safe
+        except ImportError:
+            pass
 
     async def paste_text(self, text: str) -> None:
         import win32clipboard
@@ -97,6 +117,8 @@ class _KeyboardController:
 
 
 class KeyboardTool(_KeyboardController, BaseTool):
+    def configure(self, settings: dict) -> None:
+        _KeyboardController.configure(settings)
     @property
     def name(self) -> str:
         return "keyboard.press_key"
@@ -150,6 +172,8 @@ class KeyboardTool(_KeyboardController, BaseTool):
 
 
 class HotkeyTool(_KeyboardController, BaseTool):
+    def configure(self, settings: dict) -> None:
+        _KeyboardController.configure(settings)
     @property
     def name(self) -> str:
         return "keyboard.hotkey"

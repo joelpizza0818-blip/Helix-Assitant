@@ -14,6 +14,9 @@ electron.contextBridge.exposeInMainWorld("helix", {
   cancelTask: (taskId) => {
     electron.ipcRenderer.send("helix:cancel-task", taskId);
   },
+  emergencyStop: () => {
+    electron.ipcRenderer.send("helix:emergency-stop");
+  },
   // Confirm a pending action
   confirmAction: (requestId) => {
     electron.ipcRenderer.send("helix:confirm-action", requestId);
@@ -41,6 +44,10 @@ electron.contextBridge.exposeInMainWorld("helix", {
   getModels: (requirements) => electron.ipcRenderer.invoke("helix:get-models", requirements),
   // Validate an API key — key goes directly to Python, never logged here
   validateKey: (provider, slot, key) => electron.ipcRenderer.invoke("helix:validate-key", provider, slot, key),
+  getSkills: () => electron.ipcRenderer.invoke("helix:get-skills"),
+  saveSkill: (skill) => electron.ipcRenderer.invoke("helix:save-skill", skill),
+  deleteSkill: (name) => electron.ipcRenderer.invoke("helix:delete-skill", name),
+  getMcpServers: () => electron.ipcRenderer.invoke("helix:get-mcp-servers"),
   // Event subscriptions (return cleanup function)
   onAgentMessage: (fn) => createEventListener("helix:agent-message", fn),
   onTaskUpdate: (fn) => createEventListener("helix:task-update", fn),
@@ -51,6 +58,7 @@ electron.contextBridge.exposeInMainWorld("helix", {
   onConfirmationResolved: (fn) => createEventListener("helix:confirmation-resolved", fn),
   onError: (fn) => createEventListener("helix:error", fn),
   onProviderUpdate: (fn) => createEventListener("helix:provider-update", fn),
+  onHandLandmarks: (fn) => createEventListener("helix:hand-landmarks", fn),
   onSettingsApplied: (fn) => createEventListener("helix:settings-applied", fn),
   onShowTasks: (fn) => createEventListener("helix:show-tasks", fn)
 });

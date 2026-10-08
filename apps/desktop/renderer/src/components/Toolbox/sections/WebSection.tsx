@@ -23,7 +23,7 @@ export default function WebSection({ settings, onSave }: Props) {
 
         <div className="form-row">
           <label className="form-label">Browser Engine</label>
-          <select className="form-input" defaultValue="chromium">
+          <select className="form-input" value={settings.browser_engine || 'chromium'} onChange={(e) => void onSave({ browser_engine: e.target.value as HelixSettings['browser_engine'] })}>
             <option value="chromium">Chromium (Google Chrome / Microsoft Edge)</option>
             <option value="firefox">Firefox</option>
             <option value="webkit">WebKit (Safari engine)</option>
@@ -33,14 +33,14 @@ export default function WebSection({ settings, onSave }: Props) {
         <div className="form-row">
           <label className="form-label">Headless Mode (Silent Background Execution)</label>
           <label className="toggle">
-            <input type="checkbox" defaultChecked={true} />
+            <input type="checkbox" checked={settings.browser_headless ?? true} onChange={(e) => void onSave({ browser_headless: e.target.checked })} />
             <span className="toggle__slider" />
           </label>
         </div>
 
         <div className="form-row">
           <label className="form-label">Default Search Provider</label>
-          <select className="form-input" defaultValue="google">
+          <select className="form-input" value={settings.search_provider || 'google'} onChange={(e) => void onSave({ search_provider: e.target.value as HelixSettings['search_provider'] })}>
             <option value="google">Google Search</option>
             <option value="duckduckgo">DuckDuckGo (Privacy Focused)</option>
             <option value="bing">Microsoft Bing</option>
@@ -49,7 +49,7 @@ export default function WebSection({ settings, onSave }: Props) {
 
         <div className="form-row">
           <label className="form-label">Maximum Research Traversal Depth</label>
-          <select className="form-input" defaultValue="2">
+          <select className="form-input" value={String(settings.research_depth ?? 2)} onChange={(e) => void onSave({ research_depth: Number(e.target.value) })}>
             <option value="1">Level 1 (Direct search results only)</option>
             <option value="2">Level 2 (Follow up to 3 links per result - Recommended)</option>
             <option value="3">Level 3 (Deep multi-page fact synthesis)</option>
@@ -66,7 +66,7 @@ export default function WebSection({ settings, onSave }: Props) {
         <div className="form-row">
           <label className="form-label">Block Untrusted File Downloads</label>
           <label className="toggle">
-            <input type="checkbox" defaultChecked={true} />
+            <input type="checkbox" checked={settings.block_downloads ?? true} onChange={(e) => void onSave({ block_downloads: e.target.checked })} />
             <span className="toggle__slider" />
           </label>
         </div>
@@ -74,7 +74,7 @@ export default function WebSection({ settings, onSave }: Props) {
         <div className="form-row">
           <label className="form-label">Block Crypto / Adult / Malicious Domains</label>
           <label className="toggle">
-            <input type="checkbox" defaultChecked={true} />
+            <input type="checkbox" checked={settings.block_untrusted_domains ?? true} onChange={(e) => void onSave({ block_untrusted_domains: e.target.checked })} />
             <span className="toggle__slider" />
           </label>
         </div>

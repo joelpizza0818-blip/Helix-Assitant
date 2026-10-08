@@ -48,6 +48,7 @@ export default function AISection({ providers, models, settings, onSave, onRefre
   const [validating, setValidating] = useState<Record<string, boolean>>({})
   const [validationResults, setValidationResults] = useState<Record<string, KeyHealth>>({})
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({})
+  const [visibleKeySlots, setVisibleKeySlots] = useState<Record<string, number>>({})
 
   // Custom Endpoint state
   const [customEndpointName, setCustomEndpointName] = useState('')
@@ -81,6 +82,12 @@ export default function AISection({ providers, models, settings, onSave, onRefre
 
   const getProviderStatus = (providerId: ProviderID) =>
     providers.find((p) => p.id === providerId)
+
+  const getVisibleKeyCount = (providerId: ProviderID) => Math.max(
+    3,
+    visibleKeySlots[providerId] || 0,
+    getProviderStatus(providerId)?.keys?.length || 0,
+  )
 
   const handleKeyInput = (provider: string, slot: KeySlot, value: string) => {
     setKeyInputs((prev) => ({ ...prev, [`${provider}_${slot}`]: value }))
@@ -200,8 +207,8 @@ export default function AISection({ providers, models, settings, onSave, onRefre
               </span>
             </div>
 
-            {/* 3 Key slots */}
-            {([1, 2, 3] as KeySlot[]).map((slot) => {
+            {/* Three slots are guaranteed; users can add as many more as needed. */}
+            {Array.from({ length: getVisibleKeyCount(providerId) }, (_, index) => index + 1).map((slot) => {
               const keyStatus = status?.keys?.find((k) => k.slot === slot)
               const health = keyStatus?.health ?? 'unconfigured'
               const inputKey = `${providerId}_${slot}`
@@ -240,6 +247,17 @@ export default function AISection({ providers, models, settings, onSave, onRefre
                 </React.Fragment>
               )
             })}
+            <button
+              type="button"
+              className="validate-btn"
+              style={{ marginTop: 8, fontSize: 12 }}
+              onClick={() => setVisibleKeySlots((previous) => ({
+                ...previous,
+                [providerId]: getVisibleKeyCount(providerId) + 1,
+              }))}
+            >
+              + Add another API key slot
+            </button>
           </div>
         )
       })}
@@ -487,7 +505,12 @@ export default function AISection({ providers, models, settings, onSave, onRefre
                   <option value="openai">OpenAI</option>
                   <option value="anthropic">Anthropic</option>
                   <option value="google">Google AI</option>
-                  <option value="custom">Custom / Local Endpoint</option>
+                  {(settings.custom_endpoints || []).map((endpoint) => (
+                    <option key={endpoint.id} value={endpoint.id}>
+                      {endpoint.name} ({endpoint.id})
+                    </option>
+                  ))}
+                  <option value="custom">Custom / Local Endpoint (add an endpoint first)</option>
                 </select>
               </div>
 

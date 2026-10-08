@@ -31,7 +31,8 @@ class WebResearcher:
         self.model_call_fn = model_call_fn
         self.event_bus = event_bus
 
-    async def research(self, topic: str, depth: int = 3) -> ResearchResult:
+    async def research(self, topic: str, depth: int | None = None) -> ResearchResult:
+        depth = self.browser.research_depth if depth is None else max(1, min(depth, 10))
         logger.info(f"Starting research on: {topic} with depth {depth}")
         if not self.browser.is_running():
             await self.browser.start()
@@ -74,7 +75,14 @@ class WebResearcher:
         return ResearchPlan(queries=queries, expected_sources=[], depth=3)
 
     async def _execute_search(self, query: str) -> List[SearchResult]:
-        search_url = f"https://html.duckduckgo.com/html/?q={query}"
+        from urllib.parse import quote_plus
+        encoded_query = quote_plus(query)
+        search_urls = {
+            'google': f"https://www.google.com/search?q={encoded_query}",
+            'bing': f"https://www.bing.com/search?q={encoded_query}",
+            'duckduckgo': f"https://html.duckduckgo.com/html/?q={encoded_query}",
+        }
+        search_url = search_urls.get(self.browser.search_provider, search_urls['duckduckgo'])
         await self.browser.navigate(search_url)
         
         html = await self.browser.get_page_source()

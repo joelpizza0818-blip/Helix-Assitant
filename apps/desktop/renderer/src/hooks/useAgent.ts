@@ -4,9 +4,15 @@ import type {
   ConfirmationRequest, FallbackEvent, ProviderStatus, ModelDefinition,
   ProviderID, ModelRequestEvent
 } from '../types/global'
+import {
+  readConversationHistory,
+  saveConversation,
+  type StoredConversation,
+} from './conversationHistory'
 
 interface UseAgentReturn {
   messages: AgentMessage[]
+  conversationHistory: StoredConversation[]
   isLoading: boolean
   tasks: TaskDefinition[]
   agentStatus: AgentStatus
@@ -18,6 +24,8 @@ interface UseAgentReturn {
   providers: ProviderStatus[]
   models: ModelDefinition[]
   sendMessage: (text: string) => void
+  selectConversation: (id: string) => void
+  startNewConversation: () => void
   cancelTask: (taskId: string) => void
   confirmAction: (requestId: string) => void
   rejectAction: (requestId: string) => void
@@ -27,9 +35,11 @@ interface UseAgentReturn {
   dismissFallback: () => void
 }
 
-export function useAgent(): UseAgentReturn {
+export function useAgent(options: { persistConversation?: boolean } = {}): UseAgentReturn {
+  const persistConversation = options.persistConversation ?? false
   const [messages, setMessages] = useState<AgentMessage[]>([])
-  const [conversationId] = useState(() => crypto.randomUUID())
+  const [conversationId, setConversationId] = useState<string>(() => crypto.randomUUID())
+  const [conversationHistory, setConversationHistory] = useState<StoredConversation[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [tasks, setTasks] = useState<TaskDefinition[]>([])
   const [agentStatus, setAgentStatus] = useState<AgentStatus>('idle')
@@ -42,6 +52,49 @@ export function useAgent(): UseAgentReturn {
   const [models, setModels] = useState<ModelDefinition[]>([])
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const modelRequestsByTaskRef = useRef<Record<string, ModelRequestEvent[]>>({})
+
+  useEffect(() => {
+    if (!persistConversation) return
+    try {
+      setConversationHistory(readConversationHistory())
+    } catch (error) {
+      console.error('Failed to load conversation history:', error)
+    }
+  }, [persistConversation])
+
+  useEffect(() => {
+    if (!persistConversation || messages.length === 0) return
+    try {
+      const current = readConversationHistory()
+      setConversationHistory(saveConversation(current, conversationId, messages))
+    } catch (error) {
+      console.error('Failed to save conversation history:', error)
+    }
+  }, [conversationId, messages, persistConversation])
+
+  const selectConversation = useCallback((id: string) => {
+    try {
+      const selected = readConversationHistory().find((item) => item.id === id)
+      if (!selected) {
+        console.error(`Conversation ${id} is not present in local history`)
+        return
+      }
+      setConversationHistory((current) => {
+        const refreshed = [selected, ...current.filter((item) => item.id !== id)]
+        return refreshed.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      })
+      setConversationId(selected.id)
+      setMessages(selected.messages)
+    } catch (error) {
+      console.error('Failed to open conversation:', error)
+    }
+  }, [])
+
+  const startNewConversation = useCallback(() => {
+    setConversationId(crypto.randomUUID())
+    setMessages([])
+    setIsLoading(false)
+  }, [])
 
   useEffect(() => {
     // Subscribe to all agent events
@@ -235,9 +288,9 @@ export function useAgent(): UseAgentReturn {
   }, [])
 
   return {
-    messages, isLoading, tasks, agentStatus, currentModel, currentProvider,
+    messages, conversationHistory, isLoading, tasks, agentStatus, currentModel, currentProvider,
     taskCount, pendingConfirmation, fallbackEvent, providers, models,
-    sendMessage, cancelTask, confirmAction, rejectAction,
+    sendMessage, selectConversation, startNewConversation, cancelTask, confirmAction, rejectAction,
     loadProviders, loadModels, loadTasks, dismissFallback
   }
 }

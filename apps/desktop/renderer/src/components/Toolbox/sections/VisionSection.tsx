@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react'
-import type { HelixSettings } from '../../../types/global'
+import React, { useEffect, useRef, useState } from 'react'
+import type { HandCommand, HandLandmarkEvent, HelixSettings } from '../../../types/global'
 import '../Toolbox.css'
 
 interface Props {
@@ -123,6 +123,112 @@ export default function VisionSection({ settings, onSave }: Props) {
   )
 
   const [testGestureState, setTestGestureState] = useState<string | null>(null)
+  const [showHandCommand, setShowHandCommand] = useState(false)
+  const [handCommandName, setHandCommandName] = useState('')
+  const [handCommandAction, setHandCommandAction] = useState('CUSTOM_COMMAND')
+  const [handCommandShell, setHandCommandShell] = useState('')
+  const [landmarkEvent, setLandmarkEvent] = useState<HandLandmarkEvent | null>(null)
+  const [capturedSamples, setCapturedSamples] = useState<Array<{ landmarks: number[][]; capturedAt: string }>>([])
+  const [cameraError, setCameraError] = useState<string | null>(null)
+  const [cameraFrame, setCameraFrame] = useState<string | null>(null)
+  const imageRef = useRef<HTMLImageElement | null>(null)
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const cameraEnabledByHandCommandRef = useRef(false)
+
+  useEffect(() => {
+    const onLandmarks = (event: HandLandmarkEvent) => {
+      setLandmarkEvent(event)
+      if (event.preview_frame) setCameraFrame(event.preview_frame)
+    }
+    if (!window.helix?.onHandLandmarks) return
+    return window.helix.onHandLandmarks(onLandmarks)
+  }, [])
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    const video = imageRef.current
+    const ctx = canvas?.getContext('2d')
+    const hand = landmarkEvent?.hands?.[0]
+    if (!canvas || !video || !ctx || !hand?.points?.length) return
+    const width = video.clientWidth || 640
+    const height = video.clientHeight || 360
+    canvas.width = width
+    canvas.height = height
+    ctx.clearRect(0, 0, width, height)
+    const connections = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]]
+    ctx.strokeStyle = '#f28b36'
+    ctx.lineWidth = 2
+    for (const [from, to] of connections) {
+      const start = hand.points[from]
+      const end = hand.points[to]
+      if (!start || !end) continue
+      ctx.beginPath()
+      ctx.moveTo(start[0] * width, start[1] * height)
+      ctx.lineTo(end[0] * width, end[1] * height)
+      ctx.stroke()
+    }
+    ctx.fillStyle = '#fff0d0'
+    for (const point of hand.points) {
+      ctx.beginPath()
+      ctx.arc(point[0] * width, point[1] * height, 4, 0, Math.PI * 2)
+      ctx.fill()
+    }
+  }, [landmarkEvent])
+
+  const captureHandSample = () => {
+    const points = landmarkEvent?.hands?.[0]?.points
+    if (!points?.length) {
+      setCameraError('No hand landmarks detected yet. Put one hand in view of the active camera and try again.')
+      return
+    }
+    setCapturedSamples((samples) => [...samples, {
+      landmarks: points,
+      capturedAt: new Date().toISOString()
+    }])
+    setCameraError(null)
+  }
+
+  const closeHandCommand = async () => {
+    setShowHandCommand(false)
+    if (cameraEnabledByHandCommandRef.current) {
+      cameraEnabledByHandCommandRef.current = false
+      await onSave({ camera_enabled: false })
+    }
+  }
+
+  const saveHandCommand = async () => {
+    if (!handCommandName.trim() || capturedSamples.length === 0 || (handCommandAction === 'CUSTOM_COMMAND' && !handCommandShell.trim())) {
+      setCameraError('Name the command, assign its action, and capture at least one detected hand pose before saving. Custom actions also need a command.')
+      return
+    }
+    const command: HandCommand = {
+      id: `hand_${Date.now()}`,
+      name: handCommandName.trim(),
+      action: handCommandAction,
+      customCommand: handCommandAction === 'CUSTOM_COMMAND' ? handCommandShell.trim() : undefined,
+      samples: capturedSamples,
+      enabled: true,
+    }
+    await onSave({ hand_commands: [...(settings.hand_commands || []), command] })
+    await closeHandCommand()
+    setHandCommandName('')
+    setCapturedSamples([])
+    setHandCommandShell('')
+  }
+
+  const removeHandCommand = async (id: string) => {
+    await onSave({ hand_commands: (settings.hand_commands || []).filter((command) => command.id !== id) })
+  }
+
+  const openHandCommand = async () => {
+    setShowHandCommand(true)
+    // Learning is an explicit camera workflow. Start the local agent camera
+    // automatically so the user does not have to discover a second toggle.
+    if (!settings.camera_enabled) {
+      cameraEnabledByHandCommandRef.current = true
+      await onSave({ camera_enabled: true })
+    }
+  }
 
   useEffect(() => {
     setSensitivityDraft(settings.gesture_sensitivity)
@@ -216,6 +322,59 @@ export default function VisionSection({ settings, onSave }: Props) {
           Changes are saved when you finish adjusting and applied to the active camera.
         </p>
       </div>
+
+      <div className="toolbox-card" style={{ marginBottom: 16 }}>
+        <div className="toolbox-card__header">
+          <span className="toolbox-card__title">Learn a Hand Command</span>
+          <button type="button" className="validate-btn" onClick={openHandCommand}>
+            + New Hand Command
+          </button>
+        </div>
+        <p className="text-xs text-muted" style={{ marginBottom: 12 }}>
+          Capture real local hand landmarks, assign an action, and keep the command across restarts. Camera frames stay local and are not stored.
+        </p>
+        {(settings.hand_commands || []).length === 0 ? (
+          <p className="text-xs text-muted">No learned commands yet.</p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {settings.hand_commands?.map((command) => (
+              <div key={command.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: 'var(--radius-btn)', padding: '8px 12px' }}>
+                <span className="text-sm text-bone">{command.name} <span className="text-xs text-muted">· {command.samples.length} samples · {command.action}</span></span>
+                <button type="button" className="validate-btn" onClick={() => void removeHandCommand(command.id)}>Remove</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {showHandCommand && (
+        <div className="toolbox-card" style={{ marginBottom: 16, borderColor: 'var(--orange)' }}>
+          <div className="toolbox-card__header">
+            <span className="toolbox-card__title">New Hand Command · Camera & Landmark Capture</span>
+            <button type="button" className="validate-btn" onClick={() => void closeHandCommand()}>Close</button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+            <input className="form-input" placeholder="Command name (e.g. Focus work mode)" value={handCommandName} onChange={(event) => setHandCommandName(event.target.value)} />
+            <select className="form-input" value={handCommandAction} onChange={(event) => setHandCommandAction(event.target.value)}>
+              {AVAILABLE_ACTIONS.map((action) => <option key={action.id} value={action.id}>{action.label}</option>)}
+            </select>
+          </div>
+          {handCommandAction === 'CUSTOM_COMMAND' && (
+            <input className="form-input" style={{ marginBottom: 12 }} placeholder="PowerShell / CLI command (required for custom action)" value={handCommandShell} onChange={(event) => setHandCommandShell(event.target.value)} />
+          )}
+          <div style={{ position: 'relative', width: '100%', maxWidth: 640, aspectRatio: '16 / 9', background: '#111', borderRadius: 'var(--radius-card)', overflow: 'hidden', marginBottom: 10 }}>
+            <img ref={imageRef} src={cameraFrame ? `data:image/jpeg;base64,${cameraFrame}` : undefined} alt="Live local camera preview" style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />
+            <canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', transform: 'scaleX(-1)', pointerEvents: 'none' }} />
+            {!cameraFrame && <span className="text-xs text-muted" style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center' }}>Waiting for local camera video…</span>}
+          </div>
+          {cameraError && <p role="alert" className="text-xs" style={{ color: 'var(--red)', marginBottom: 8 }}>{cameraError}</p>}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button type="button" className="validate-btn" onClick={captureHandSample}>Capture / Learn Pose</button>
+            <span className="text-xs text-muted">{capturedSamples.length} pose sample{capturedSamples.length === 1 ? '' : 's'} captured{landmarkEvent?.hands?.[0]?.gesture ? ` · detected ${landmarkEvent.hands[0].gesture}` : ''}</span>
+            <button type="button" className="btn-primary" onClick={() => void saveHandCommand()}>Save Hand Command</button>
+          </div>
+        </div>
+      )}
 
       {/* ── Gesture Action Mapping Engine ─────────────────────── */}
       <div className="toolbox-card">

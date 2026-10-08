@@ -8,17 +8,21 @@ import {
   screen,
   shell,
   Notification,
-  dialog
+  dialog,
+  globalShortcut
 } from 'electron'
 import path from 'path'
 import fs from 'fs'
+import { pathToFileURL } from 'url'
 import { PythonManager } from './python-manager'
 import { IPCBridge } from './ipc'
 import { TrayManager } from './tray'
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 const rendererPort = Number(process.env.HELIX_RENDERER_PORT || 5173)
-const RENDERER_URL = isDev ? `http://127.0.0.1:${rendererPort}` : `file://${path.join(__dirname, '../dist/index.html')}`
+const RENDERER_URL = isDev
+  ? `http://127.0.0.1:${rendererPort}`
+  : pathToFileURL(path.join(__dirname, '../dist/index.html')).toString()
 const DEFAULT_WS_PORT = parseInt(process.env.AGENT_WS_PORT || '8765', 10)
 let wsPort = DEFAULT_WS_PORT
 
@@ -131,15 +135,39 @@ function createToolboxWindow(): BrowserWindow {
 }
 
 async function startPythonAgent(): Promise<void> {
-  const agentDir = isDev
-    ? path.resolve(app.getAppPath(), '..', '..', 'services', 'agent')
-    : path.join(process.resourcesPath, 'agent')
-  if (!fs.existsSync(path.join(agentDir, 'main.py'))) {
-    throw new Error(`Python agent main.py not found at expected path: ${agentDir}`)
+  const agentCandidates = isDev
+    ? [
+        path.resolve(app.getAppPath(), '..', '..', 'services', 'agent'),
+        path.resolve(__dirname, '../../../services/agent'),
+        path.resolve(process.cwd(), 'services/agent')
+      ]
+    : [
+        // Keep the package root aligned with the Python import path: the
+        // bundled entrypoint imports services.agent.*.
+        path.join(process.resourcesPath, 'services', 'agent'),
+        // Accept packages produced by older HELIX builds during upgrades.
+        path.join(process.resourcesPath, 'agent')
+      ]
+
+  const agentDir = agentCandidates.find((candidate) =>
+    fs.existsSync(path.join(candidate, 'main.py'))
+  )
+  if (!agentDir) {
+    throw new Error(
+      `Python agent main.py not found. Checked:\n${agentCandidates.join('\n')}`
+    )
   }
 
   console.log(`[Main] Desktop app root: ${app.getAppPath()}`)
   console.log(`[Main] Found Python agent at: ${agentDir}`)
+
+  const packagedAgentCandidates = [
+    path.join(process.resourcesPath, 'agent-runtime', 'helix-agent', 'helix-agent.exe'),
+    path.join(process.resourcesPath, 'agent-runtime', 'helix-agent.exe')
+  ]
+  const packagedAgent = !isDev
+    ? packagedAgentCandidates.find((candidate) => fs.existsSync(candidate))
+    : undefined
 
   pythonManager = new PythonManager()
 
@@ -159,7 +187,8 @@ async function startPythonAgent(): Promise<void> {
   wsPort = await pythonManager.start(
     agentDir,
     DEFAULT_WS_PORT,
-    path.join(app.getPath('userData'), 'settings.json')
+    path.join(app.getPath('userData'), 'settings.json'),
+    packagedAgent
   )
   console.log('[Main] Python agent started')
 }
@@ -168,7 +197,30 @@ function setupIPC(): void {
   if (!floatingWindow || !toolboxWindow) return
 
   ipcBridge = new IPCBridge()
+  ipcBridge.onSettingsApplied(applyDesktopSettings)
   ipcBridge.setupHandlers(floatingWindow, toolboxWindow)
+}
+
+function applyDesktopSettings(settings: Record<string, unknown>): void {
+  if (typeof settings.always_on_top === 'boolean') {
+    floatingWindow?.setAlwaysOnTop(settings.always_on_top)
+  }
+
+  globalShortcut.unregisterAll()
+  const summon = settings.global_summon_shortcut
+  if (typeof summon === 'string' && summon.trim()) {
+    globalShortcut.register(summon, () => {
+      if (!floatingWindow || floatingWindow.isDestroyed()) return
+      if (floatingWindow.isMinimized()) floatingWindow.restore()
+      floatingWindow.show()
+      floatingWindow.focus()
+    })
+  }
+
+  const emergency = settings.emergency_stop_shortcut
+  if (typeof emergency === 'string' && emergency.trim()) {
+    globalShortcut.register(emergency, () => ipcBridge?.sendEmergencyStop())
+  }
 }
 
 async function connectWebSocket(retryCount = 0, maxRetries = 15): Promise<void> {
@@ -177,6 +229,11 @@ async function connectWebSocket(retryCount = 0, maxRetries = 15): Promise<void> 
   try {
     await ipcBridge.connectToPython(`ws://127.0.0.1:${wsPort}`)
     console.log('[Main] Connected to Python agent WebSocket')
+    const settings = await ipcBridge.loadSettings()
+    if (settings.start_minimized === false) {
+      floatingWindow?.show()
+      floatingWindow?.focus()
+    }
     trayManager?.updateStatus('idle')
   } catch (err) {
     console.error(`[Main] Could not connect to Python WebSocket (attempt ${retryCount + 1}/${maxRetries}):`, (err as Error).message)
@@ -259,9 +316,8 @@ app.whenReady().then(async () => {
   // Connect WebSocket only after the Python agent reports readiness.
   connectWebSocket()
 
-  // Show floating window on startup
-  floatingWindow?.show()
-  floatingWindow?.focus()
+  // The persisted startup preference controls whether the overlay is shown;
+  // the tray remains available even when HELIX starts minimized.
   trayManager.updateStatus('idle')
 }).catch((error: unknown) => {
   const message = error instanceof Error ? error.message : String(error)

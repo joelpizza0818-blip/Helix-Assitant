@@ -7,6 +7,10 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL_PATH = Path(__file__).resolve().parents[1] / "models" / "wakeword" / "hey_helix.onnx"
+DEFAULT_WAKE_WORD_THRESHOLD = 0.5
+MIN_WAKE_WORD_THRESHOLD = 0.1
+MAX_WAKE_WORD_THRESHOLD = 0.9
+WAKE_WORD_CONFIRMATION_FRAMES = 3
 
 
 class WakeWordDetector:
@@ -16,14 +20,17 @@ class WakeWordDetector:
         provider: str = "openwakeword",
         model_path: str | Path | None = None,
         event_bus=None,
-        threshold: float = 0.05,
+        threshold: float = DEFAULT_WAKE_WORD_THRESHOLD,
     ):
         self.wake_word = wake_word.lower()
         self.provider = provider
         self.event_bus = event_bus
         self.threshold = float(threshold)
-        if not 0.0 <= self.threshold <= 1.0:
-            raise ValueError("Wake word threshold must be between 0.0 and 1.0.")
+        if not MIN_WAKE_WORD_THRESHOLD <= self.threshold <= MAX_WAKE_WORD_THRESHOLD:
+            raise ValueError(
+                "Wake word threshold must be between "
+                f"{MIN_WAKE_WORD_THRESHOLD} and {MAX_WAKE_WORD_THRESHOLD}."
+            )
         self._is_running = False
         self._task = None
         self._model = None
@@ -33,8 +40,15 @@ class WakeWordDetector:
         self.model_path = Path(configured_path) if configured_path else DEFAULT_MODEL_PATH
         if not self.model_path.is_absolute():
             self.model_path = Path(__file__).resolve().parents[1] / self.model_path
+        self._expected_model_output = self._normalize_model_output(
+            self.model_path.stem
+        )
 
         self._initialize_provider()
+
+    @staticmethod
+    def _normalize_model_output(value: str) -> str:
+        return value.casefold().replace(" ", "_").replace("-", "_")
 
     def _initialize_provider(self):
         if self.provider != "openwakeword":
@@ -184,6 +198,8 @@ class WakeWordDetector:
         interval_max_score = 0.0
         interval_max_rms = 0.0
         interval_output = "none"
+        consecutive_matches = 0
+        wake_reported = False
         try:
             while self._is_running:
                 pcm, overflowed = await asyncio.to_thread(
@@ -214,18 +230,27 @@ class WakeWordDetector:
                     rms = float(np.sqrt(np.mean(audio.astype(np.float32) ** 2)))
                     interval_max_rms = max(interval_max_rms, rms)
                 prediction = self._model.predict(audio)
-                if prediction:
-                    model_output, score = max(
-                        prediction.items(),
-                        key=lambda item: float(item[1]),
-                    )
-                    score = float(score)
+                if prediction and not wake_reported:
+                    matching_scores = [
+                        float(score)
+                        for model_output, score in prediction.items()
+                        if self._normalize_model_output(str(model_output))
+                        == self._expected_model_output
+                    ]
+                    score = max(matching_scores, default=0.0)
                     if score >= interval_max_score:
                         interval_max_score = score
-                        interval_output = str(model_output)
-                    if score > self.threshold:
-                        await self._on_wake(model_output, score)
-                        await asyncio.sleep(2.0)
+                        interval_output = self._expected_model_output
+                    if score >= self.threshold:
+                        consecutive_matches += 1
+                        if consecutive_matches >= WAKE_WORD_CONFIRMATION_FRAMES:
+                            wake_reported = True
+                            await self._on_wake(
+                                self._expected_model_output,
+                                score,
+                            )
+                    else:
+                        consecutive_matches = 0
                 now = loop.time()
                 if now - last_report >= 5.0:
                     logger.info(

@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import base64
 import threading
 import os
 from enum import Enum
@@ -34,6 +35,8 @@ class GestureEngine:
         confidence_threshold: float | None = None,
         stability_frames: int | None = None,
         cooldown_seconds: float | None = None,
+        gesture_mappings: dict | None = None,
+        hand_commands: list[dict] | None = None,
     ):
         self.event_bus = event_bus
         self.camera_index = camera_index
@@ -74,6 +77,18 @@ class GestureEngine:
         self._loop = None
         self._startup_error = None
         self._ready = threading.Event()
+        self.gesture_mappings = gesture_mappings or {}
+        self.hand_commands = hand_commands or []
+        self._candidate_hand_command = None
+        self._candidate_hand_frames = 0
+
+    def set_gesture_mappings(self, mappings: dict | None) -> None:
+        self.gesture_mappings = mappings or {}
+
+    def set_hand_commands(self, commands: list[dict] | None) -> None:
+        self.hand_commands = commands or []
+        self._candidate_hand_command = None
+        self._candidate_hand_frames = 0
 
     @staticmethod
     def _config_float(name: str, default: float) -> float:
@@ -233,6 +248,7 @@ class GestureEngine:
                     return detector.detect_for_video(task_image, timestamp)
 
             last_camera_error_log = 0.0
+            last_preview_frame_time = 0.0
             while self._is_active:
                 cap, image = self._open_camera(cv2)
                 if cap is None:
@@ -274,6 +290,19 @@ class GestureEngine:
                             failed_reads = 0
 
                         image.flags.writeable = False
+                        preview_frame = None
+                        now = time.monotonic()
+                        if now - last_preview_frame_time >= 0.125:
+                            encoded_ok, encoded_frame = cv2.imencode(
+                                ".jpg",
+                                image,
+                                [int(cv2.IMWRITE_JPEG_QUALITY), 70],
+                            )
+                            if encoded_ok:
+                                preview_frame = base64.b64encode(
+                                    encoded_frame
+                                ).decode("ascii")
+                                last_preview_frame_time = now
                         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
                         results = detect(image, int(time.monotonic() * 1000))
                         image = None
@@ -283,12 +312,28 @@ class GestureEngine:
                             getattr(results, "hand_landmarks", None),
                         )
                         if hand_landmarks:
+                            frame_landmarks = []
                             for index, landmarks in enumerate(hand_landmarks):
                                 gesture = self._detect_gesture(landmarks)
                                 confidence = self._hand_confidence(results, index)
+                                points = getattr(landmarks, "landmark", landmarks)
+                                frame_landmarks.append({
+                                    "points": [
+                                        [float(point.x), float(point.y), float(getattr(point, "z", 0.0))]
+                                        for point in points
+                                    ],
+                                    "gesture": gesture.name if gesture else None,
+                                    "confidence": confidence,
+                                })
                                 self._observe_gesture(gesture, confidence)
+                                self._observe_hand_commands(
+                                    frame_landmarks[-1]["points"],
+                                    confidence,
+                                )
+                            self._publish_landmarks(frame_landmarks, preview_frame)
                         else:
                             self._observe_gesture(None, 0.0)
+                            self._publish_landmarks([], preview_frame)
                         time.sleep(0.05)
                 finally:
                     cap.release()
@@ -419,17 +464,91 @@ class GestureEngine:
                 GestureType.POINTING_UP: "GESTURE_OPEN"
             }
             
-            event_name = event_map.get(gesture)
+            source_event = event_map.get(gesture)
+            mapping = self.gesture_mappings.get(source_event, {}) if source_event else {}
+            action = mapping.get("action", source_event) if isinstance(mapping, dict) else source_event
+            action_event_map = {
+                "CONFIRM": "GESTURE_CONFIRM",
+                "REJECT": "GESTURE_REJECT",
+                "SEARCH": "GESTURE_SEARCH",
+                "STOP": "GESTURE_STOP",
+                "CLOSE": "GESTURE_CLOSE",
+                "OPEN": "GESTURE_OPEN",
+            }
+            event_name = action_event_map.get(
+                action,
+                source_event if action == source_event else "GESTURE_ACTION",
+            )
             if self.event_bus and event_name:
                 if not self._loop or self._loop.is_closed():
                     logger.error("Cannot publish gesture %s: agent event loop is unavailable", gesture.name)
                     return
 
+                payload = {"gesture": gesture.name}
+                if event_name == "GESTURE_ACTION":
+                    payload["action"] = action
+                if (
+                    isinstance(mapping, dict)
+                    and action == "CUSTOM_COMMAND"
+                    and mapping.get("customCommand")
+                ):
+                    payload["custom_command"] = mapping["customCommand"]
+
                 future = asyncio.run_coroutine_threadsafe(
-                    self.event_bus.publish(event_name, {"gesture": gesture.name}),
+                    self.event_bus.publish(event_name, payload),
                     self._loop,
                 )
                 future.add_done_callback(self._log_publish_error)
+
+    @staticmethod
+    def _landmark_distance(left: list, right: list) -> float:
+        if len(left) != len(right) or not left:
+            return 999.0
+        total = 0.0
+        for a, b in zip(left, right):
+            total += sum((float(a[index]) - float(b[index])) ** 2 for index in range(min(len(a), len(b))))
+        return (total / len(left)) ** 0.5
+
+    def _observe_hand_commands(self, points: list[list[float]], confidence: float) -> None:
+        match = None
+        best_distance = 0.08
+        for command in self.hand_commands:
+            samples = command.get("samples", []) if isinstance(command, dict) else []
+            for sample in samples:
+                template = sample.get("landmarks") if isinstance(sample, dict) else None
+                if isinstance(template, list):
+                    distance = self._landmark_distance(points, template)
+                    if distance < best_distance:
+                        best_distance = distance
+                        match = command
+        if match is None or confidence < self.confidence_threshold:
+            self._candidate_hand_command = None
+            self._candidate_hand_frames = 0
+            return
+        command_id = match.get("id") or match.get("name")
+        if command_id == self._candidate_hand_command:
+            self._candidate_hand_frames += 1
+        else:
+            self._candidate_hand_command = command_id
+            self._candidate_hand_frames = 1
+        if self._candidate_hand_frames >= self.stability_frames:
+            self._candidate_hand_frames = 0
+            self._publish_hand_command(match)
+
+    def _publish_hand_command(self, command: dict) -> None:
+        if not self.event_bus or not self._loop or self._loop.is_closed():
+            return
+        payload = {
+            "action": command.get("action", "CUSTOM_COMMAND"),
+            "command_id": command.get("id"),
+            "name": command.get("name"),
+        }
+        if command.get("customCommand"):
+            payload["custom_command"] = command["customCommand"]
+        future = asyncio.run_coroutine_threadsafe(
+            self.event_bus.publish("GESTURE_ACTION", payload), self._loop
+        )
+        future.add_done_callback(self._log_publish_error)
 
     @staticmethod
     def _hand_confidence(results, index: int) -> float:
@@ -465,6 +584,29 @@ class GestureEngine:
         ):
             self._latched_gesture = gesture
             self._on_gesture(gesture)
+
+    def _publish_landmarks(
+        self, hands: list[dict], preview_frame: str | None = None
+    ) -> None:
+        """Expose local landmarks for the settings preview/learning flow.
+
+        Camera preview frames are sent only to the local desktop renderer and
+        are never uploaded or persisted by this engine.
+        """
+        if not self.event_bus or not self._loop or self._loop.is_closed():
+            return
+        payload = {
+            "camera_index": self.camera_index,
+            "hands": hands,
+            "timestamp": time.time(),
+        }
+        if preview_frame is not None:
+            payload["preview_frame"] = preview_frame
+        future = asyncio.run_coroutine_threadsafe(
+            self.event_bus.publish("HAND_LANDMARKS", payload),
+            self._loop,
+        )
+        future.add_done_callback(self._log_publish_error)
 
     async def _gesture_is_allowed(self, gesture: GestureType) -> bool:
         state = await self.state_manager.get_state()

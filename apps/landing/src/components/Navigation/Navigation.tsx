@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { HelixLogo } from '../HelixLogo/HelixLogo';
+import { WINDOWS_INSTALLER_URL } from '../../lib/downloads';
 import './Navigation.css';
 
 export function Navigation() {
@@ -25,9 +26,9 @@ export function Navigation() {
         
         <div className="nav-right">
           <Link to="/login" className="btn-ghost">Log in</Link>
-          <Link to="/download" className="btn-primary nav-cta">
+          <a href={WINDOWS_INSTALLER_URL} download className="btn-primary nav-cta">
             Download for Windows
-          </Link>
+          </a>
         </div>
       </div>
     </nav>

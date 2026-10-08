@@ -12,12 +12,19 @@ class _ComputerActions:
     def __init__(self):
         self.screen_engine = ScreenEngine()
         self._ocr_engine = None
+        self.ocr_provider = "easyocr"
+
+    def configure(self, settings: dict) -> None:
+        self.screen_engine.configure(settings)
+        requested = settings.get("ocr_engine", "local")
+        self.ocr_provider = "pytesseract" if requested == "windows_media_ocr" else "easyocr"
+        self._ocr_engine = None
 
     def _get_ocr_engine(self):
         if self._ocr_engine is None:
             from ..perception.ocr_engine import OCREngine
 
-            self._ocr_engine = OCREngine()
+            self._ocr_engine = OCREngine(provider=self.ocr_provider)
         return self._ocr_engine
 
     async def capture_context(self, include_ocr: bool = True) -> dict:

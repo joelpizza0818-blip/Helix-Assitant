@@ -5,18 +5,33 @@ import MessageBubble from './MessageBubble'
 import ConfirmationPrompt from './ConfirmationPrompt'
 import TaskStatusBar from './TaskStatusBar'
 import ModelFallbackBar from './ModelFallbackBar'
+import { toggleSummaryExpanded } from './taskExecutionSummary'
+import {
+  filterMentionOptions,
+  findActiveMention,
+  replaceActiveMention,
+  type ActiveMention,
+  type MentionOption,
+} from './mentionAutocomplete'
+import type { MCPServerStatus, SkillSummary } from '../../types/global'
 import './FloatingUI.css'
 
 export default function FloatingUI() {
   const {
-    messages, isLoading, tasks, agentStatus, currentModel, currentProvider,
+    messages, conversationHistory, isLoading, tasks, agentStatus, currentModel, currentProvider,
     taskCount, pendingConfirmation, fallbackEvent,
-    sendMessage, cancelTask, confirmAction, rejectAction, dismissFallback
-  } = useAgent()
+    sendMessage, selectConversation, startNewConversation,
+    cancelTask, confirmAction, rejectAction, dismissFallback
+  } = useAgent({ persistConversation: true })
 
   const [inputText, setInputText] = useState('')
   const [isMicActive, setIsMicActive] = useState(false)
-  const [showTaskManager, setShowTaskManager] = useState(false)
+  const [showTaskSummary, setShowTaskSummary] = useState(false)
+  const [showConversationHistory, setShowConversationHistory] = useState(false)
+  const [skills, setSkills] = useState<SkillSummary[]>([])
+  const [mcpServers, setMcpServers] = useState<MCPServerStatus[]>([])
+  const [activeMention, setActiveMention] = useState<ActiveMention | null>(null)
+  const [selectedMentionIndex, setSelectedMentionIndex] = useState(0)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -27,18 +42,105 @@ export default function FloatingUI() {
 
   // Listen for show-tasks event from main process
   useEffect(() => {
-    const cleanup = window.helix?.onShowTasks(() => setShowTaskManager(true))
+    const cleanup = window.helix?.onShowTasks(() => setShowTaskSummary(true))
     return cleanup
   }, [])
+
+  useEffect(() => {
+    let active = true
+    void window.helix.getSkills().then((availableSkills) => {
+      if (!active) return
+      setSkills(availableSkills)
+    }).catch((error: unknown) => {
+      console.error('[FloatingUI] Failed to load skill suggestions:', error)
+    })
+    return () => {
+      active = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (activeMention?.trigger !== '/') return
+    let active = true
+    const timeout = window.setTimeout(() => {
+      void window.helix.getMcpServers().then((servers) => {
+        if (active) setMcpServers(servers)
+      }).catch((error: unknown) => {
+        console.error('[FloatingUI] Failed to load MCP server suggestions:', error)
+      })
+    }, 200)
+    return () => {
+      active = false
+      window.clearTimeout(timeout)
+    }
+  }, [activeMention?.trigger, activeMention?.query])
+
+  const mentionOptions: MentionOption[] = [
+    ...skills.map((skill) => ({
+      trigger: '@' as const,
+      name: skill.name,
+      description: skill.description,
+    })),
+    ...mcpServers
+      .filter((server) => server.enabled && server.status === 'connected')
+      .map((server) => ({
+        trigger: '/' as const,
+        name: server.name,
+        description: `MCP server · ${server.tool_count} tools`,
+      })),
+  ]
+  const filteredMentionOptions = filterMentionOptions(mentionOptions, activeMention)
 
   const handleSend = () => {
     const text = inputText.trim()
     if (!text || isLoading) return
     sendMessage(text)
     setInputText('')
+    setActiveMention(null)
+  }
+
+  const updateInput = (value: string, caretPosition: number) => {
+    const nextMention = findActiveMention(value, caretPosition)
+    setInputText(value)
+    setActiveMention(nextMention)
+    setSelectedMentionIndex(0)
+  }
+
+  const selectMention = (option: MentionOption) => {
+    if (!activeMention) return
+    const replacement = replaceActiveMention(inputText, activeMention, option)
+    setInputText(replacement.value)
+    setActiveMention(null)
+    requestAnimationFrame(() => {
+      inputRef.current?.focus()
+      inputRef.current?.setSelectionRange(
+        replacement.caretPosition,
+        replacement.caretPosition,
+      )
+    })
   }
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (filteredMentionOptions.length > 0) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSelectedMentionIndex((current) => (
+          (current + (e.key === 'ArrowDown' ? 1 : -1) + filteredMentionOptions.length)
+          % filteredMentionOptions.length
+        ))
+        return
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && activeMention)) {
+        e.preventDefault()
+        selectMention(filteredMentionOptions[selectedMentionIndex])
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setActiveMention(null)
+        return
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSend()
@@ -62,7 +164,7 @@ export default function FloatingUI() {
   }[agentStatus] ?? 'status-dot--idle'
 
   const runningTasks = tasks.filter((t) => t.status === 'running' || t.status === 'queued')
-  const activeTask = tasks.find((t) => t.status === 'running')
+  const activeTask = tasks.find((t) => t.status === 'running') ?? tasks.find((t) => t.status === 'queued')
 
   return (
     <div className="floating-ui">
@@ -80,6 +182,15 @@ export default function FloatingUI() {
           )}
         </div>
         <div className="floating-ui__header-actions" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+          <button
+            className={`icon-btn ${showConversationHistory ? 'icon-btn--active' : ''}`}
+            onClick={() => setShowConversationHistory((visible) => !visible)}
+            title="Open chat history"
+            aria-label="Open chat history"
+            aria-expanded={showConversationHistory}
+          >
+            <HistoryIcon />
+          </button>
           <button
             className="icon-btn"
             onClick={openToolbox}
@@ -106,25 +217,71 @@ export default function FloatingUI() {
       )}
 
       {/* ── Conversation Area ──────────────────── */}
-      <div className="floating-ui__messages">
-        {messages.length === 0 && (
-          <div className="floating-ui__empty">
-            <HelixLogo size="lg" showText={false} className="floating-ui__empty-logo" />
-            <p className="floating-ui__empty-text">HELIX is ready. Ask anything or give an OS command.</p>
-          </div>
-        )}
-        {messages.map((msg, idx) => (
-          <MessageBubble key={`${msg.timestamp}-${idx}`} message={msg} />
-        ))}
-        {isLoading && (
-          <div className="message-bubble message-bubble--assistant">
-            <div className="typing-indicator">
-              <span /><span /><span />
+      {showConversationHistory ? (
+        <section className="conversation-history" aria-label="Chat history">
+          <div className="conversation-history__header">
+            <div>
+              <h2 className="conversation-history__title">Chat history</h2>
+              <p className="conversation-history__description">Saved locally on this device.</p>
             </div>
+            <button
+              className="conversation-history__new"
+              disabled={isLoading}
+              onClick={() => {
+                startNewConversation()
+                setShowConversationHistory(false)
+              }}
+            >
+              + New chat
+            </button>
           </div>
-        )}
-        <div ref={messagesEndRef} />
-      </div>
+          {conversationHistory.length === 0 ? (
+            <p className="conversation-history__empty">Your conversations will appear here.</p>
+          ) : (
+            <div className="conversation-history__list">
+              {conversationHistory.map((conversation) => (
+                <button
+                  className="conversation-history__item"
+                  key={conversation.id}
+                  disabled={isLoading}
+                  onClick={() => {
+                    selectConversation(conversation.id)
+                    setShowConversationHistory(false)
+                  }}
+                >
+                  <span className="conversation-history__item-title">{conversation.title}</span>
+                  <span className="conversation-history__item-preview">
+                    {conversation.messages[conversation.messages.length - 1]?.content}
+                  </span>
+                  <time className="conversation-history__item-date" dateTime={conversation.updatedAt}>
+                    {new Date(conversation.updatedAt).toLocaleString()}
+                  </time>
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : (
+        <div className="floating-ui__messages">
+          {messages.length === 0 && (
+            <div className="floating-ui__empty">
+              <HelixLogo size="lg" showText={false} className="floating-ui__empty-logo" />
+              <p className="floating-ui__empty-text">HELIX is ready. Ask anything or give an OS command.</p>
+            </div>
+          )}
+          {messages.map((msg, idx) => (
+            <MessageBubble key={`${msg.timestamp}-${idx}`} message={msg} />
+          ))}
+          {isLoading && (
+            <div className="message-bubble message-bubble--assistant">
+              <div className="typing-indicator">
+                <span /><span /><span />
+              </div>
+            </div>
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+      )}
 
       {/* ── Confirmation Prompt ────────────────── */}
       {pendingConfirmation && (
@@ -140,27 +297,62 @@ export default function FloatingUI() {
         <TaskStatusBar
           runningCount={runningTasks.length}
           activeDescription={activeTask?.current_action ?? activeTask?.description ?? null}
-          onClick={() => setShowTaskManager((v) => !v)}
+          activeTask={activeTask}
+          expanded={showTaskSummary}
+          onClick={() => setShowTaskSummary(toggleSummaryExpanded)}
         />
       )}
 
       {/* ── Input Area ────────────────────────── */}
       <div className="floating-ui__input-area">
-        <input
-          ref={inputRef}
-          className="floating-ui__input"
-          type="text"
-          placeholder={
-            agentStatus === 'listening' ? 'Listening...' :
-            agentStatus === 'executing' ? 'Task in progress...' :
-            'Ask HELIX...'
-          }
-          value={inputText}
-          onChange={(e) => setInputText(e.target.value)}
-          onKeyDown={handleKeyDown}
-          disabled={isLoading || agentStatus === 'listening'}
-          autoFocus
-        />
+        <div className="floating-ui__input-wrapper">
+          <input
+            ref={inputRef}
+            className="floating-ui__input"
+            type="text"
+            placeholder={
+              agentStatus === 'listening' ? 'Listening...' :
+              agentStatus === 'executing' ? 'Task in progress...' :
+              'Ask HELIX...'
+            }
+            value={inputText}
+            onChange={(e) => updateInput(e.target.value, e.target.selectionStart ?? e.target.value.length)}
+            onKeyDown={handleKeyDown}
+            onClick={(e) => {
+              const mention = findActiveMention(e.currentTarget.value, e.currentTarget.selectionStart ?? undefined)
+              setActiveMention(mention)
+              setSelectedMentionIndex(0)
+            }}
+            disabled={isLoading || agentStatus === 'listening'}
+            aria-autocomplete="list"
+            aria-expanded={filteredMentionOptions.length > 0}
+            aria-controls="floating-ui-mention-suggestions"
+            autoFocus
+          />
+          {filteredMentionOptions.length > 0 && (
+            <div
+              id="floating-ui-mention-suggestions"
+              className="floating-ui__mention-suggestions"
+              role="listbox"
+              aria-label={activeMention?.trigger === '@' ? 'Skills' : 'MCP servers'}
+            >
+              {filteredMentionOptions.map((option, index) => (
+                <button
+                  key={`${option.trigger}${option.name}`}
+                  type="button"
+                  role="option"
+                  aria-selected={index === selectedMentionIndex}
+                  className={`floating-ui__mention-option ${index === selectedMentionIndex ? 'floating-ui__mention-option--selected' : ''}`}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => selectMention(option)}
+                >
+                  <span className="floating-ui__mention-name">{option.trigger}{option.name}</span>
+                  <span className="floating-ui__mention-description">{option.description}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Microphone button */}
         <button
@@ -205,6 +397,16 @@ function GearIcon() {
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
       <path d="M10 2h4l.5 3a7.5 7.5 0 0 1 1.8 1l2.8-1 2 3.5-2.2 2a7.5 7.5 0 0 1 0 2l2.2 2-2 3.5-2.8-1a7.5 7.5 0 0 1-1.8 1L14 22h-4l-.5-3a7.5 7.5 0 0 1-1.8-1l-2.8 1-2-3.5 2.2-2a7.5 7.5 0 0 1 0-2l-2.2-2 2-3.5 2.8 1a7.5 7.5 0 0 1 1.8-1L10 2Z" />
       <circle cx="12" cy="12" r="3" />
+    </svg>
+  )
+}
+
+function HistoryIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 12a9 9 0 1 0 2.64-6.36L3 8" />
+      <path d="M3 3v5h5" />
+      <path d="M12 7v5l3 2" />
     </svg>
   )
 }

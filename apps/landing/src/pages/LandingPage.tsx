@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { Navigation } from '../components/Navigation/Navigation';
 import { Features } from '../components/Features/Features';
 import { ModelRouter } from '../components/ModelRouter/ModelRouter';
@@ -7,6 +6,7 @@ import { Security } from '../components/Security/Security';
 import { Download } from '../components/Download/Download';
 import { Footer } from '../components/Footer/Footer';
 import { HelixVoxel } from '../components/HelixVoxel/HelixVoxel';
+import { WINDOWS_INSTALLER_URL } from '../lib/downloads';
 import './LandingPage.css';
 
 export const LandingPage: React.FC = () => {
@@ -94,9 +94,9 @@ export const LandingPage: React.FC = () => {
               )}
             </div>
 
-            <Link to="/download" className="hero-void__cta">
+            <a href={WINDOWS_INSTALLER_URL} download className="hero-void__cta">
               Download for Windows
-            </Link>
+            </a>
           </div>
 
           <div className="hero-void__right reveal-right">

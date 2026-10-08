@@ -32,6 +32,18 @@ class CapabilityRegistry:
     def __init__(self):
         self.models = {m.id: m for m in _MODELS}
 
+    def register_models(self, models: List[ModelDefinition]) -> None:
+        for model in models:
+            if isinstance(model, ModelDefinition) and model.id and model.provider:
+                self.models[f"{model.provider}:{model.id}"] = model
+
+    def remove_provider_models(self, provider_id: str) -> None:
+        self.models = {
+            key: model
+            for key, model in self.models.items()
+            if model.provider != provider_id
+        }
+
     def filter_by_capabilities(self, required: dict, provider_filter: Optional[List[str]] = None) -> List[ModelDefinition]:
         results = []
         for m in self.models.values():

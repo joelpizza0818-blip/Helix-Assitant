@@ -1,5 +1,6 @@
 from typing import List, Optional
 from dataclasses import dataclass
+import re
 from .skill_registry import SkillRegistry
 from .skill_loader import SkillDefinition
 import logging
@@ -18,13 +19,17 @@ class IntentMatcher:
         self.registry = skill_registry
 
     def match(self, user_input: str) -> List[SkillMatch]:
-        user_input_lower = user_input.lower()
+        user_input_lower = user_input.casefold()
         matches = []
         
         for skill in self.registry.get_all_skills():
             matched_triggers = []
             for trigger in skill.triggers:
-                if trigger.lower() in user_input_lower:
+                normalized_trigger = trigger.strip().casefold()
+                if normalized_trigger and re.search(
+                    rf"(?<!\w){re.escape(normalized_trigger)}(?!\w)",
+                    user_input_lower,
+                ):
                     matched_triggers.append(trigger)
                     
             if matched_triggers:

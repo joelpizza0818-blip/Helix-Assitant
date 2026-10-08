@@ -23,6 +23,7 @@ openwakeword>=0.6.0
 onnxruntime>=1.17.0
 sounddevice>=0.4.6
 pyttsx3>=2.90
+edge-tts>=7.2,<8
 
 # Vision / Camera  
 opencv-python>=4.9.0
@@ -63,3 +64,6 @@ cryptography>=42.0.0
 # Testing
 pytest>=8.0.0
 pytest-asyncio>=0.23.0
+
+# Windows packaging (used by npm run build:agent-runtime)
+pyinstaller>=6.0.0

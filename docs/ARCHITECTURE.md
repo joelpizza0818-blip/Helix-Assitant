@@ -1,5 +1,8 @@
 # Architecture
 
+For the end-to-end project, request-execution, and Windows release diagrams, see
+[the complete project flow](./PROJECT_FLOW.md).
+
 ## System Diagram
 
 ```text

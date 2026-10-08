@@ -26,6 +26,32 @@ class MemoryEntry:
 class MemoryManager:
     def __init__(self):
         self.memories: Dict[str, MemoryEntry] = {}
+        self.context_limit = 20
+        self.auto_compaction = True
+        self.embedding_model = "text-embedding-3-small"
+        self.similarity_threshold = 0.75
+
+    def configure(self, settings: dict) -> None:
+        self.context_limit = max(1, min(100, int(settings.get("memory_context_limit", self.context_limit))))
+        self.auto_compaction = bool(settings.get("memory_auto_compaction", self.auto_compaction))
+        self.embedding_model = str(settings.get("embedding_model", self.embedding_model))
+        threshold = settings.get("memory_similarity_threshold", self.similarity_threshold)
+        if isinstance(threshold, (int, float)) and not isinstance(threshold, bool):
+            self.similarity_threshold = max(0.0, min(1.0, float(threshold)))
+        application_memory = settings.get("application_memory")
+        if isinstance(application_memory, dict):
+            self.memories = {
+                key: MemoryEntry(
+                    id=key,
+                    content=str(value),
+                    memory_type=MemoryType.LONG_TERM,
+                    metadata={"application": True},
+                    created_at=datetime.now(),
+                    expires_at=None,
+                )
+                for key, value in application_memory.items()
+                if isinstance(key, str) and value is not None
+            }
 
     async def store(self, content: str, memory_type: MemoryType, metadata: dict = None) -> MemoryEntry:
         entry_id = str(uuid.uuid4())
@@ -46,8 +72,15 @@ class MemoryManager:
         return results[:limit]
 
     async def retrieve_relevant(self, query: str, limit: int = 10) -> List[MemoryEntry]:
-        results = [m for m in self.memories.values() if query.lower() in m.content.lower()]
-        return results[:limit]
+        query_terms = {term for term in query.lower().split() if len(term) > 2}
+        scored = []
+        for memory in self.memories.values():
+            content_terms = set(memory.content.lower().split())
+            overlap = len(query_terms & content_terms)
+            if overlap:
+                scored.append((overlap / max(1, len(query_terms)), memory))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        return [memory for score, memory in scored if score >= self.similarity_threshold or not query_terms][:limit]
 
     async def forget(self, memory_id: str) -> None:
         if memory_id in self.memories:
