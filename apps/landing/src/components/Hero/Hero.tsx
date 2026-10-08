@@ -1,6 +1,6 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { HelixLogo } from '../HelixLogo/HelixLogo';
-import { WINDOWS_INSTALLER_URL } from '../../lib/downloads';
 import './Hero.css';
 
 export const Hero: React.FC = () => {
@@ -18,9 +18,9 @@ export const Hero: React.FC = () => {
 
           {/* ── Direct CTAs ── */}
           <div className="hero-ctas">
-            <a href={WINDOWS_INSTALLER_URL} download className="btn-primary hero-btn-main">
+            <Link to="/download" className="btn-primary hero-btn-main">
               Download for Windows
-            </a>
+            </Link>
             <a href="#features" className="btn-secondary hero-btn-secondary">
               Explore Capabilities
             </a>

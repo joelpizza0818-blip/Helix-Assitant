@@ -17,7 +17,7 @@ export const DownloadPage: React.FC = () => {
           </p>
         </div>
 
-        <Download />
+        <Download requireAuthenticatedDownload />
 
         <div className="troubleshooting-section">
           <div className="troubleshooting-container">

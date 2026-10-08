@@ -8,54 +8,80 @@ export function useAuth() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    let active = true;
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (!active) return;
+      if (error) setError(error.message);
       setSession(session);
       setUser(session?.user ?? null);
+      setIsLoading(false);
+    }).catch((sessionError: unknown) => {
+      if (!active) return;
+      setError(sessionError instanceof Error ? sessionError.message : 'Could not restore your session.');
       setIsLoading(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!active) return;
       setSession(session);
       setUser(session?.user ?? null);
       setIsLoading(false);
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signIn = async (email: string, password: string) => {
     setIsLoading(true);
     setError(null);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) setError(error.message);
-    setIsLoading(false);
-    return { error };
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) setError(error.message);
+      return { error };
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const signUp = async (email: string, password: string) => {
+  const signUp = async (email: string, password: string, redirectTo: string) => {
     setIsLoading(true);
     setError(null);
-    const { error } = await supabase.auth.signUp({ email, password });
-    if (error) setError(error.message);
-    setIsLoading(false);
-    return { error };
+    try {
+      const result = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/login?redirectTo=${encodeURIComponent(redirectTo)}`,
+        },
+      });
+      if (result.error) setError(result.error.message);
+      return result;
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const signOut = async () => {
     await supabase.auth.signOut();
   };
 
-  const signInWithGitHub = async () => {
+  const signInWithGitHub = async (redirectTo: string) => {
     setIsLoading(true);
     setError(null);
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'github',
-      options: {
-        redirectTo: window.location.origin + '/'
-      }
-    });
-    if (error) setError(error.message);
-    setIsLoading(false);
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'github',
+        options: {
+          redirectTo: `${window.location.origin}/login?redirectTo=${encodeURIComponent(redirectTo)}`
+        }
+      });
+      if (error) setError(error.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return { user, session, isLoading, error, signIn, signUp, signOut, signInWithGitHub };

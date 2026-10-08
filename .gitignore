@@ -26,6 +26,7 @@ venv/
 /apps/desktop/agent-runtime/*
 !/apps/desktop/agent-runtime/.gitkeep
 /apps/landing/public/downloads/
+/apps/landing/private-downloads/
 release/
 *.asar
 

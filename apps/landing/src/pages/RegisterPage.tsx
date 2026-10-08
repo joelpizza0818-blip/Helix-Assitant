@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { HelixLogo } from '../components/HelixLogo/HelixLogo';
+import { getPostAuthRedirect } from '../lib/authRedirect';
 import './AuthPage.css';
 
 export const RegisterPage: React.FC = () => {
@@ -11,7 +12,9 @@ export const RegisterPage: React.FC = () => {
   const [authError, setAuthError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const { signUp, isLoading } = useAuth();
+  const location = useLocation();
   const navigate = useNavigate();
+  const redirectTo = getPostAuthRedirect(location.search);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,12 +27,18 @@ export const RegisterPage: React.FC = () => {
     }
 
     try {
-      const { error } = await signUp(email, password);
+      const { data, error } = await signUp(email, password, redirectTo);
       if (error) {
         setAuthError(error.message);
       } else {
-        setSuccessMsg('Account created. Check your inbox to confirm your email or sign in directly.');
-        setTimeout(() => navigate('/login'), 2000);
+        if (data.session) {
+          navigate(redirectTo, { replace: true });
+        } else {
+          setSuccessMsg('Account created. Confirm your email, then sign in to continue.');
+          setTimeout(() => {
+            navigate(`/login?redirectTo=${encodeURIComponent(redirectTo)}`, { replace: true });
+          }, 2000);
+        }
       }
     } catch (err: any) {
       setAuthError(err.message || 'Registration failed');
@@ -96,7 +105,7 @@ export const RegisterPage: React.FC = () => {
 
         <div className="auth-footer">
           <span className="text-muted">Already registered?</span>{' '}
-          <Link to="/login" className="auth-link">Log In</Link>
+          <Link to={`/login?redirectTo=${encodeURIComponent(redirectTo)}`} className="auth-link">Log In</Link>
         </div>
       </div>
     </div>

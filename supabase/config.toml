@@ -1,0 +1,4 @@
+project_id = "helix-assistant"
+
+[functions.installer-download]
+verify_jwt = false

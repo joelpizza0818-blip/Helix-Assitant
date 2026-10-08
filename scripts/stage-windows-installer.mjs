@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const releaseDirectory = path.join(repoRoot, 'apps', 'desktop', 'release')
-const downloadDirectory = path.join(repoRoot, 'apps', 'landing', 'public', 'downloads')
+const downloadDirectory = path.join(repoRoot, 'apps', 'landing', 'private-downloads')
 const installerFiles = (await readdir(releaseDirectory))
   .filter((file) => /^(HELIX-Setup-.*|HELIX Setup .*?)\.exe$/i.test(file))
   .sort()
@@ -20,4 +20,4 @@ await copyFile(
   path.join(downloadDirectory, 'HELIX-Setup.exe')
 )
 
-console.log(`Staged ${installer} as apps/landing/public/downloads/HELIX-Setup.exe`)
+console.log(`Staged ${installer} as apps/landing/private-downloads/HELIX-Setup.exe`)

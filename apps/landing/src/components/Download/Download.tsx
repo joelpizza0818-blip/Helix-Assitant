@@ -1,8 +1,11 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import './Download.css';
-import { WINDOWS_INSTALLER_URL } from '../../lib/downloads';
+import { InstallerDownloadButton } from './InstallerDownloadButton';
 
-export const Download: React.FC = () => {
+export const Download: React.FC<{ requireAuthenticatedDownload?: boolean }> = ({
+  requireAuthenticatedDownload = false,
+}) => {
   return (
     <section className="download-section" id="download">
       <div className="download-container">
@@ -16,13 +19,15 @@ export const Download: React.FC = () => {
           </div>
 
           <div className="download-actions">
-            <a
-              className="btn-primary"
-              href={WINDOWS_INSTALLER_URL}
-              download
-            >
-              Download HELIX for Windows
-            </a>
+            {requireAuthenticatedDownload ? (
+              <InstallerDownloadButton className="btn-primary" >
+                Download HELIX for Windows
+              </InstallerDownloadButton>
+            ) : (
+              <Link className="btn-primary" to="/download">
+                Sign in to download HELIX
+              </Link>
+            )}
             <span className="build-tag">VERSION: v0.1.0-PREVIEW (x64)</span>
           </div>
 

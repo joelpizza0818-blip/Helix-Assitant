@@ -44,6 +44,11 @@
   flex-wrap: wrap;
 }
 
+.download-actions .auth-alert {
+  flex-basis: 100%;
+  margin: 0;
+}
+
 .build-tag {
   font-family: var(--font-mono);
   font-size: 11px;

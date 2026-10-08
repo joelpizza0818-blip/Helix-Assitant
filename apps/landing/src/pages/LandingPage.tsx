@@ -6,7 +6,7 @@ import { Security } from '../components/Security/Security';
 import { Download } from '../components/Download/Download';
 import { Footer } from '../components/Footer/Footer';
 import { HelixVoxel } from '../components/HelixVoxel/HelixVoxel';
-import { WINDOWS_INSTALLER_URL } from '../lib/downloads';
+import { Link } from 'react-router-dom';
 import './LandingPage.css';
 
 export const LandingPage: React.FC = () => {
@@ -94,9 +94,9 @@ export const LandingPage: React.FC = () => {
               )}
             </div>
 
-            <a href={WINDOWS_INSTALLER_URL} download className="hero-void__cta">
+            <Link to="/download" className="hero-void__cta">
               Download for Windows
-            </a>
+            </Link>
           </div>
 
           <div className="hero-void__right reveal-right">

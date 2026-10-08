@@ -49,7 +49,12 @@ The setup script installs the PyInstaller build dependency from
 `services/agent/requirements.txt`; `build:windows` produces and embeds the
 standalone agent executable before building the NSIS installer.
 
-The installer is written to `apps/desktop/release/HELIX-Setup-<version>.exe` and copied to `apps/landing/public/downloads/HELIX-Setup.exe`, which is the landing page's default download URL. Deploy the resulting `apps/landing/dist` together with that staged `downloads` file. Set `VITE_HELIX_WINDOWS_INSTALLER_URL` at landing build time when releases are hosted at another URL.
+The installer is written to `apps/desktop/release/HELIX-Setup-<version>.exe`
+and staged privately at `apps/landing/private-downloads/HELIX-Setup.exe`.
+Upload that file as `HELIX-Setup.exe` to a release in a private GitHub repository.
+The landing page only issues a temporary download URL through the authenticated
+`installer-download` Supabase Edge Function; never place the installer under
+`apps/landing/public`.
 
 ## Directory Structure
 - `apps/desktop`: Electron/React desktop application

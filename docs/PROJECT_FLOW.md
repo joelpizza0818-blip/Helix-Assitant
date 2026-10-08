@@ -201,10 +201,14 @@ flowchart LR
     RUNTIME --> DESKTOPBUILD
     DESKTOPBUILD --> INSTALLER["Instalador Windows NSIS<br/>agente y aplicación incluidos"]
     INSTALLER --> STAGE["stage:windows-installer"]
-    STAGE --> DOWNLOAD["Landing: public/downloads/HELIX-Setup.exe"]
+    STAGE --> DOWNLOAD["Private staging: apps/landing/private-downloads/HELIX-Setup.exe"]
+    DOWNLOAD --> STORAGE["Private GitHub release asset"]
+    SESSION["Supabase Auth session"] --> EDGE["installer-download Edge Function"]
+    EDGE --> SIGNED["Temporary GitHub release URL"]
+    STORAGE --> SIGNED
+    SIGNED --> CLIENT["Authenticated landing download"]
     SOURCE --> LANDINGBUILD["build:landing<br/>TypeScript + Vite"]
-    DOWNLOAD --> LANDINGBUILD
-    LANDINGBUILD --> PUBLISH["Publicar landing y descarga"]
+    LANDINGBUILD --> PUBLISH["Publish landing"]
 
     SOURCE --> SERVERBUILD["build:server<br/>TypeScript"]
     SERVERBUILD --> SERVERARTIFACT["server/dist"]

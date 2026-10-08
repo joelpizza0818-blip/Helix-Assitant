@@ -30,28 +30,23 @@ export const requireAuth = async (
       return;
     }
 
-    // Look up or link the local database user
-    let dbUser = await prisma.user.findUnique({
+    const displayName = sbUser.user_metadata?.display_name
+      || sbUser.user_metadata?.full_name
+      || sbUser.user_metadata?.name;
+    const dbUser = await prisma.user.upsert({
       where: { supabaseId: sbUser.id },
+      create: {
+        supabaseId: sbUser.id,
+        email: sbUser.email ?? null,
+        displayName: displayName || null,
+        lastLoginAt: new Date(),
+      },
+      update: {
+        email: sbUser.email ?? null,
+        displayName: displayName || undefined,
+        lastLoginAt: new Date(),
+      },
     });
-
-    if (!dbUser && sbUser.email) {
-      dbUser = await prisma.user.create({
-        data: {
-          supabaseId: sbUser.id,
-          email: sbUser.email,
-          displayName: sbUser.user_metadata?.display_name || null,
-        },
-      });
-    }
-
-    if (!dbUser) {
-      res.status(401).json({
-        success: false,
-        error: { code: 'USER_NOT_FOUND', message: 'User profile does not exist' },
-      });
-      return;
-    }
 
     req.user = {
       id: dbUser.id,
