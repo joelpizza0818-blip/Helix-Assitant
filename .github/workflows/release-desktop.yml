@@ -1,0 +1,162 @@
+name: Publish HELIX version
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version increment
+        type: choice
+        required: true
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: publish-helix-version
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Version, release, and publish installer
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out main with release history
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies and validate desktop code
+        run: |
+          npm ci
+          npm run typecheck --workspace=@helix/desktop
+
+      - name: Verify release baseline
+        id: baseline
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "::error::Start a new release from the main branch."
+            exit 1
+          fi
+          if [[ -n "$(git status --porcelain)" ]]; then
+            echo "::error::The checked-out source tree is not clean."
+            exit 1
+          fi
+          version=$(node -p "require('./apps/desktop/package.json').version")
+          tag="v$version"
+          if ! git show-ref --verify --quiet "refs/tags/$tag"; then
+            echo "::error::Current desktop version $tag must already be tagged before creating a new release."
+            exit 1
+          fi
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            echo "::error::Current version $tag must have a published GitHub release."
+            exit 1
+          fi
+          echo "previous_version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Bump desktop version and lockfile
+        id: version
+        shell: bash
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          version=$(node scripts/bump-desktop-version.mjs "$BUMP")
+          tag="v$version"
+          if git show-ref --verify --quiet "refs/tags/$tag"; then
+            echo "::error::Tag $tag already exists."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Commit version and create tag
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/desktop/package.json package-lock.json
+          git commit -m "chore(release): HELIX $VERSION"
+          git tag -a "$TAG" -m "HELIX $VERSION"
+          git push origin HEAD:main
+          git push origin "refs/tags/$TAG"
+
+      - name: Create GitHub release with generated notes
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: gh release create "$TAG" --target "$TAG" --title "HELIX $VERSION" --generate-notes
+
+      - name: Start installer build and wait for publication
+        id: installer
+        shell: bash
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          gh workflow run publish-windows-installer.yml --ref "$TAG"
+
+          run_id=""
+          for attempt in $(seq 1 30); do
+            run_id=$(gh run list \
+              --workflow publish-windows-installer.yml \
+              --branch "$TAG" \
+              --event workflow_dispatch \
+              --limit 1 \
+              --json databaseId \
+              --jq '.[0].databaseId // empty')
+            if [[ -n "$run_id" ]]; then
+              break
+            fi
+            sleep 2
+          done
+          if [[ -z "$run_id" ]]; then
+            echo "::error::Installer workflow did not start for $TAG."
+            exit 1
+          fi
+
+          run_url=$(gh run view "$run_id" --json url --jq .url)
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "run_url=$run_url" >> "$GITHUB_OUTPUT"
+          echo "Installer build: $run_url"
+          gh run watch "$run_id" --exit-status --interval 30
+
+      - name: Summarize published release
+        if: always()
+        shell: bash
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_JOB: ${{ job.status }}
+          INSTALLER_JOB: ${{ steps.installer.outcome }}
+          INSTALLER_URL: ${{ steps.installer.outputs.run_url }}
+        run: |
+          {
+            echo "## HELIX release status"
+            echo
+            echo "- Version: \`$VERSION\` (\`$TAG\`)"
+            echo "- Release notes: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
+            if [[ -n "$INSTALLER_URL" ]]; then
+              echo "- Windows build, checksum, and private upload: [$INSTALLER_JOB]($INSTALLER_URL)"
+            else
+              echo "- Windows build, checksum, and private upload: $INSTALLER_JOB"
+            fi
+            echo "- Overall workflow: $RELEASE_JOB"
+          } >> "$GITHUB_STEP_SUMMARY"

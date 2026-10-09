@@ -60,6 +60,14 @@ SHA-256 checksum, NSIS blockmap, and `latest.yml` metadata to the private
 `helix-installer-downloads` repository, and verifies the published asset and
 latest-release tag.
 
+To publish a version from GitHub, open Actions > **Publish HELIX version**,
+choose `patch`, `minor`, or `major`, and run the workflow from `main`. It
+validates the desktop TypeScript, updates the desktop version and lockfile,
+commits and tags the release, creates GitHub-generated release notes, then
+starts and waits for the Windows installer build. The run summary links to the
+release and reports whether the installer build, checksum verification, and
+private upload succeeded.
+
 Configure the `INSTALLER_REPO_TOKEN` Actions secret with a fine-grained token
 restricted to `helix-installer-downloads`, with Contents read/write access.
 The workflow can also be run manually from `main` to rebuild the current

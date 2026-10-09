@@ -36,12 +36,16 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($env:VITE_SUPABASE_URL) -or [string]::IsNullOrWhiteSpace($env:VITE_SUPABASE_ANON_KEY)) {
             throw "Configure the VITE_SUPABASE_URL repository variable and VITE_SUPABASE_ANON_KEY repository secret for desktop GitHub OAuth."
           }
-          if ($env:GITHUB_EVENT_NAME -eq "workflow_dispatch" -and $env:GITHUB_REF -ne "refs/heads/main") {
-            throw "Manual installer publishing must run from the main branch."
+          if ($env:GITHUB_EVENT_NAME -eq "workflow_dispatch" -and
+              $env:GITHUB_REF -ne "refs/heads/main" -and
+              $env:GITHUB_REF -notmatch '^refs/tags/v\d+\.\d+\.\d+$') {
+            throw "Manual installer publishing must run from main or a version tag."
           }
           $desktopVersion = (Get-Content "apps/desktop/package.json" -Raw | ConvertFrom-Json).version
           $expectedTag = "v$desktopVersion"
           if ($env:GITHUB_EVENT_NAME -eq "release") {
+            $sourceTag = $env:GITHUB_REF_NAME
+          } elseif ($env:GITHUB_REF -match '^refs/tags/') {
             $sourceTag = $env:GITHUB_REF_NAME
           } else {
             $sourceTag = $expectedTag
