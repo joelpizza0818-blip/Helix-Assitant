@@ -78,6 +78,18 @@ class IPCBridge {
             event.sender.send('helix:settings-applied', result);
             return result;
         });
+        electron_1.ipcMain.handle('helix:test-tts', async (_event, text) => {
+            return this._request({
+                type: 'TEST_TTS',
+                payload: { text: typeof text === 'string' && text.trim() ? text.trim() : undefined },
+            }, 30000);
+        });
+        electron_1.ipcMain.handle('helix:get-memory-status', async () => {
+            return this._request({ type: 'GET_MEMORY_STATUS', payload: {} });
+        });
+        electron_1.ipcMain.handle('helix:clear-memory', async () => {
+            return this._request({ type: 'CLEAR_MEMORY', payload: {} });
+        });
         electron_1.ipcMain.handle('helix:validate-key', async (_event, provider, slot, key) => {
             // SECURITY: key goes directly to Python for validation, never stored in main process logs
             return this._request({ type: 'VALIDATE_KEY', payload: { provider, slot, key } });

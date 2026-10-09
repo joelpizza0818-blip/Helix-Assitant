@@ -17,6 +17,17 @@ import ClipboardSection from './sections/ClipboardSection'
 import BrowserExtensionSection from './sections/BrowserExtensionSection'
 import UpdateSection from './sections/UpdateSection'
 import AdminSection from './sections/AdminSection'
+import ProfilesSection from './sections/ProfilesSection'
+import {
+  adminRequest,
+  desktopSupabase,
+  desktopSupabaseConfigured,
+  exchangeOAuthCallback,
+  loadOwnProfile,
+  signOutProfile,
+  startGitHubOAuth,
+  type HelixProfile,
+} from '../../lib/desktopSupabase'
 import './Toolbox.css'
 
 type Section =
@@ -34,6 +45,7 @@ type Section =
   | 'clipboard'
   | 'browser-companion'
   | 'updates'
+  | 'profiles'
   | 'admin'
 
 interface NavItem {
@@ -57,6 +69,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'clipboard', label: 'Clipboard', icon: <NavIcon d="M8 4h8l1 2h3v15H4V6h3l1-2zm0 4h8m-8 4h8m-8 4h5" /> },
   { id: 'browser-companion', label: 'Browser Companion', icon: <NavIcon d="M3 4h18v15H3zM3 9h18m-9 10v3m-4 0h8" /> },
   { id: 'updates', label: 'Updates', icon: <NavIcon d="M20 7v5h-5M4 17v-5h5m-3.5-3A7 7 0 0 1 18 6l2 2M4 16l2 2a7 7 0 0 0 12.5-3" /> },
+  { id: 'profiles', label: 'Perfil', icon: <NavIcon d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2m8-10a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" /> },
   { id: 'admin', label: 'Admin', icon: <NavIcon d="M12 2l8 4v5c0 5-3.5 9-8 11-4.5-2-8-6-8-11V6l8-4zm0 6v5m0 3h.01" /> },
 ]
 
@@ -70,11 +83,15 @@ function NavIcon({ d }: { d: string }) {
 
 export default function Toolbox() {
   const [activeSection, setActiveSection] = useState<Section>('ai')
-  const [isAdmin, setIsAdmin] = useState(false)
-  const [githubLoginBusy, setGithubLoginBusy] = useState(false)
-  const [githubLoginMessage, setGithubLoginMessage] = useState<string | null>(null)
+  const [profile, setProfile] = useState<HelixProfile | null>(null)
+  const [profileBusy, setProfileBusy] = useState(false)
+  const [oauthPending, setOauthPending] = useState(false)
+  const [profileError, setProfileError] = useState<string | null>(null)
+  const [pendingReportsCount, setPendingReportsCount] = useState(0)
   const { settings, isLoading, isSaving, isApplied, error, loadSettings, saveSettings } = useSettings()
   const { providers, models, loadProviders, loadModels } = useAgent()
+  const isAdmin = profile?.rank === 'admin' || profile?.rank === 'master-admin'
+  const isMaster = profile?.rank === 'master-admin'
 
   useEffect(() => {
     loadSettings()
@@ -83,26 +100,78 @@ export default function Toolbox() {
   }, [])
 
   useEffect(() => {
-    void window.helix.validateAdmin().then((result) => setIsAdmin(result.authenticated)).catch(() => setIsAdmin(false))
+    let active = true
+    const refreshProfile = async () => {
+      try {
+        const next = await loadOwnProfile()
+        if (active) {
+          setProfile(next)
+          setProfileError(null)
+        }
+      } catch (cause) {
+        if (active) setProfileError(cause instanceof Error ? cause.message : 'No se pudo cargar el perfil.')
+      }
+    }
+    const unsubscribeAuth = desktopSupabase?.auth.onAuthStateChange((_event, session) => {
+      if (session) window.setTimeout(() => void refreshProfile(), 0)
+      else if (active) setProfile(null)
+    }).data.subscription.unsubscribe
+    const unsubscribeOAuth = window.helix.onOAuthCallback(async (url) => {
+      setProfileBusy(true)
+      setProfileError(null)
+      try {
+        await exchangeOAuthCallback(url)
+        await refreshProfile()
+      } catch (cause) {
+        setProfileError(cause instanceof Error ? cause.message : 'No se pudo completar el inicio de sesión.')
+      } finally {
+        setProfileBusy(false)
+        setOauthPending(false)
+      }
+    })
+    void refreshProfile()
+    return () => {
+      active = false
+      unsubscribeAuth?.()
+      unsubscribeOAuth()
+    }
   }, [])
 
-  const signInAsAdmin = async () => {
-    setGithubLoginBusy(true)
-    setGithubLoginMessage(null)
+  const connectGitHubProfile = async () => {
+    setProfileBusy(true)
+    setProfileError(null)
     try {
-      const current = await window.helix.validateAdmin()
-      if (current.authenticated) {
-        setIsAdmin(true)
-        return
-      }
-      const result = await window.helix.startAdminGithubLogin()
-      setGithubLoginMessage(result.started
-        ? 'Completa GitHub en el navegador; después pulsa este botón otra vez para verificar.'
-        : 'GitHub CLI no está instalado. Instala GitHub CLI y vuelve a intentarlo.')
-    } catch (error) {
-      setGithubLoginMessage(error instanceof Error ? error.message : 'No se pudo verificar la sesión de GitHub.')
+      if (!desktopSupabaseConfigured) throw new Error('Falta configurar OAuth de Supabase para esta versión.')
+      await startGitHubOAuth()
+      setOauthPending(true)
+    } catch (cause) {
+      setOauthPending(false)
+      setProfileError(cause instanceof Error ? cause.message : 'No se pudo iniciar el acceso de GitHub.')
     } finally {
-      setGithubLoginBusy(false)
+      setProfileBusy(false)
+    }
+  }
+
+  const saveProfileName = async (displayName: string) => {
+    const result = await adminRequest<{ success: true; profile: HelixProfile }>('profile', {
+      method: 'PUT',
+      body: JSON.stringify({ displayName }),
+    })
+    setProfile(result.profile)
+  }
+
+  const disconnectProfile = async () => {
+    setProfileBusy(true)
+    setProfileError(null)
+    try {
+      await signOutProfile()
+      setProfile(null)
+      setPendingReportsCount(0)
+      setActiveSection('profiles')
+    } catch (cause) {
+      setProfileError(cause instanceof Error ? cause.message : 'No se pudo cerrar sesión.')
+    } finally {
+      setProfileBusy(false)
     }
   }
 
@@ -115,12 +184,11 @@ export default function Toolbox() {
           <span className="toolbox__title">Toolbox & Control Center</span>
         </div>
         <div className="toolbox__header-actions">
-          {!isAdmin && <button type="button" className="validate-btn" disabled={githubLoginBusy} onClick={() => void signInAsAdmin()}>{githubLoginBusy ? 'Opening GitHub…' : 'Admin sign in with GitHub'}</button>}
+          {profile && <span className="toolbox__profile-indicator">@{profile.githubLogin} · {profile.rank}</span>}
           {isSaving && <span className="toolbox__saving">Saving changes...</span>}
           {!isSaving && isApplied && <span className="toolbox__saving" style={{ color: "var(--green)", border: "1px solid var(--green)", padding: "2px 6px", borderRadius: "4px" }}>Saved</span>}
         </div>
       </header>
-      {githubLoginMessage && <p className="toolbox__admin-login-message" role="status">{githubLoginMessage}</p>}
 
       <div className="toolbox__layout">
         {/* ── Sidebar ────────────────────────────── */}
@@ -133,6 +201,11 @@ export default function Toolbox() {
             >
               <span className="toolbox__nav-icon">{item.icon}</span>
               <span className="toolbox__nav-label">{item.label}</span>
+              {item.id === 'admin' && isMaster && pendingReportsCount > 0 && (
+                <span className="toolbox__nav-badge" aria-label={`${pendingReportsCount} reportes pendientes`}>
+                  {pendingReportsCount > 99 ? '99+' : pendingReportsCount}
+                </span>
+              )}
             </button>
           ))}
         </nav>
@@ -183,7 +256,22 @@ export default function Toolbox() {
               {activeSection === 'clipboard' && <ClipboardSection />}
               {activeSection === 'browser-companion' && <BrowserExtensionSection />}
               {activeSection === 'updates' && <UpdateSection />}
-              {activeSection === 'admin' && isAdmin && <AdminSection />}
+              {activeSection === 'profiles' && (
+                <ProfilesSection
+                  configured={desktopSupabaseConfigured}
+                  profile={profile}
+                  busy={profileBusy}
+                  oauthPending={oauthPending}
+                  error={profileError}
+                  onSignIn={() => void connectGitHubProfile()}
+                  onCancelSignIn={() => setOauthPending(false)}
+                  onSignOut={() => void disconnectProfile()}
+                  onSaveName={saveProfileName}
+                />
+              )}
+              {activeSection === 'admin' && isAdmin && profile && (
+                <AdminSection profile={profile} onPendingReportsCount={setPendingReportsCount} />
+              )}
             </>
           )}
         </main>

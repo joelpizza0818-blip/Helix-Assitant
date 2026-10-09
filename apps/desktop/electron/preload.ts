@@ -134,6 +134,12 @@ contextBridge.exposeInMainWorld('helix', {
   onAgentMessage: (fn: (msg: unknown) => void): (() => void) =>
     createEventListener('helix:agent-message', fn),
 
+  onVoiceCaptureStarted: (fn: () => void): (() => void) =>
+    createEventListener('helix:voice_capture_started', fn),
+
+  onVoiceCaptureStopped: (fn: () => void): (() => void) =>
+    createEventListener('helix:voice_capture_stopped', fn),
+
   onTaskUpdate: (fn: (task: unknown) => void): (() => void) =>
     createEventListener('helix:task-update', fn),
 
@@ -175,13 +181,17 @@ contextBridge.exposeInMainWorld('helix', {
 
   onUpdaterStatus: (fn: (status: unknown) => void): (() => void) =>
     createEventListener('helix:updater-status', fn),
-  startAdminGithubLogin: (): Promise<{ started: boolean }> =>
-    ipcRenderer.invoke('helix:admin-github-login'),
+  onOAuthCallback: (fn: (url: string) => void): (() => void) =>
+    createEventListener('helix:oauth-callback', fn),
+  getAppVersion: (): Promise<string> => ipcRenderer.invoke('helix:app-version'),
   getAdminStatus: (): Promise<{ configured: boolean; authenticated: boolean }> =>
     ipcRenderer.invoke('helix:admin-status'),
-  validateAdmin: (secret: string): Promise<{ authenticated: boolean }> =>
-    ipcRenderer.invoke('helix:admin-validate', secret),
-  getAdminConfig: (): Promise<unknown> => ipcRenderer.invoke('helix:admin-config'),
-  saveAdminConfig: (config: object): Promise<unknown> => ipcRenderer.invoke('helix:admin-save-config', config),
-  createVersionBackup: (version: string): Promise<unknown> => ipcRenderer.invoke('helix:admin-backup', version),
+  validateAdmin: (accessToken: string): Promise<{ authenticated: boolean }> =>
+    ipcRenderer.invoke('helix:admin-validate', accessToken),
+  getAdminConfig: (accessToken: string): Promise<unknown> =>
+    ipcRenderer.invoke('helix:admin-config', accessToken),
+  saveAdminConfig: (accessToken: string, config: object): Promise<unknown> =>
+    ipcRenderer.invoke('helix:admin-save-config', accessToken, config),
+  createVersionBackup: (accessToken: string, version: string): Promise<unknown> =>
+    ipcRenderer.invoke('helix:admin-backup', accessToken, version),
 })

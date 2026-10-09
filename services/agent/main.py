@@ -222,6 +222,7 @@ async def main():
             "AGENT_MESSAGE": "agent_message",
             "STATUS_UPDATE": "status_update",
             "FALLBACK_EVENT": "fallback_event",
+            "MODEL_FALLBACK": "fallback_event",
             "ERROR": "error",
             "PROVIDER_UPDATE": "provider_update",
             "SKILL_ACTIVATED": "skill_update",

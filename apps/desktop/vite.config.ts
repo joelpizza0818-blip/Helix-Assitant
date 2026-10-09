@@ -15,6 +15,7 @@ const desktopDevHealth = {
 }
 
 export default defineConfig({
+  envDir: resolve(__dirname, '../..'),
   plugins: [
     desktopDevHealth,
     react(),

@@ -417,7 +417,7 @@ export default function AISection({ providers, models, settings, onSave, onRefre
         </div>
 
         <div className="form-row">
-          <label className="form-label">Cross-Provider Failover</label>
+          <label className="form-label">Cambio automático de proveedor</label>
           <label className="toggle">
             <input
               type="checkbox"
@@ -427,7 +427,7 @@ export default function AISection({ providers, models, settings, onSave, onRefre
             <span className="toggle__slider" />
           </label>
           <span className="text-xs text-muted" style={{ marginLeft: 8 }}>
-            (Allow jumping to other configured providers if entire provider is exhausted)
+            (Reintenta la solicitud en el siguiente proveedor compatible usando el mismo contexto y los resultados de herramientas)
           </span>
         </div>
 

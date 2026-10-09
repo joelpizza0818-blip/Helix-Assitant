@@ -93,6 +93,156 @@
   font-size: var(--text-sm);
 }
 
+.toolbox__nav-badge {
+  margin-left: auto;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: #fff;
+  background: var(--red);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.toolbox__profile-indicator {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.helix-profile-card {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 10px 14px;
+  align-items: center;
+}
+
+.helix-profile-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--carbon);
+}
+
+.helix-profile-avatar--placeholder {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  color: var(--bone);
+  font-weight: 700;
+}
+
+.helix-profile-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.helix-profile-info span,
+.helix-profile-id span,
+.helix-admin-profile__identity span,
+.helix-admin-report__meta span {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.helix-profile-rank {
+  width: fit-content;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--orange);
+  font-size: 10px;
+}
+
+.helix-profile-card > .form-label,
+.helix-profile-card > .form-input,
+.helix-profile-card > .helix-profile-id,
+.helix-profile-card > .toolbox-error,
+.helix-profile-card > [role="status"],
+.helix-profile-actions {
+  grid-column: 1 / -1;
+}
+
+.helix-profile-id {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.helix-profile-id code,
+.helix-admin-profile__identity code {
+  overflow-wrap: anywhere;
+  color: var(--secondary);
+  font-size: 10px;
+}
+
+.helix-profile-actions,
+.helix-admin-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.helix-admin-filters > .form-input {
+  flex: 1 1 180px;
+  min-width: 150px;
+}
+
+.helix-admin-profile-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.helix-admin-profile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.helix-admin-profile .helix-profile-avatar {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+}
+
+.helix-admin-profile__identity {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.helix-admin-profile > select {
+  max-width: 140px;
+}
+
+.helix-admin-report {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.helix-admin-report__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.helix-admin-report > p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* ── Content ──────────────────────────────────────────────────────────────── */
 
 .toolbox__content {

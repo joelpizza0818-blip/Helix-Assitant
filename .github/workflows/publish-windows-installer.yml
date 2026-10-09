@@ -27,9 +27,14 @@ jobs:
         shell: pwsh
         env:
           INSTALLER_REPO_TOKEN: ${{ secrets.INSTALLER_REPO_TOKEN }}
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:INSTALLER_REPO_TOKEN)) {
             throw "Configure the INSTALLER_REPO_TOKEN secret with write access to joelpizza0818-blip/helix-installer-downloads."
+          }
+          if ([string]::IsNullOrWhiteSpace($env:VITE_SUPABASE_URL) -or [string]::IsNullOrWhiteSpace($env:VITE_SUPABASE_ANON_KEY)) {
+            throw "Configure the VITE_SUPABASE_URL repository variable and VITE_SUPABASE_ANON_KEY repository secret for desktop GitHub OAuth."
           }
           if ($env:GITHUB_EVENT_NAME -eq "workflow_dispatch" -and $env:GITHUB_REF -ne "refs/heads/main") {
             throw "Manual installer publishing must run from the main branch."
@@ -73,6 +78,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Could not install the Windows agent build dependencies." }
 
       - name: Build and stage the Windows installer
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: npm run build:windows
 
       - name: Verify installer version and calculate checksum

@@ -281,6 +281,7 @@ def test_vad_reports_aggregate_capture_rms(caplog):
 
 def test_voice_capture_closes_microphone_before_stt(monkeypatch):
     operations = []
+    published = []
 
     class Stream:
         def start(self):
@@ -312,7 +313,11 @@ def test_voice_capture_closes_microphone_before_stt(monkeypatch):
         operations.append("stt_started")
         return "recognized"
 
+    async def publish(event_name, payload):
+        published.append((event_name, payload))
+
     engine.stt = SimpleNamespace(transcribe=transcribe)
+    engine.event_bus = SimpleNamespace(publish=publish)
     engine.state = VoiceState.LISTENING
 
     assert asyncio.run(engine._listen_and_transcribe()) == "recognized"
@@ -321,6 +326,10 @@ def test_voice_capture_closes_microphone_before_stt(monkeypatch):
         "capture_ended",
         "stream_closed",
         "stt_started",
+    ]
+    assert published == [
+        ("VOICE_CAPTURE_STARTED", {}),
+        ("VOICE_CAPTURE_STOPPED", {"reason": "completed"}),
     ]
 
 

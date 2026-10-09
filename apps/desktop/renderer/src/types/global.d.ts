@@ -1,6 +1,8 @@
 // Global type declarations for the HELIX preload bridge
 // This is injected by electron/preload.ts via contextBridge
 
+/// <reference types="vite/client" />
+
 export {}
 
 declare global {
@@ -23,6 +25,7 @@ export interface HelixAPI {
   quit: () => void
   openToolbox: () => void
   openExternal: (url: string) => void
+  getAppVersion: () => Promise<string>
 
   getSettings: () => Promise<HelixSettings>
   saveSettings: (settings: Partial<HelixSettings>) => Promise<void>
@@ -39,6 +42,8 @@ export interface HelixAPI {
   getMcpServers: () => Promise<MCPServerStatus[]>
 
   onAgentMessage: (fn: (msg: AgentMessage) => void) => () => void
+  onVoiceCaptureStarted: (fn: () => void) => () => void
+  onVoiceCaptureStopped: (fn: () => void) => () => void
   onTaskUpdate: (fn: (task: TaskDefinition) => void) => () => void
   onStatusUpdate: (fn: (status: AgentStatusUpdate) => void) => () => void
   onFallbackEvent: (fn: (event: FallbackEvent) => void) => () => void
@@ -65,12 +70,12 @@ export interface HelixAPI {
   downloadUpdate: () => Promise<void>
   installUpdate: () => Promise<void>
   onUpdaterStatus: (fn: (status: unknown) => void) => () => void
+  onOAuthCallback: (fn: (url: string) => void) => () => void
   getAdminStatus: () => Promise<{ configured: boolean; authenticated: boolean }>
-  validateAdmin: () => Promise<{ authenticated: boolean }>
-  startAdminGithubLogin: () => Promise<{ started: boolean }>
-  getAdminConfig: () => Promise<AdminConfig>
-  saveAdminConfig: (config: AdminConfig) => Promise<AdminConfig>
-  createVersionBackup: (version: string) => Promise<AdminBackup>
+  validateAdmin: (accessToken: string) => Promise<{ authenticated: boolean }>
+  getAdminConfig: (accessToken: string) => Promise<AdminConfig>
+  saveAdminConfig: (accessToken: string, config: AdminConfig) => Promise<AdminConfig>
+  createVersionBackup: (accessToken: string, version: string) => Promise<AdminBackup>
 }
 
 export interface AdminBackup { version: string; createdAt: string; currentVersion: string | null; synced?: boolean; syncError?: string }

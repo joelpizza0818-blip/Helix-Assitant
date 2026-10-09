@@ -1,6 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
-const ADMIN_GITHUB_LOGIN = 'joelpizza0818-blip'
 const GITHUB_API = 'https://api.github.com'
 
 function releaseTag(version: string): string {
@@ -32,8 +31,11 @@ function getAdminClient() {
   })
 }
 
-async function authenticateAdmin(request: Request): Promise<
-  | { login: string; githubId: string }
+async function authenticateGithubIdentity(
+  request: Request,
+  admin: ReturnType<typeof getAdminClient>,
+): Promise<
+  | { login: string; githubId: string; displayName: string; avatarUrl: string | null }
   | { response: Response }
 > {
   const authorization = request.headers.get('Authorization')
@@ -41,7 +43,33 @@ async function authenticateAdmin(request: Request): Promise<
     ? authorization.slice('Bearer '.length).trim()
     : ''
   if (!token) {
-    return { response: jsonResponse(401, { error: 'GitHub CLI authentication is required.' }) }
+    return { response: jsonResponse(401, { error: 'GitHub sign-in is required.' }) }
+  }
+
+  const { data: authData, error: authError } = await admin.auth.getUser(token)
+  const authUser = authError ? null : authData.user
+  if (authUser && authUser.app_metadata.provider === 'github') {
+    const githubIdentity = authUser.identities?.find((identity) => identity.provider === 'github')
+    const identityData = githubIdentity?.identity_data
+    const login = typeof identityData?.user_name === 'string'
+      ? identityData.user_name
+      : typeof authUser.user_metadata.user_name === 'string'
+        ? authUser.user_metadata.user_name
+        : ''
+    const githubId = githubIdentity?.id ?? ''
+    if (!login || !githubId) {
+      return { response: jsonResponse(503, { error: 'GitHub profile data is incomplete.' }) }
+    }
+    return {
+      login: login.toLowerCase(),
+      githubId: String(githubId),
+      displayName: typeof identityData?.full_name === 'string'
+        ? identityData.full_name
+        : login,
+      avatarUrl: typeof identityData?.avatar_url === 'string'
+        ? identityData.avatar_url
+        : null,
+    }
   }
 
   let identityResponse: Response
@@ -74,10 +102,90 @@ async function authenticateAdmin(request: Request): Promise<
   ) {
     return { response: jsonResponse(503, { error: 'GitHub returned an invalid identity.' }) }
   }
-  if (identity.login.toLowerCase() !== ADMIN_GITHUB_LOGIN) {
-    return { response: jsonResponse(403, { error: 'This GitHub account is not authorized to manage HELIX releases.' }) }
+  return {
+    login: identity.login.toLowerCase(),
+    githubId: String(identity.id),
+    displayName: identity.login,
+    avatarUrl: null,
   }
-  return { login: identity.login, githubId: String(identity.id) }
+}
+
+interface UserProfile {
+  profileId: string
+  githubUserId: string
+  githubLogin: string
+  displayName: string
+  avatarUrl: string | null
+  rank: 'user' | 'admin' | 'master-admin'
+}
+
+async function syncUserProfile(
+  admin: ReturnType<typeof getAdminClient>,
+  identity: { login: string; githubId: string; displayName: string; avatarUrl: string | null },
+): Promise<UserProfile | null> {
+  const byGitHubId = await admin
+    .from('github_user_roles')
+    .select('profile_id, github_user_id, github_login, display_name, avatar_url, rank')
+    .eq('github_user_id', identity.githubId)
+    .maybeSingle()
+  if (byGitHubId.error) throw new Error(`Could not find HELIX profile: ${byGitHubId.error.message}`)
+
+  let existing = byGitHubId.data
+  if (!existing) {
+    const byLogin = await admin
+      .from('github_user_roles')
+      .select('profile_id, github_user_id, github_login, display_name, avatar_url, rank')
+      .ilike('github_login', identity.login)
+      .maybeSingle()
+    if (byLogin.error) throw new Error(`Could not find HELIX profile: ${byLogin.error.message}`)
+    existing = byLogin.data
+  }
+
+  if (byGitHubId.data === null && !existing) {
+    const { data, error } = await admin
+      .from('github_user_roles')
+      .insert({
+        github_login: identity.login,
+        github_user_id: identity.githubId,
+        display_name: identity.displayName || identity.login,
+        avatar_url: identity.avatarUrl,
+        rank: 'user',
+      })
+      .select('profile_id, github_user_id, github_login, display_name, avatar_url, rank')
+      .single()
+    if (error) throw new Error(`Could not create HELIX profile: ${error.message}`)
+    return {
+      profileId: data.profile_id,
+      githubUserId: data.github_user_id,
+      githubLogin: data.github_login,
+      displayName: data.display_name,
+      avatarUrl: data.avatar_url,
+      rank: data.rank,
+    }
+  }
+
+  const profile = existing!
+  const { data, error } = await admin
+    .from('github_user_roles')
+    .update({
+      github_login: identity.login,
+      github_user_id: identity.githubId,
+      display_name: profile.display_name || identity.displayName || identity.login,
+      avatar_url: identity.avatarUrl,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('profile_id', profile.profile_id)
+    .select('profile_id, github_user_id, github_login, display_name, avatar_url, rank')
+    .single()
+  if (error) throw new Error(`Could not update HELIX profile: ${error.message}`)
+  return {
+    profileId: data.profile_id,
+    githubUserId: data.github_user_id,
+    githubLogin: data.github_login,
+    displayName: data.display_name,
+    avatarUrl: data.avatar_url,
+    rank: data.rank,
+  }
 }
 
 async function verifyRelease(
@@ -181,9 +289,6 @@ Deno.serve(async (request: Request) => {
     return jsonResponse(405, { error: 'Method not allowed.' })
   }
 
-  const auth = await authenticateAdmin(request)
-  if ('response' in auth) return auth.response
-
   let admin
   try {
     admin = getAdminClient()
@@ -192,7 +297,205 @@ Deno.serve(async (request: Request) => {
     return jsonResponse(503, { error: 'Release policy storage is not configured.' })
   }
 
+  const auth = await authenticateGithubIdentity(request, admin)
+  if ('response' in auth) return auth.response
+
+  let profile: UserProfile
+  try {
+    const syncedProfile = await syncUserProfile(admin, auth)
+    if (!syncedProfile) return jsonResponse(503, { error: 'Could not load the HELIX profile.' })
+    profile = syncedProfile
+  } catch (error) {
+    console.error('Could not synchronize HELIX profile:', error)
+    return jsonResponse(503, { error: 'Could not synchronize the HELIX profile.' })
+  }
+
   const route = new URL(request.url).pathname.split('/installer-admin/')[1] ?? ''
+  const isAdmin = profile.rank === 'admin' || profile.rank === 'master-admin'
+
+  if ((route === 'authorization' || route === 'profile') && request.method === 'GET') {
+    return jsonResponse(200, {
+      success: true,
+      authenticated: isAdmin,
+      profile,
+    })
+  }
+  if (route === 'profile' && request.method === 'PUT') {
+    const body: unknown = await request.json().catch(() => null)
+    if (
+      body === null
+      || typeof body !== 'object'
+      || !('displayName' in body)
+      || typeof body.displayName !== 'string'
+      || !body.displayName.trim()
+      || body.displayName.trim().length > 80
+    ) {
+      return jsonResponse(400, { error: 'Profile name must be between 1 and 80 characters.' })
+    }
+    const { data, error } = await admin
+      .from('github_user_roles')
+      .update({ display_name: body.displayName.trim(), updated_at: new Date().toISOString() })
+      .eq('profile_id', profile.profileId)
+      .select('profile_id, github_user_id, github_login, display_name, avatar_url, rank')
+      .single()
+    if (error) {
+      console.error('Could not update profile name:', error.message)
+      return jsonResponse(503, { error: 'Could not update the profile name.' })
+    }
+    return jsonResponse(200, {
+      success: true,
+      profile: {
+        profileId: data.profile_id,
+        githubUserId: data.github_user_id,
+        githubLogin: data.github_login,
+        displayName: data.display_name,
+        avatarUrl: data.avatar_url,
+        rank: data.rank,
+      },
+    })
+  }
+
+  if (route === 'profiles' && request.method === 'GET') {
+    if (profile.rank !== 'master-admin') return jsonResponse(403, { error: 'Master admin rank required.' })
+    const { data, error } = await admin
+      .from('github_user_roles')
+      .select('profile_id, github_user_id, github_login, display_name, avatar_url, rank, created_at')
+      .order('display_name', { ascending: true })
+      .limit(1000)
+    if (error) {
+      console.error('Could not load user profiles:', error.message)
+      return jsonResponse(503, { error: 'Could not load user profiles.' })
+    }
+    return jsonResponse(200, {
+      success: true,
+      profiles: (data ?? []).map((item) => ({
+        profileId: item.profile_id,
+        githubUserId: item.github_user_id,
+        githubLogin: item.github_login,
+        displayName: item.display_name ?? item.github_login,
+        avatarUrl: item.avatar_url,
+        rank: item.rank,
+        createdAt: item.created_at,
+      })),
+    })
+  }
+  if (route.startsWith('profiles/') && route.endsWith('/rank') && request.method === 'PUT') {
+    if (profile.rank !== 'master-admin') return jsonResponse(403, { error: 'Master admin rank required.' })
+    const targetProfileId = route.split('/')[1]
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(targetProfileId)) {
+      return jsonResponse(400, { error: 'Profile ID is invalid.' })
+    }
+    const body: unknown = await request.json().catch(() => null)
+    if (
+      body === null
+      || typeof body !== 'object'
+      || !('rank' in body)
+      || (body.rank !== 'user' && body.rank !== 'admin')
+    ) {
+      return jsonResponse(400, { error: 'Only user and admin ranks can be assigned.' })
+    }
+    const { data, error } = await admin
+      .from('github_user_roles')
+      .update({ rank: body.rank, updated_at: new Date().toISOString() })
+      .eq('profile_id', targetProfileId)
+      .neq('rank', 'master-admin')
+      .select('profile_id, github_user_id, github_login, display_name, avatar_url, rank')
+      .maybeSingle()
+    if (error) {
+      console.error('Could not update user rank:', error.message)
+      return jsonResponse(503, { error: 'Could not update the user rank.' })
+    }
+    if (!data) return jsonResponse(404, { error: 'User profile was not found or cannot be changed.' })
+    return jsonResponse(200, {
+      success: true,
+      profile: {
+        profileId: data.profile_id,
+        githubUserId: data.github_user_id,
+        githubLogin: data.github_login,
+        displayName: data.display_name,
+        avatarUrl: data.avatar_url,
+        rank: data.rank,
+      },
+    })
+  }
+
+  if (route === 'reports' && request.method === 'POST') {
+    if (!isAdmin) return jsonResponse(403, { error: 'Admin rank required to submit an error report.' })
+    const body: unknown = await request.json().catch(() => null)
+    if (
+      body === null
+      || typeof body !== 'object'
+      || !('title' in body)
+      || typeof body.title !== 'string'
+      || !body.title.trim()
+      || body.title.trim().length > 120
+      || !('description' in body)
+      || typeof body.description !== 'string'
+      || !body.description.trim()
+      || body.description.trim().length > 5000
+      || !('appVersion' in body)
+      || typeof body.appVersion !== 'string'
+      || !/^\d+(?:\.\d+){1,3}$/.test(body.appVersion)
+    ) {
+      return jsonResponse(400, { error: 'Report title or description is invalid.' })
+    }
+    const { data, error } = await admin
+      .from('admin_error_reports')
+      .insert({
+        created_by_profile_id: profile.profileId,
+        title: body.title.trim(),
+        description: body.description.trim(),
+        app_version: body.appVersion,
+      })
+      .select('id, title, description, app_version, status, created_at')
+      .single()
+    if (error) {
+      console.error('Could not create error report:', error.message)
+      return jsonResponse(503, { error: 'Could not submit the error report.' })
+    }
+    return jsonResponse(201, { success: true, report: data })
+  }
+
+  if (route === 'reports' && request.method === 'GET') {
+    if (profile.rank !== 'master-admin') return jsonResponse(403, { error: 'Master admin rank required.' })
+    const { data, error } = await admin
+      .from('admin_error_reports')
+      .select('id, title, description, app_version, status, created_at, resolved_at, created_by_profile_id, github_user_roles!admin_error_reports_created_by_profile_id_fkey(github_login, display_name, avatar_url)')
+      .order('created_at', { ascending: false })
+      .limit(250)
+    if (error) {
+      console.error('Could not load error reports:', error.message)
+      return jsonResponse(503, { error: 'Could not load error reports.' })
+    }
+    return jsonResponse(200, { success: true, reports: data ?? [] })
+  }
+  if (route.startsWith('reports/') && request.method === 'PUT') {
+    if (profile.rank !== 'master-admin') return jsonResponse(403, { error: 'Master admin rank required.' })
+    const reportId = route.split('/')[1]
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(reportId)) {
+      return jsonResponse(400, { error: 'Report ID is invalid.' })
+    }
+    const { data, error } = await admin
+      .from('admin_error_reports')
+      .update({ status: 'resolved', resolved_at: new Date().toISOString() })
+      .eq('id', reportId)
+      .select('id, status, resolved_at')
+      .maybeSingle()
+    if (error) {
+      console.error('Could not resolve error report:', error.message)
+      return jsonResponse(503, { error: 'Could not update the error report.' })
+    }
+    if (!data) return jsonResponse(404, { error: 'Error report was not found.' })
+    return jsonResponse(200, { success: true, report: data })
+  }
+
+  if (!isAdmin) {
+    return jsonResponse(403, { error: 'This GitHub account does not have an admin rank.' })
+  }
+  if ((route === '' || route === 'policy') && request.method === 'PUT' && profile.rank !== 'master-admin') {
+    return jsonResponse(403, { error: 'Master admin rank required to publish release policy.' })
+  }
+
   if ((route === '' || route === 'policy') && request.method === 'GET') {
     const { data, error } = await admin
       .from('release_policies')

@@ -162,12 +162,18 @@ async def test_anthropic_billing_failure_falls_back_to_configured_google(
     }
 
     attempts = []
-    context = {"messages": [{"role": "user", "content": "Continue this task."}]}
+    context = {"messages": [
+        {"role": "user", "content": "Continue this task."},
+        {"role": "assistant", "tool_calls": [{"id": "cmd-1", "name": "execute_command"}]},
+        {"role": "tool", "tool_call_id": "cmd-1", "content": "Command completed: tests passed."},
+    ]}
     context_ids = []
 
     async def fail_anthropic_then_succeed_google(candidate, _context):
         attempts.append((candidate.provider_id, candidate.model_id, candidate.key_slot))
         context_ids.append(id(_context["messages"]))
+        if candidate.provider_id == "google":
+            assert _context["messages"][-1]["content"] == "Command completed: tests passed."
         if candidate.provider_id == "anthropic":
             raise AgentError(
                 code="BILLING_EXHAUSTED",
@@ -196,9 +202,7 @@ async def test_anthropic_billing_failure_falls_back_to_configured_google(
     assert attempts[-1][0] == "google"
     assert all(attempt[0] in {"anthropic", "google"} for attempt in attempts)
     assert len(set(context_ids)) == 1
-    assert context["messages"] == [
-        {"role": "user", "content": "Continue this task."}
-    ]
+    assert context["messages"][-1]["content"] == "Command completed: tests passed."
 
 
 @pytest.mark.asyncio

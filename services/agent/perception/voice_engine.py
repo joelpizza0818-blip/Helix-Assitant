@@ -444,6 +444,8 @@ class VoiceEngine:
         stream = None
         audio_bytes = b""
         capture_started = False
+        capture_announced = False
+        capture_stop_reason = "error"
         try:
             frame_count = self.vad.frame_size // 2
             stream = sd.RawInputStream(
@@ -455,6 +457,8 @@ class VoiceEngine:
             )
             stream.start()
             capture_started = True
+            await self.event_bus.publish("VOICE_CAPTURE_STARTED", {})
+            capture_announced = True
             logger.info(
                 "AUDIO_CAPTURE_STARTED device=%s sample_rate=%s channels=1 "
                 "format=int16 frame_samples=%d frame_bytes=%d",
@@ -473,6 +477,9 @@ class VoiceEngine:
                 "AUDIO_CAPTURE_STOPPED reason=%s bytes=%d",
                 getattr(self.vad, "last_capture_stop_reason", "unknown"),
                 len(audio_bytes),
+            )
+            capture_stop_reason = getattr(
+                self.vad, "last_capture_stop_reason", "completed"
             )
             capture_started = False
             captured_stream = stream
@@ -520,9 +527,21 @@ class VoiceEngine:
                 )
             if stream is not None:
                 try:
-                    stream.stop()
+                    try:
+                        stream.stop()
+                    finally:
+                        stream.close()
                 finally:
-                    stream.close()
+                    if capture_announced:
+                        await self.event_bus.publish(
+                            "VOICE_CAPTURE_STOPPED",
+                            {"reason": capture_stop_reason},
+                        )
+            elif capture_announced:
+                await self.event_bus.publish(
+                    "VOICE_CAPTURE_STOPPED",
+                    {"reason": capture_stop_reason},
+                )
 
     async def _handle_stop_event(self, _event_name: str, _payload: dict):
         if self.state == VoiceState.IDLE:

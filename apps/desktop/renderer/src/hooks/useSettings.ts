@@ -36,7 +36,7 @@ const DEFAULT_SETTINGS: HelixSettings = {
   default_model: null,
   preferred_provider: null,
   fallback_enabled: true,
-  cross_provider_fallback: false,
+  cross_provider_fallback: true,
   auto_approve_up_to: 'LOW_RISK',
   permissions_mode: 'SMART_APPROVAL',
   cost_preference: 'balanced',

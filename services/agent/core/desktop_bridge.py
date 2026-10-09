@@ -37,7 +37,8 @@ DEFAULT_SETTINGS = {
     "default_model": None,
     "preferred_provider": None,
     "fallback_enabled": True,
-    "cross_provider_fallback": False,
+    "cross_provider_fallback": True,
+    "_cross_provider_failover_migrated": True,
     "auto_approve_up_to": "LOW_RISK",
     "permissions_mode": "SMART_APPROVAL",
     "permission_mode": "SMART_APPROVAL",
@@ -384,6 +385,9 @@ class DesktopRequestHandler:
             if not isinstance(saved, dict):
                 raise ValueError("Saved settings must be a JSON object")
             settings.update(saved)
+            if not saved.get("_cross_provider_failover_migrated"):
+                settings["cross_provider_fallback"] = True
+                settings["_cross_provider_failover_migrated"] = True
             # Older builds accepted endpoint API keys directly in settings.
             # Never return those values to the renderer or keep them in the
             # JSON file; credentials belong in the OS credential vault.
@@ -424,7 +428,7 @@ class DesktopRequestHandler:
                 settings.get("fallback_enabled", True)
             )
             self.fallback_manager.cross_provider_fallback = bool(
-                settings.get("cross_provider_fallback", False)
+                settings.get("cross_provider_fallback", True)
             )
         if self.model_router is not None:
             self.model_router.default_cost_preference = settings.get(

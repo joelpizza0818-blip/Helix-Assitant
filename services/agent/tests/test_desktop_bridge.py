@@ -1,3 +1,4 @@
+import json
 import pytest
 from pathlib import Path
 from datetime import datetime, timezone
@@ -47,6 +48,18 @@ def test_wake_word_threshold_default_and_range_validation(request_handler):
                 **request_handler.get_settings(),
                 "wake_word_threshold": invalid_threshold,
             })
+
+
+def test_cross_provider_failover_migrates_old_default(request_handler):
+    request_handler.settings_path.write_text(
+        json.dumps({"cross_provider_fallback": False}),
+        encoding="utf-8",
+    )
+
+    settings = request_handler.get_settings()
+
+    assert settings["cross_provider_fallback"] is True
+    assert settings["_cross_provider_failover_migrated"] is True
 
 
 @pytest.mark.asyncio

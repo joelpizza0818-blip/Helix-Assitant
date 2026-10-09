@@ -15,7 +15,6 @@ import {
 import { autoUpdater } from 'electron-updater'
 import path from 'path'
 import fs from 'fs'
-import { execFile, spawn } from 'child_process'
 import { pathToFileURL } from 'url'
 import { PythonManager } from './python-manager'
 import { IPCBridge } from './ipc'
@@ -53,32 +52,64 @@ let updateDownloaded = false
 let isQuitting = false
 let shutdownComplete = false
 let adminAuthenticated = false
-const ADMIN_GITHUB_LOGIN = 'joelpizza0818-blip'
+let pendingOAuthCallback: string | null = null
 
-function verifyGithubAdmin(): Promise<boolean> {
-  return new Promise((resolve) => {
-    execFile('gh', ['api', 'user', '--jq', '.login'], { windowsHide: true, timeout: 5000 }, (error, stdout) => {
-      const login = stdout.trim()
-      const isAdmin = !error && login === ADMIN_GITHUB_LOGIN
-      adminAuthenticated = isAdmin
-      resolve(isAdmin)
-    })
-  })
+function sendPendingOAuthCallback(): void {
+  if (!pendingOAuthCallback || !toolboxWindow || toolboxWindow.webContents.isLoading()) return
+  toolboxWindow.webContents.send('helix:oauth-callback', pendingOAuthCallback)
+  pendingOAuthCallback = null
 }
 
-function startGithubLogin(): Promise<boolean> {
-  return new Promise((resolve) => {
-    const child = spawn('gh', ['auth', 'login', '--web', '--hostname', 'github.com', '--git-protocol', 'https'], {
-      detached: true,
-      windowsHide: false,
-      stdio: 'ignore',
+function handleOAuthCallbackUrl(value: string): void {
+  let callback: URL
+  try {
+    callback = new URL(value)
+  } catch {
+    return
+  }
+  if (callback.protocol !== 'helix:' || callback.hostname !== 'auth' || callback.pathname !== '/callback') return
+  pendingOAuthCallback = callback.toString()
+  sendPendingOAuthCallback()
+  toolboxWindow?.show()
+  toolboxWindow?.focus()
+}
+
+async function verifyGithubAdmin(token: string): Promise<boolean> {
+  if (!token.trim()) {
+    adminAuthenticated = false
+    return false
+  }
+
+  try {
+    const response = await fetch(`${adminApiBaseUrl()}/authorization`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(8000),
     })
-    child.once('spawn', () => {
-      child.unref()
-      resolve(true)
-    })
-    child.once('error', () => resolve(false))
-  })
+    if (response.status === 401) {
+      adminAuthenticated = false
+      return false
+    }
+    if (!response.ok) {
+      throw new Error(`Could not check the admin rank (server returned ${response.status}).`)
+    }
+    const result: unknown = await response.json()
+    if (
+      result === null
+      || typeof result !== 'object'
+      || !('success' in result)
+      || result.success !== true
+      || !('authenticated' in result)
+      || typeof result.authenticated !== 'boolean'
+    ) {
+      throw new Error('The server returned an invalid admin authorization response.')
+    }
+    const isAdmin = result.authenticated
+    adminAuthenticated = isAdmin
+    return isAdmin
+  } catch (error) {
+    adminAuthenticated = false
+    throw error
+  }
 }
 
 interface AdminBackup { version: string; createdAt: string; currentVersion: string | null }
@@ -104,23 +135,8 @@ function adminApiBaseUrl(): string {
     || 'https://zqjktbpymrfjmggjmbfp.supabase.co/functions/v1/installer-admin'
 }
 
-function githubCliToken(): Promise<string> {
-  return new Promise((resolve) => {
-    execFile('gh', ['auth', 'token', '--hostname', 'github.com'], {
-      windowsHide: true,
-      timeout: 5000,
-    }, (error, stdout) => {
-      resolve(error ? '' : stdout.trim())
-    })
-  })
-}
-
-async function loadAdminConfig(): Promise<AdminConfig & { synced?: boolean; syncError?: string }> {
+async function loadAdminConfig(token: string): Promise<AdminConfig & { synced?: boolean; syncError?: string }> {
   const local = readAdminConfig()
-  const token = await githubCliToken()
-  if (!token) {
-    return { ...local, synced: false, syncError: 'Authenticate with GitHub CLI to load the shared policy.' }
-  }
   try {
     const response = await fetch(`${adminApiBaseUrl()}/policy`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -167,9 +183,7 @@ async function loadAdminConfig(): Promise<AdminConfig & { synced?: boolean; sync
   }
 }
 
-async function publishAdminConfig(config: AdminConfig): Promise<{ synced: boolean; error?: string }> {
-  const token = await githubCliToken()
-  if (!token) return { synced: false, error: 'No Supabase session token is available for server sync.' }
+async function publishAdminConfig(config: AdminConfig, token: string): Promise<{ synced: boolean; error?: string }> {
   try {
     const response = await fetch(`${adminApiBaseUrl()}/policy`, {
       method: 'PUT',
@@ -191,9 +205,7 @@ async function publishAdminConfig(config: AdminConfig): Promise<{ synced: boolea
   }
 }
 
-async function publishAdminBackup(backup: AdminBackup): Promise<{ synced: boolean; error?: string }> {
-  const token = await githubCliToken()
-  if (!token) return { synced: false, error: 'No Supabase session token is available for server sync.' }
+async function publishAdminBackup(backup: AdminBackup, token: string): Promise<{ synced: boolean; error?: string }> {
   try {
     const response = await fetch(`${adminApiBaseUrl()}/backups`, {
       method: 'POST',
@@ -216,7 +228,9 @@ if (!gotLock) {
   process.exit(0)
 }
 
-app.on('second-instance', () => {
+app.on('second-instance', (_event, commandLine) => {
+  const oauthUrl = commandLine.find((argument) => argument.startsWith('helix://auth/callback'))
+  if (oauthUrl) handleOAuthCallbackUrl(oauthUrl)
   const window = toolboxWindow?.isVisible() ? toolboxWindow : floatingWindow
   if (!window) return
   if (window.isMinimized()) window.restore()
@@ -291,6 +305,9 @@ function createToolboxWindow(): BrowserWindow {
     }
   })
 
+  win.webContents.on('did-finish-load', () => {
+    sendPendingOAuthCallback()
+  })
   loadWithRetry(win, `${RENDERER_URL}#toolbox`)
   win.setMenuBarVisibility(false)
 
@@ -414,16 +431,16 @@ function setupIPC(): void {
     configured: true,
     authenticated: adminAuthenticated,
   }))
-  ipcMain.handle('helix:admin-validate', async () => {
-    return { authenticated: await verifyGithubAdmin() }
+  ipcMain.handle('helix:app-version', () => app.getVersion())
+  ipcMain.handle('helix:admin-validate', async (_event, accessToken: string) => {
+    return { authenticated: await verifyGithubAdmin(accessToken) }
   })
-  ipcMain.handle('helix:admin-github-login', async () => ({ started: await startGithubLogin() }))
-  ipcMain.handle('helix:admin-config', () => {
-    if (!adminAuthenticated) throw new Error('Admin authentication required.')
-    return loadAdminConfig()
+  ipcMain.handle('helix:admin-config', async (_event, accessToken: string) => {
+    if (!await verifyGithubAdmin(accessToken)) throw new Error('Admin authentication required.')
+    return loadAdminConfig(accessToken)
   })
-  ipcMain.handle('helix:admin-save-config', async (_event, incoming: Partial<AdminConfig>) => {
-    if (!adminAuthenticated) throw new Error('Admin authentication required.')
+  ipcMain.handle('helix:admin-save-config', async (_event, accessToken: string, incoming: Partial<AdminConfig>) => {
+    if (!await verifyGithubAdmin(accessToken)) throw new Error('Admin authentication required.')
     const current = readAdminConfig()
     const next: AdminConfig = {
       ...current,
@@ -441,17 +458,17 @@ function setupIPC(): void {
       throw new Error('Admin policy contains an invalid value.')
     }
     const saved = writeAdminConfig(next)
-    const sync = await publishAdminConfig(saved)
+    const sync = await publishAdminConfig(saved, accessToken)
     if (saved.autoUpdate) void checkForUpdates()
     return { ...saved, synced: sync.synced, syncError: sync.error }
   })
-  ipcMain.handle('helix:admin-backup', async (_event, version: string) => {
-    if (!adminAuthenticated) throw new Error('Admin authentication required.')
+  ipcMain.handle('helix:admin-backup', async (_event, accessToken: string, version: string) => {
+    if (!await verifyGithubAdmin(accessToken)) throw new Error('Admin authentication required.')
     if (typeof version !== 'string' || !/^\d+(?:\.\d+){1,3}$/.test(version)) throw new Error('Invalid version.')
     const current = readAdminConfig()
     const backup = { version, createdAt: new Date().toISOString(), currentVersion: app.getVersion() }
     const savedBackup = writeAdminConfig({ ...current, backups: [backup, ...current.backups.filter((item) => item.version !== version)] }).backups[0]
-    const sync = await publishAdminBackup(savedBackup)
+    const sync = await publishAdminBackup(savedBackup, accessToken)
     return { ...savedBackup, synced: sync.synced, syncError: sync.error }
   })
 
@@ -672,6 +689,8 @@ async function connectWebSocket(retryCount = 0, maxRetries = 15): Promise<void> 
 }
 
 app.whenReady().then(async () => {
+  app.setAsDefaultProtocolClient('helix')
+
   // Set app user model ID for Windows notifications
   if (process.platform === 'win32') {
     app.setAppUserModelId('com.helix.agent')
@@ -685,6 +704,8 @@ app.whenReady().then(async () => {
   floatingWindow = createFloatingWindow()
   toolboxWindow = createToolboxWindow()
   confirmationWindow = createConfirmationWindow()
+  const startupOAuthUrl = process.argv.find((argument) => argument.startsWith('helix://auth/callback'))
+  if (startupOAuthUrl) handleOAuthCallbackUrl(startupOAuthUrl)
   setupIPC()
 
   // Create tray

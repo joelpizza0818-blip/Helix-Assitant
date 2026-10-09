@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, KeyboardEvent } from 'react'
 import { useAgent } from '../../hooks/useAgent'
+import { useSettings } from '../../hooks/useSettings'
 import { HelixLogo } from '../HelixLogo/HelixLogo'
 import MessageBubble from './MessageBubble'
 import ConfirmationPrompt from './ConfirmationPrompt'
@@ -23,9 +24,18 @@ export default function FloatingUI() {
     sendMessage, selectConversation, startNewConversation,
     cancelTask, confirmAction, rejectAction, dismissFallback
   } = useAgent({ persistConversation: true })
+  const {
+    settings: voiceSettings,
+    isLoading: isVoiceSettingsLoading,
+    isSaving: isVoiceSettingsSaving,
+    error: voiceSettingsError,
+    loadSettings,
+    saveSettings,
+  } = useSettings()
 
   const [inputText, setInputText] = useState('')
-  const [isMicActive, setIsMicActive] = useState(false)
+  const [voiceSettingsReady, setVoiceSettingsReady] = useState(false)
+  const [isVoiceCapturing, setIsVoiceCapturing] = useState(false)
   const [showTaskSummary, setShowTaskSummary] = useState(false)
   const [showConversationHistory, setShowConversationHistory] = useState(false)
   const [skills, setSkills] = useState<SkillSummary[]>([])
@@ -36,6 +46,23 @@ export default function FloatingUI() {
   const inputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
+
+  useEffect(() => {
+    void loadSettings().finally(() => setVoiceSettingsReady(true))
+  }, [loadSettings])
+
+  useEffect(() => {
+    const captureStarted = window.helix.onVoiceCaptureStarted(() => {
+      setIsVoiceCapturing(true)
+    })
+    const captureStopped = window.helix.onVoiceCaptureStopped(() => {
+      setIsVoiceCapturing(false)
+    })
+    return () => {
+      captureStarted()
+      captureStopped()
+    }
+  }, [])
 
   // Auto-scroll to latest message
   useEffect(() => {
@@ -381,12 +408,23 @@ export default function FloatingUI() {
 
         {/* Microphone button */}
         <button
-          className={`icon-btn ${isMicActive ? 'icon-btn--active' : ''}`}
-          onClick={() => setIsMicActive((v) => !v)}
-          title={isMicActive ? 'Mute microphone' : 'Activate microphone'}
+          className={`icon-btn floating-ui__mic-btn ${voiceSettingsReady && voiceSettings.voice_enabled ? 'icon-btn--active' : ''} ${isVoiceCapturing ? 'floating-ui__mic-btn--capturing' : ''}`}
+          onClick={() => void saveSettings({ voice_enabled: !voiceSettings.voice_enabled })}
+          disabled={!voiceSettingsReady || isVoiceSettingsLoading || isVoiceSettingsSaving || Boolean(voiceSettingsError)}
+          title={isVoiceCapturing ? 'Listening — speak now' : voiceSettingsReady && voiceSettings.voice_enabled ? 'Disable voice activation' : 'Enable voice activation'}
           aria-label="Microphone"
+          aria-pressed={voiceSettingsReady && voiceSettings.voice_enabled}
         >
-          <MicIcon active={isMicActive} />
+          <MicIcon active={voiceSettingsReady && voiceSettings.voice_enabled} />
+          {isVoiceCapturing && (
+            <span className="floating-ui__mic-wave" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+              <span />
+              <span />
+            </span>
+          )}
         </button>
 
         {/* Camera status indicator */}
