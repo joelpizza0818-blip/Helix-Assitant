@@ -13,7 +13,15 @@ try {
   New-Item -ItemType Directory -Path $temporaryDirectory | Out-Null
   Invoke-WebRequest -Uri $downloadUrl -OutFile $archivePath
 
-  $actualSha256 = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+  $sha256 = [System.Security.Cryptography.SHA256]::Create()
+  $archiveStream = [System.IO.File]::OpenRead($archivePath)
+  try {
+    $hashBytes = $sha256.ComputeHash($archiveStream)
+  } finally {
+    $archiveStream.Dispose()
+    $sha256.Dispose()
+  }
+  $actualSha256 = [System.BitConverter]::ToString($hashBytes).Replace("-", "").ToLowerInvariant()
   if ($actualSha256 -ne $expectedSha256) {
     throw "GitHub CLI archive checksum mismatch. Expected $expectedSha256, got $actualSha256."
   }
