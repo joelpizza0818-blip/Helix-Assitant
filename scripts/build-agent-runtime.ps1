@@ -64,6 +64,12 @@ Get-ChildItem -LiteralPath (Join-Path $dataSource "tests") -Filter "*.py" -File 
     --collect-submodules tasks `
     --collect-submodules tools `
     --collect-submodules edge_tts `
+    --hidden-import win32process `
+    --hidden-import win32gui `
+    --hidden-import win32con `
+    --hidden-import win32clipboard `
+    --hidden-import pythoncom `
+    --hidden-import win32com.client `
     --copy-metadata edge-tts `
     $launcher
 

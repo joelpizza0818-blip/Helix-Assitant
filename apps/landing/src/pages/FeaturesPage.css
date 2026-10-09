@@ -1,0 +1,127 @@
+.features-page {
+  min-height: 100vh;
+  background: var(--canvas);
+}
+
+.features-page__content {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 144px var(--spacing-24) var(--spacing-80);
+}
+
+.features-page__header {
+  margin-bottom: var(--spacing-52);
+}
+
+.features-page__eyebrow {
+  display: inline-block;
+  margin-bottom: var(--spacing-12);
+  color: var(--orange);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+}
+
+.features-page__header h1 {
+  margin-bottom: var(--spacing-16);
+  color: var(--chalk);
+  font-size: clamp(36px, 6vw, var(--text-display));
+  letter-spacing: var(--tracking-display);
+  line-height: var(--leading-display);
+}
+
+.features-page__header p {
+  max-width: 620px;
+  color: var(--secondary);
+  font-size: var(--text-body-lg);
+  line-height: var(--leading-body-lg);
+}
+
+.release-list {
+  display: grid;
+  gap: var(--spacing-16);
+}
+
+.release-card {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: var(--spacing-24);
+  padding: var(--spacing-24);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-cards);
+  background: var(--carbon);
+}
+
+.release-card__meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacing-8);
+}
+
+.release-card__version {
+  color: var(--orange);
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+
+.release-card__status {
+  padding: 3px 9px;
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-tags);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.release-card__details h2 {
+  margin-bottom: var(--spacing-12);
+  color: var(--bone);
+  font-size: 19px;
+}
+
+.release-card__details ul {
+  display: grid;
+  gap: var(--spacing-8);
+  padding-left: 18px;
+  list-style: disc;
+}
+
+.release-card__details li {
+  color: var(--secondary);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.features-page__action {
+  margin-top: var(--spacing-32);
+  text-align: center;
+}
+
+.features-page__download {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 var(--spacing-20);
+  border-radius: var(--radius-buttons);
+  background: var(--orange);
+  color: var(--chalk);
+  font-size: 14px;
+  font-weight: var(--font-weight-semibold);
+  transition: filter var(--duration-fast) var(--ease);
+}
+
+.features-page__download:hover {
+  filter: brightness(1.1);
+}
+
+@media (max-width: 600px) {
+  .features-page__content {
+    padding-top: 112px;
+  }
+
+  .release-card {
+    grid-template-columns: 1fr;
+    gap: var(--spacing-16);
+  }
+}
