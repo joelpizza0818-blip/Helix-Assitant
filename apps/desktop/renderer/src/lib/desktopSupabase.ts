@@ -68,7 +68,7 @@ export async function exchangeOAuthCallback(callbackUrl: string): Promise<void> 
   }
   const callbackPath = url.pathname.replace(/\/+$/, '')
   const isCallbackRoute = (url.hostname.toLowerCase() === 'auth' && callbackPath === '/callback')
-    || (!url.hostname && callbackPath === '/auth/callback')
+    || (!url.hostname && (callbackPath === '/auth/callback' || callbackPath === '//auth/callback'))
   if (url.protocol !== 'helix:' || !isCallbackRoute || url.username || url.password || url.port) {
     throw new Error('Invalid HELIX authentication callback.')
   }
