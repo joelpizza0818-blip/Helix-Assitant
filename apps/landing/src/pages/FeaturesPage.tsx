@@ -7,18 +7,16 @@ interface Release {
   version: string;
   title: string;
   changes: string[];
-  upcoming?: boolean;
 }
 
 const RELEASES: Release[] = [
   {
     version: '0.1.9',
-    title: 'More reliable Windows installer',
+    title: 'Windows installer reliability',
     changes: [
       'Include dynamically loaded Windows automation modules in the bundled Python agent.',
       'Add this version-by-version release history to the landing page.',
     ],
-    upcoming: true,
   },
   {
     version: '0.1.8',
@@ -97,7 +95,6 @@ export function FeaturesPage() {
             <li className="release-card" key={release.version}>
               <div className="release-card__meta">
                 <span className="release-card__version">v{release.version}</span>
-                {release.upcoming && <span className="release-card__status">Coming next</span>}
               </div>
               <div className="release-card__details">
                 <h2>{release.title}</h2>
