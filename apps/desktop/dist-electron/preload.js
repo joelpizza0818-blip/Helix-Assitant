@@ -1,1 +1,93 @@
-"use strict";const i=require("electron");function n(e,r){const o=(d,t)=>r(t);return i.ipcRenderer.on(e,o),()=>i.ipcRenderer.removeListener(e,o)}i.contextBridge.exposeInMainWorld("helix",{sendMessage:e=>{i.ipcRenderer.send("helix:send-message",e)},cancelTask:e=>{i.ipcRenderer.send("helix:cancel-task",e)},emergencyStop:()=>{i.ipcRenderer.send("helix:emergency-stop")},dismissConfirmationToast:e=>{i.ipcRenderer.send("helix:dismiss-confirmation-toast",e)},confirmAction:e=>{i.ipcRenderer.send("helix:confirm-action",e)},rejectAction:e=>{i.ipcRenderer.send("helix:reject-action",e)},quit:()=>{i.ipcRenderer.send("helix:quit")},openToolbox:()=>{i.ipcRenderer.send("helix:open-toolbox")},openExternal:e=>{i.ipcRenderer.send("helix:open-external",e)},getSettings:()=>i.ipcRenderer.invoke("helix:get-settings"),saveSettings:e=>i.ipcRenderer.invoke("helix:save-settings",e),testTts:e=>i.ipcRenderer.invoke("helix:test-tts",e),getMemoryStatus:()=>i.ipcRenderer.invoke("helix:get-memory-status"),clearMemory:()=>i.ipcRenderer.invoke("helix:clear-memory"),getTasks:()=>i.ipcRenderer.invoke("helix:get-tasks"),getProviders:()=>i.ipcRenderer.invoke("helix:get-providers"),getModels:e=>i.ipcRenderer.invoke("helix:get-models",e),validateKey:(e,r,o)=>i.ipcRenderer.invoke("helix:validate-key",e,r,o),getSkills:()=>i.ipcRenderer.invoke("helix:get-skills"),saveSkill:e=>i.ipcRenderer.invoke("helix:save-skill",e),deleteSkill:e=>i.ipcRenderer.invoke("helix:delete-skill",e),getMcpServers:()=>i.ipcRenderer.invoke("helix:get-mcp-servers"),getBrowserExtensionInfo:()=>i.ipcRenderer.invoke("helix:get-browser-extension-info"),openBrowserExtensionFolder:()=>i.ipcRenderer.invoke("helix:open-browser-extension-folder"),copyTextToClipboard:e=>i.ipcRenderer.invoke("helix:copy-text-to-clipboard",e),getClipboardHistory:()=>i.ipcRenderer.invoke("helix:get-clipboard-history"),getClipboardMonitoring:()=>i.ipcRenderer.invoke("helix:get-clipboard-monitoring"),setClipboardMonitoring:e=>i.ipcRenderer.invoke("helix:set-clipboard-monitoring",e),clearClipboardHistory:()=>i.ipcRenderer.invoke("helix:clear-clipboard-history"),restoreClipboardItem:e=>i.ipcRenderer.invoke("helix:restore-clipboard-item",e),checkForUpdates:()=>i.ipcRenderer.invoke("helix:updater-check"),downloadUpdate:()=>i.ipcRenderer.invoke("helix:updater-download"),installUpdate:()=>i.ipcRenderer.invoke("helix:updater-install"),onAgentMessage:e=>n("helix:agent-message",e),onVoiceCaptureStarted:e=>n("helix:voice_capture_started",e),onVoiceCaptureStopped:e=>n("helix:voice_capture_stopped",e),onTaskUpdate:e=>n("helix:task-update",e),onStatusUpdate:e=>n("helix:status-update",e),onFallbackEvent:e=>n("helix:fallback-event",e),onModelRequest:e=>n("helix:model_request",e),onConfirmationRequest:e=>n("helix:confirmation-request",e),onConfirmationResolved:e=>n("helix:confirmation-resolved",e),onError:e=>n("helix:error",e),onProviderUpdate:e=>n("helix:provider-update",e),onHandLandmarks:e=>n("helix:hand-landmarks",e),onSettingsApplied:e=>n("helix:settings-applied",e),onShowTasks:e=>n("helix:show-tasks",e),onClipboardHistoryChanged:e=>n("helix:clipboard-history-changed",e),onClipboardMonitoringChanged:e=>n("helix:clipboard-monitoring-changed",e),onUpdaterStatus:e=>n("helix:updater-status",e),onOAuthCallback:e=>n("helix:oauth-callback",e),getAppVersion:()=>i.ipcRenderer.invoke("helix:app-version"),getAdminStatus:()=>i.ipcRenderer.invoke("helix:admin-status"),validateAdmin:e=>i.ipcRenderer.invoke("helix:admin-validate",e),getAdminConfig:e=>i.ipcRenderer.invoke("helix:admin-config",e),saveAdminConfig:(e,r)=>i.ipcRenderer.invoke("helix:admin-save-config",e,r),createVersionBackup:(e,r)=>i.ipcRenderer.invoke("helix:admin-backup",e,r)});
+"use strict";
+const electron = require("electron");
+function createEventListener(channel, fn) {
+  const listener = (_event, data) => fn(data);
+  electron.ipcRenderer.on(channel, listener);
+  return () => electron.ipcRenderer.removeListener(channel, listener);
+}
+electron.contextBridge.exposeInMainWorld("helix", {
+  // Send text command to agent
+  sendMessage: (payload) => {
+    electron.ipcRenderer.send("helix:send-message", payload);
+  },
+  // Cancel a running background task
+  cancelTask: (taskId) => {
+    electron.ipcRenderer.send("helix:cancel-task", taskId);
+  },
+  emergencyStop: () => {
+    electron.ipcRenderer.send("helix:emergency-stop");
+  },
+  dismissConfirmationToast: (requestId) => {
+    electron.ipcRenderer.send("helix:dismiss-confirmation-toast", requestId);
+  },
+  // Confirm a pending action
+  confirmAction: (requestId) => {
+    electron.ipcRenderer.send("helix:confirm-action", requestId);
+  },
+  // Reject a pending action
+  rejectAction: (requestId) => {
+    electron.ipcRenderer.send("helix:reject-action", requestId);
+  },
+  quit: () => {
+    electron.ipcRenderer.send("helix:quit");
+  },
+  // Open the Toolbox window
+  openToolbox: () => {
+    electron.ipcRenderer.send("helix:open-toolbox");
+  },
+  // Open external URL in default browser
+  openExternal: (url) => {
+    electron.ipcRenderer.send("helix:open-external", url);
+  },
+  // Request/response operations
+  getSettings: () => electron.ipcRenderer.invoke("helix:get-settings"),
+  saveSettings: (settings) => electron.ipcRenderer.invoke("helix:save-settings", settings),
+  testTts: (text) => electron.ipcRenderer.invoke("helix:test-tts", text),
+  getMemoryStatus: () => electron.ipcRenderer.invoke("helix:get-memory-status"),
+  clearMemory: () => electron.ipcRenderer.invoke("helix:clear-memory"),
+  getTasks: () => electron.ipcRenderer.invoke("helix:get-tasks"),
+  getProviders: () => electron.ipcRenderer.invoke("helix:get-providers"),
+  getModels: (requirements) => electron.ipcRenderer.invoke("helix:get-models", requirements),
+  // Validate an API key — key goes directly to Python, never logged here
+  validateKey: (provider, slot, key) => electron.ipcRenderer.invoke("helix:validate-key", provider, slot, key),
+  getSkills: () => electron.ipcRenderer.invoke("helix:get-skills"),
+  saveSkill: (skill) => electron.ipcRenderer.invoke("helix:save-skill", skill),
+  deleteSkill: (name) => electron.ipcRenderer.invoke("helix:delete-skill", name),
+  getMcpServers: () => electron.ipcRenderer.invoke("helix:get-mcp-servers"),
+  getBrowserExtensionInfo: () => electron.ipcRenderer.invoke("helix:get-browser-extension-info"),
+  openBrowserExtensionFolder: () => electron.ipcRenderer.invoke("helix:open-browser-extension-folder"),
+  copyTextToClipboard: (text) => electron.ipcRenderer.invoke("helix:copy-text-to-clipboard", text),
+  getClipboardHistory: () => electron.ipcRenderer.invoke("helix:get-clipboard-history"),
+  getClipboardMonitoring: () => electron.ipcRenderer.invoke("helix:get-clipboard-monitoring"),
+  setClipboardMonitoring: (enabled) => electron.ipcRenderer.invoke("helix:set-clipboard-monitoring", enabled),
+  clearClipboardHistory: () => electron.ipcRenderer.invoke("helix:clear-clipboard-history"),
+  restoreClipboardItem: (id) => electron.ipcRenderer.invoke("helix:restore-clipboard-item", id),
+  checkForUpdates: () => electron.ipcRenderer.invoke("helix:updater-check"),
+  downloadUpdate: () => electron.ipcRenderer.invoke("helix:updater-download"),
+  installUpdate: () => electron.ipcRenderer.invoke("helix:updater-install"),
+  // Event subscriptions (return cleanup function)
+  onAgentMessage: (fn) => createEventListener("helix:agent-message", fn),
+  onVoiceCaptureStarted: (fn) => createEventListener("helix:voice_capture_started", fn),
+  onVoiceCaptureStopped: (fn) => createEventListener("helix:voice_capture_stopped", fn),
+  onTaskUpdate: (fn) => createEventListener("helix:task-update", fn),
+  onStatusUpdate: (fn) => createEventListener("helix:status-update", fn),
+  onFallbackEvent: (fn) => createEventListener("helix:fallback-event", fn),
+  onModelRequest: (fn) => createEventListener("helix:model_request", fn),
+  onConfirmationRequest: (fn) => createEventListener("helix:confirmation-request", fn),
+  onConfirmationResolved: (fn) => createEventListener("helix:confirmation-resolved", fn),
+  onError: (fn) => createEventListener("helix:error", fn),
+  onProviderUpdate: (fn) => createEventListener("helix:provider-update", fn),
+  onHandLandmarks: (fn) => createEventListener("helix:hand-landmarks", fn),
+  onSettingsApplied: (fn) => createEventListener("helix:settings-applied", fn),
+  onShowTasks: (fn) => createEventListener("helix:show-tasks", fn),
+  onClipboardHistoryChanged: (fn) => createEventListener("helix:clipboard-history-changed", fn),
+  onClipboardMonitoringChanged: (fn) => createEventListener("helix:clipboard-monitoring-changed", fn),
+  onUpdaterStatus: (fn) => createEventListener("helix:updater-status", fn),
+  onOAuthCallback: (fn) => createEventListener("helix:oauth-callback", fn),
+  getAppVersion: () => electron.ipcRenderer.invoke("helix:app-version"),
+  getAdminStatus: () => electron.ipcRenderer.invoke("helix:admin-status"),
+  validateAdmin: (accessToken) => electron.ipcRenderer.invoke("helix:admin-validate", accessToken),
+  getAdminConfig: (accessToken) => electron.ipcRenderer.invoke("helix:admin-config", accessToken),
+  saveAdminConfig: (accessToken, config) => electron.ipcRenderer.invoke("helix:admin-save-config", accessToken, config),
+  createVersionBackup: (accessToken, version) => electron.ipcRenderer.invoke("helix:admin-backup", accessToken, version)
+});
