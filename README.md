@@ -53,7 +53,7 @@ before building the NSIS installer.
 The installer is written to `apps/desktop/release/HELIX-Setup-<version>.exe`
 and staged privately at `apps/landing/private-downloads/HELIX-Setup.exe`.
 Publishing a stable release with a tag matching `apps/desktop/package.json`
-(for example, `v0.1.6`) starts the
+(for example, `v0.1.7`) starts the
 [Windows installer workflow](.github/workflows/publish-windows-installer.yml).
 It rebuilds the installer from that exact source tag, uploads the installer,
 SHA-256 checksum, NSIS blockmap, and `latest.yml` metadata to the private

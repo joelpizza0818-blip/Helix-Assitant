@@ -1,6 +1,6 @@
 {
   "name": "@helix/desktop",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "HELIX - Persistent Windows AI desktop agent",
   "author": "HELIX Team",
   "private": true,

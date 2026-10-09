@@ -60,8 +60,16 @@ export async function startGitHubOAuth(): Promise<void> {
 
 export async function exchangeOAuthCallback(callbackUrl: string): Promise<void> {
   if (!desktopSupabase) throw new Error('GitHub profile sign-in is not configured in this build.')
-  const url = new URL(callbackUrl)
-  if (url.protocol !== 'helix:' || url.hostname !== 'auth' || url.pathname !== '/callback') {
+  let url: URL
+  try {
+    url = new URL(callbackUrl.trim().replace(/^["']|["']$/g, ''))
+  } catch {
+    throw new Error('Invalid HELIX authentication callback.')
+  }
+  const callbackPath = url.pathname.replace(/\/+$/, '')
+  const isCallbackRoute = (url.hostname.toLowerCase() === 'auth' && callbackPath === '/callback')
+    || (!url.hostname && callbackPath === '/auth/callback')
+  if (url.protocol !== 'helix:' || !isCallbackRoute || url.username || url.password || url.port) {
     throw new Error('Invalid HELIX authentication callback.')
   }
   const authError = url.searchParams.get('error_description')

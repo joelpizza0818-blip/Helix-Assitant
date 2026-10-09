@@ -54,6 +54,26 @@ let shutdownComplete = false
 let adminAuthenticated = false
 let pendingOAuthCallback: string | null = null
 
+function normalizeOAuthCallbackUrl(value: string): string | null {
+  let callback: URL
+  try {
+    callback = new URL(value.trim().replace(/^["']|["']$/g, ''))
+  } catch {
+    return null
+  }
+  const callbackPath = callback.pathname.replace(/\/+$/, '')
+  const isCallbackRoute = (callback.hostname.toLowerCase() === 'auth' && callbackPath === '/callback')
+    || (!callback.hostname && callbackPath === '/auth/callback')
+  if (callback.protocol !== 'helix:' || !isCallbackRoute || callback.username || callback.password || callback.port) {
+    return null
+  }
+  return `helix://auth/callback${callback.search}${callback.hash}`
+}
+
+function findOAuthCallbackArgument(argumentsList: string[]): string | undefined {
+  return argumentsList.find((argument) => normalizeOAuthCallbackUrl(argument) !== null)
+}
+
 function sendPendingOAuthCallback(): void {
   if (!pendingOAuthCallback || !toolboxWindow || toolboxWindow.webContents.isLoading()) return
   toolboxWindow.webContents.send('helix:oauth-callback', pendingOAuthCallback)
@@ -61,14 +81,9 @@ function sendPendingOAuthCallback(): void {
 }
 
 function handleOAuthCallbackUrl(value: string): void {
-  let callback: URL
-  try {
-    callback = new URL(value)
-  } catch {
-    return
-  }
-  if (callback.protocol !== 'helix:' || callback.hostname !== 'auth' || callback.pathname !== '/callback') return
-  pendingOAuthCallback = callback.toString()
+  const callback = normalizeOAuthCallbackUrl(value)
+  if (!callback) return
+  pendingOAuthCallback = callback
   sendPendingOAuthCallback()
   toolboxWindow?.show()
   toolboxWindow?.focus()
@@ -229,7 +244,7 @@ if (!gotLock) {
 }
 
 app.on('second-instance', (_event, commandLine) => {
-  const oauthUrl = commandLine.find((argument) => argument.startsWith('helix://auth/callback'))
+  const oauthUrl = findOAuthCallbackArgument(commandLine)
   if (oauthUrl) handleOAuthCallbackUrl(oauthUrl)
   const window = toolboxWindow?.isVisible() ? toolboxWindow : floatingWindow
   if (!window) return
@@ -708,7 +723,7 @@ app.whenReady().then(async () => {
   floatingWindow = createFloatingWindow()
   toolboxWindow = createToolboxWindow()
   confirmationWindow = createConfirmationWindow()
-  const startupOAuthUrl = process.argv.find((argument) => argument.startsWith('helix://auth/callback'))
+  const startupOAuthUrl = findOAuthCallbackArgument(process.argv)
   if (startupOAuthUrl) handleOAuthCallbackUrl(startupOAuthUrl)
   setupIPC()
 
