@@ -133,6 +133,14 @@ export class PythonManager {
     const workingDirectory = this.packagedAgent
       ? path.dirname(this.packagedAgent)
       : this.agentDir
+    const agentPath = [process.env.PATH]
+    if (this.packagedAgent) {
+      const githubCliBin = path.join(process.resourcesPath, 'agent-runtime', 'github-cli', 'bin')
+      if (!fs.existsSync(path.join(githubCliBin, 'gh.exe'))) {
+        throw new Error(`Bundled GitHub CLI not found at: ${githubCliBin}`)
+      }
+      agentPath.unshift(githubCliBin)
+    }
 
     console.log(`[PythonManager] Spawning: ${executable} ${args.join(' ')}`)
     console.log(`[PythonManager] Working dir: ${workingDirectory}`)
@@ -143,6 +151,7 @@ export class PythonManager {
       windowsHide: true,
       env: {
         ...process.env,
+        PATH: agentPath.filter(Boolean).join(path.delimiter),
         PYTHONIOENCODING: 'utf-8',
         PYTHONUTF8: '1',
         PYTHONPATH: [

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useSettings } from '../../hooks/useSettings'
 import { useAgent } from '../../hooks/useAgent'
 import { HelixLogo } from '../HelixLogo/HelixLogo'
@@ -87,6 +87,7 @@ export default function Toolbox() {
   const [profileBusy, setProfileBusy] = useState(false)
   const [oauthPending, setOauthPending] = useState(false)
   const [profileError, setProfileError] = useState<string | null>(null)
+  const oauthTimeoutRef = useRef<number | null>(null)
   const [pendingReportsCount, setPendingReportsCount] = useState(0)
   const { settings, isLoading, isSaving, isApplied, error, loadSettings, saveSettings } = useSettings()
   const { providers, models, loadProviders, loadModels } = useAgent()
@@ -117,6 +118,10 @@ export default function Toolbox() {
       else if (active) setProfile(null)
     }).data.subscription.unsubscribe
     const unsubscribeOAuth = window.helix.onOAuthCallback(async (url) => {
+      if (oauthTimeoutRef.current !== null) {
+        window.clearTimeout(oauthTimeoutRef.current)
+        oauthTimeoutRef.current = null
+      }
       setProfileBusy(true)
       setProfileError(null)
       try {
@@ -132,6 +137,7 @@ export default function Toolbox() {
     void refreshProfile()
     return () => {
       active = false
+      if (oauthTimeoutRef.current !== null) window.clearTimeout(oauthTimeoutRef.current)
       unsubscribeAuth?.()
       unsubscribeOAuth()
     }
@@ -144,12 +150,25 @@ export default function Toolbox() {
       if (!desktopSupabaseConfigured) throw new Error('Falta configurar OAuth de Supabase para esta versión.')
       await startGitHubOAuth()
       setOauthPending(true)
+      oauthTimeoutRef.current = window.setTimeout(() => {
+        oauthTimeoutRef.current = null
+        setOauthPending(false)
+        setProfileError('No se recibió la respuesta de GitHub. Comprueba que HELIX esté instalado correctamente y vuelve a intentarlo.')
+      }, 120_000)
     } catch (cause) {
       setOauthPending(false)
       setProfileError(cause instanceof Error ? cause.message : 'No se pudo iniciar el acceso de GitHub.')
     } finally {
       setProfileBusy(false)
     }
+  }
+
+  const cancelGitHubOAuthWait = () => {
+    if (oauthTimeoutRef.current !== null) {
+      window.clearTimeout(oauthTimeoutRef.current)
+      oauthTimeoutRef.current = null
+    }
+    setOauthPending(false)
   }
 
   const saveProfileName = async (displayName: string) => {
@@ -264,7 +283,7 @@ export default function Toolbox() {
                   oauthPending={oauthPending}
                   error={profileError}
                   onSignIn={() => void connectGitHubProfile()}
-                  onCancelSignIn={() => setOauthPending(false)}
+                  onCancelSignIn={cancelGitHubOAuthWait}
                   onSignOut={() => void disconnectProfile()}
                   onSaveName={saveProfileName}
                 />

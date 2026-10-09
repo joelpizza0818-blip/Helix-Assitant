@@ -36,7 +36,7 @@ Windows OS
 
 ## Windows Installer Build
 
-The release build creates a standalone NSIS installer with the Python agent bundled inside it. A user installs HELIX and launches it from the Start menu or desktop shortcut; no terminal startup command is required.
+The release build creates a standalone NSIS installer with the Python agent and GitHub CLI bundled inside it. A user installs HELIX and launches it from the Start menu or desktop shortcut; no terminal startup command is required.
 
 On a Windows build machine with the project dependencies installed, run:
 
@@ -47,12 +47,13 @@ npm run build:windows
 
 The setup script installs the PyInstaller build dependency from
 `services/agent/requirements.txt`; `build:windows` produces and embeds the
-standalone agent executable before building the NSIS installer.
+standalone agent executable and checksum-verifies the pinned official GitHub CLI
+before building the NSIS installer.
 
 The installer is written to `apps/desktop/release/HELIX-Setup-<version>.exe`
 and staged privately at `apps/landing/private-downloads/HELIX-Setup.exe`.
 Publishing a stable release with a tag matching `apps/desktop/package.json`
-(for example, `v0.1.4`) starts the
+(for example, `v0.1.5`) starts the
 [Windows installer workflow](.github/workflows/publish-windows-installer.yml).
 It rebuilds the installer from that exact source tag, uploads the installer,
 SHA-256 checksum, NSIS blockmap, and `latest.yml` metadata to the private

@@ -689,7 +689,11 @@ async function connectWebSocket(retryCount = 0, maxRetries = 15): Promise<void> 
 }
 
 app.whenReady().then(async () => {
-  app.setAsDefaultProtocolClient('helix')
+  if (app.isPackaged) {
+    app.setAsDefaultProtocolClient('helix')
+  } else {
+    app.setAsDefaultProtocolClient('helix', process.execPath, [path.resolve(process.argv[1])])
+  }
 
   // Set app user model ID for Windows notifications
   if (process.platform === 'win32') {
