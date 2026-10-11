@@ -31,18 +31,53 @@ export const Download: React.FC<{ requireAuthenticatedDownload?: boolean }> = ({
             <span className="section-label">GET HELIX FOR WINDOWS</span>
             <h2 className="download-title">Resident Autonomous Intelligence</h2>
             <p className="download-desc">
-              Download the Windows installer. HELIX launches its tray shell and local agent automatically after setup — no terminal command is required.
+              Choose an edition and installation profile. Only verified installers are available to download.
             </p>
           </div>
+
+          <div className="release-options" aria-label="Windows installer availability">
+            <article className="release-option release-option-available">
+              <div>
+                <h3>HELIX Normal</h3>
+                <p>Electron · Complete installation</p>
+              </div>
+              <span className="release-option-status">Current installer</span>
+            </article>
+            <article className="release-option" aria-disabled="true">
+              <div>
+                <h3>HELIX Normal</h3>
+                <p>Electron · Progressive installation</p>
+              </div>
+              <span className="release-option-status">Not published</span>
+            </article>
+            <article className="release-option" aria-disabled="true">
+              <div>
+                <h3>HELIX Lite</h3>
+                <p>Tauri · Complete installation</p>
+              </div>
+              <span className="release-option-status">Not published</span>
+            </article>
+            <article className="release-option" aria-disabled="true">
+              <div>
+                <h3>HELIX Lite</h3>
+                <p>Tauri · Progressive installation</p>
+              </div>
+              <span className="release-option-status">Not published</span>
+            </article>
+          </div>
+
+          <p className="release-options-note" role="note">
+            Progressive installs and HELIX Lite will appear here after their installers, update feeds, and migration checks are verified. Existing Electron installations continue to use the Electron update feed.
+          </p>
 
           <div className="download-actions">
             {requireAuthenticatedDownload ? (
               <InstallerDownloadButton className="btn-primary" >
-                Download HELIX for Windows
+                Download HELIX Normal for Windows
               </InstallerDownloadButton>
             ) : (
               <Link className="btn-primary" to="/download">
-                Sign in to download HELIX
+                Sign in to download HELIX Normal
               </Link>
             )}
             <span

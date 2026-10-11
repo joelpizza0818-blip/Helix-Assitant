@@ -3,6 +3,7 @@ import logging
 
 from .base_tool import BaseTool, ToolResult
 from ..perception.screen_engine import ScreenEngine
+from ..perception.screen_observation_policy import screen_observation_is_allowed
 
 logger = logging.getLogger(__name__)
 
@@ -155,12 +156,17 @@ class KeyboardTool(_KeyboardController, BaseTool):
         key = params["key"].lower()
         try:
             await self.press_key(key)
-            image = (
-                await asyncio.to_thread(ScreenEngine().capture_context)
-            )["screenshot_bytes"]
+            image = None
+            if screen_observation_is_allowed():
+                image = (
+                    await asyncio.to_thread(ScreenEngine().capture_context)
+                )["screenshot_bytes"]
             return ToolResult(
                 success=True,
-                output={"key": key, "screenshot_bytes": image},
+                output={
+                    "key": key,
+                    **({"screenshot_bytes": image} if image else {}),
+                },
             )
         except Exception as error:
             logger.exception("Keyboard key press failed")
@@ -215,12 +221,17 @@ class HotkeyTool(_KeyboardController, BaseTool):
         shortcut = params["shortcut"].lower()
         try:
             await self.hotkey(*shortcut.split("+"))
-            image = (
-                await asyncio.to_thread(ScreenEngine().capture_context)
-            )["screenshot_bytes"]
+            image = None
+            if screen_observation_is_allowed():
+                image = (
+                    await asyncio.to_thread(ScreenEngine().capture_context)
+                )["screenshot_bytes"]
             return ToolResult(
                 success=True,
-                output={"shortcut": shortcut, "screenshot_bytes": image},
+                output={
+                    "shortcut": shortcut,
+                    **({"screenshot_bytes": image} if image else {}),
+                },
             )
         except Exception as error:
             logger.exception("Keyboard shortcut failed")

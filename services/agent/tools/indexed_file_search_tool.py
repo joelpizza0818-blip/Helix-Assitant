@@ -68,6 +68,10 @@ def _search_windows_index(query: str, limit: int) -> list[dict[str, Any]]:
 
 class IndexedFileSearchTool(BaseTool):
     @property
+    def required_capability(self):
+        return "search"
+
+    @property
     def name(self) -> str:
         return "indexed_file_search"
 

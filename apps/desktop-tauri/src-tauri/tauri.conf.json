@@ -1,0 +1,29 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "HELIX Lite",
+  "version": "0.1.9",
+  "identifier": "com.helix.agent.lite",
+  "build": {
+    "beforeDevCommand": "npm run dev:tauri --workspace=@helix/desktop",
+    "beforeBuildCommand": "npm run build:renderer:tauri --workspace=@helix/desktop",
+    "devUrl": "http://127.0.0.1:5173",
+    "frontendDist": "../../desktop/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "HELIX Lite",
+        "width": 1200,
+        "height": 800,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": false,
+    "targets": "all"
+  }
+}

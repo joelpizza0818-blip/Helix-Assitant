@@ -30,7 +30,20 @@ Get-ChildItem -LiteralPath $runtimeRoot -Force |
 
 $dataSource = Join-Path $repoRoot "services\agent"
 $launcher = Join-Path $repoRoot "scripts\helix_agent_launcher.py"
-$dataMapping = "$dataSource;services/agent"
+$stagingRoot = Join-Path $workRoot "agent-runtime-data"
+$stagedDataSource = Join-Path $stagingRoot "services\agent"
+if (Test-Path -LiteralPath $stagingRoot) {
+    Remove-Item -LiteralPath $stagingRoot -Recurse -Force
+}
+New-Item -ItemType Directory -Force -Path $stagedDataSource | Out-Null
+
+& robocopy $dataSource $stagedDataSource /E /R:1 /W:1 `
+    /XD tests __pycache__ .venv .pytest_cache `
+    /XF script.py get_quiz.py *.pyc | Out-Null
+if ($LASTEXITCODE -gt 7) {
+    throw "Could not stage filtered agent runtime data (robocopy exit code $LASTEXITCODE)."
+}
+$dataMapping = "$stagedDataSource;services/agent"
 $testModuleExclusions = @("--exclude-module", "services.agent.tests")
 Get-ChildItem -LiteralPath (Join-Path $dataSource "tests") -Filter "*.py" -File |
     Where-Object { $_.BaseName -ne "__init__" } |
@@ -71,6 +84,14 @@ Get-ChildItem -LiteralPath (Join-Path $dataSource "tests") -Filter "*.py" -File 
     --hidden-import pythoncom `
     --hidden-import win32com.client `
     --copy-metadata edge-tts `
+    --hidden-import pyautogui `
+    --hidden-import mouseinfo `
+    --hidden-import pygetwindow `
+    --hidden-import pymsgbox `
+    --hidden-import pyscreeze `
+    --hidden-import pytweening `
+    --hidden-import pyperclip `
+    --hidden-import pyrect `
     $launcher
 
 if ($LASTEXITCODE -ne 0) {

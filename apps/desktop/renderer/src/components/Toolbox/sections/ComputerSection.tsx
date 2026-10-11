@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import type { HelixSettings } from '../../../types/global'
 import '../Toolbox.css'
 
@@ -8,6 +8,25 @@ interface Props {
 }
 
 export default function ComputerSection({ settings, onSave }: Props) {
+  const savedInterval = Math.max(
+    settings.continuous_screen_vision_interval_ms ?? 10000,
+    10000,
+  )
+  const [intervalDraft, setIntervalDraft] = useState(String(savedInterval))
+
+  useEffect(() => {
+    setIntervalDraft(String(savedInterval))
+  }, [savedInterval])
+
+  const saveInterval = () => {
+    const interval = Number(intervalDraft)
+    if (Number.isInteger(interval) && interval >= 10000 && interval <= 60000) {
+      void onSave({ continuous_screen_vision_interval_ms: interval })
+    } else {
+      setIntervalDraft(String(savedInterval))
+    }
+  }
+
   return (
     <div className="toolbox-section">
       <h2 className="toolbox-section__title">Computer Control & Screen Automation</h2>
@@ -16,7 +35,96 @@ export default function ComputerSection({ settings, onSave }: Props) {
       </p>
 
       {/* ── Screen Capture & Display Settings ──────────────────── */}
-      <div className="toolbox-card" style={{ marginBottom: 16 }}>
+      <div className="toolbox-card screen-vision-card" style={{ marginBottom: 16 }}>
+        <div className="toolbox-card__header">
+          <span className="toolbox-card__title">Screen Context & Vision</span>
+        </div>
+
+        <p className="toolbox-section__desc">
+          These options are independent and off by default. Screen capture is only available to HELIX while the relevant option is enabled.
+        </p>
+
+        <div className="form-row screen-vision-row">
+          <label className="form-label">
+            On-demand screen capture + accessibility (UI Automation)
+            <small className="toolbox-section__desc screen-vision-description">
+              Lets HELIX decide whether to capture a screen observation for a request, and captures when you explicitly ask it to inspect the screen. No continuous capture. The image and accessibility data may be sent to your selected AI provider.
+            </small>
+          </label>
+          <label className="toggle">
+            <input
+              type="checkbox"
+              checked={settings.screen_context_enabled ?? false}
+              onChange={(e) => void onSave({ screen_context_enabled: e.target.checked })}
+            />
+            <span className="toggle__slider" />
+          </label>
+        </div>
+
+        <div className="form-row screen-vision-row">
+          <label className="form-label">
+            Let the model decide when to inspect the screen
+            <small className="toolbox-section__desc screen-vision-description">
+              Adds an explicit model-controlled option: HELIX may choose to inspect the screen when it would help, or when you ask. This does not start continuous capture. The image and accessibility data may be sent to your selected AI provider.
+            </small>
+          </label>
+          <label className="toggle">
+            <input
+              type="checkbox"
+              checked={settings.model_decides_screen_vision_enabled ?? false}
+              aria-label="Let the model decide when to inspect the screen"
+              onChange={(e) => void onSave({
+                model_decides_screen_vision_enabled: e.target.checked,
+              })}
+            />
+            <span className="toggle__slider" />
+          </label>
+        </div>
+
+        <div className="form-row screen-vision-row">
+          <label className="form-label">
+            Continuous screen video (vision model + action model)
+            <small className="toolbox-section__desc screen-vision-description">
+              While enabled, captures and analyzes a compressed screen frame only while HELIX is handling a request, at most once every 10 seconds. If analysis fails, sampling pauses until the request ends instead of repeatedly trying providers. Provider quotas or charges may still apply. Disable this option to stop capture immediately.
+            </small>
+          </label>
+          <label className="toggle" title="Continuous screen captures may consume provider quota or incur charges">
+            <input
+              type="checkbox"
+              checked={settings.continuous_screen_vision_enabled ?? false}
+              aria-label="Enable continuous screen vision"
+              onChange={(e) => void onSave({
+                continuous_screen_vision_enabled: e.target.checked,
+              })}
+            />
+            <span className="toggle__slider" />
+          </label>
+        </div>
+
+        <div className="form-row screen-vision-row">
+          <label className="form-label" htmlFor="continuous-screen-vision-interval">
+            Frame sampling interval
+            <small className="toolbox-section__desc screen-vision-description">
+              Default 10 seconds; configurable from 10 to 60 seconds. Sampling pauses while HELIX has no active request.
+            </small>
+          </label>
+          <input
+            id="continuous-screen-vision-interval"
+            className="form-input screen-vision-interval"
+            type="number"
+            min={10000}
+            max={60000}
+            step={1000}
+            value={intervalDraft}
+            aria-label="Continuous screen vision sampling interval in milliseconds"
+            onChange={(e) => setIntervalDraft(e.target.value)}
+            onBlur={saveInterval}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') saveInterval()
+            }}
+          />
+        </div>
+
         <div className="toolbox-card__header">
           <span className="toolbox-card__title">Display Capture & Vision Coordinates</span>
         </div>

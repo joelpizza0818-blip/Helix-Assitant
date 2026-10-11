@@ -21,6 +21,11 @@ import { IPCBridge } from './ipc'
 import { TrayManager } from './tray'
 import { BrowserExtensionBridge } from './browser-extension-bridge'
 import { ClipboardHistory } from './clipboard-history'
+import {
+  CapabilityManager,
+  type CapabilityPackManifest,
+  type InstallationProfile,
+} from './capability-manager'
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 const rendererPort = Number(process.env.HELIX_RENDERER_PORT || 5173)
@@ -47,6 +52,7 @@ let pythonManager: PythonManager | null = null
 let ipcBridge: IPCBridge | null = null
 let browserExtensionBridge: BrowserExtensionBridge | null = null
 let clipboardHistory: ClipboardHistory | null = null
+let capabilityManager: CapabilityManager | null = null
 let updaterCheckInProgress = false
 let updateDownloaded = false
 let isQuitting = false
@@ -423,6 +429,41 @@ function setupIPC(): void {
 
   ipcBridge = new IPCBridge()
   ipcBridge.onSettingsApplied(applyDesktopSettings)
+  ipcBridge.onCapabilityRequired(async (payload) => {
+    const id = typeof payload.capability === 'string' ? payload.capability : ''
+    const requestId = typeof payload.request_id === 'string' ? payload.request_id : ''
+    const manager = capabilityManager
+    const manifest = manager?.getManifest(id)
+    if (!requestId) {
+      ipcBridge?.sendCapabilityResolved({ request_id: requestId, capability: id, status: 'error', error: 'Capability pack is unavailable.' })
+      return
+    }
+    if (manager?.getProfile() === 'complete') {
+      const installed = manager.isPackInstalled(id)
+      ipcBridge?.sendCapabilityResolved({
+        request_id: requestId,
+        capability: id,
+        status: installed ? 'installed' : 'error',
+        ...(installed ? {} : { error: `Required capability pack '${id}' is missing from the complete installation.` }),
+      })
+      return
+    }
+    if (!manifest) {
+      ipcBridge?.sendCapabilityResolved({ request_id: requestId, capability: id, status: 'error', error: 'Capability pack is unavailable.' })
+      return
+    }
+    try {
+      await manager!.installPack(manifest)
+      ipcBridge?.sendCapabilityResolved({ request_id: requestId, capability: id, status: 'installed' })
+    } catch (error) {
+      ipcBridge?.sendCapabilityResolved({
+        request_id: requestId,
+        capability: id,
+        status: 'error',
+        error: error instanceof Error ? error.message : 'Capability installation failed.',
+      })
+    }
+  })
   ipcBridge.setupHandlers(floatingWindow, toolboxWindow, confirmationWindow)
 
   ipcMain.handle('helix:updater-check', async () => {
@@ -447,6 +488,26 @@ function setupIPC(): void {
     authenticated: adminAuthenticated,
   }))
   ipcMain.handle('helix:app-version', () => app.getVersion())
+  ipcMain.handle('helix:get-capabilities', () => capabilityManager?.snapshot() ?? {
+    profile: 'complete', packs: [], missingCount: 0, ready: true,
+  })
+  ipcMain.handle('helix:refresh-capabilities', async () => {
+    if (!capabilityManager) throw new Error('Capability manager is not initialized.')
+    return capabilityManager.refreshCatalog()
+  })
+  ipcMain.handle('helix:set-installation-profile', async (_event, profile: InstallationProfile) => {
+    if (profile !== 'progressive' && profile !== 'complete') throw new TypeError('Invalid installation profile.')
+    if (!capabilityManager) throw new Error('Capability manager is not initialized.')
+    return capabilityManager.setProfile(profile)
+  })
+  ipcMain.handle('helix:install-capability', async (_event, manifest: CapabilityPackManifest) => {
+    if (!capabilityManager) throw new Error('Capability manager is not initialized.')
+    return capabilityManager.installPack(manifest)
+  })
+  ipcMain.handle('helix:cancel-capability', (_event, id: string) => {
+    if (typeof id !== 'string') throw new TypeError('Capability pack id must be a string.')
+    return capabilityManager?.cancelPack(id) ?? false
+  })
   ipcMain.handle('helix:admin-validate', async (_event, accessToken: string) => {
     return { authenticated: await verifyGithubAdmin(accessToken) }
   })
@@ -683,7 +744,10 @@ async function connectWebSocket(retryCount = 0, maxRetries = 15): Promise<void> 
   if (!ipcBridge) return
 
   try {
-    await ipcBridge.connectToPython(`ws://127.0.0.1:${wsPort}`)
+    await ipcBridge.connectToPython(
+      `ws://127.0.0.1:${wsPort}`,
+      () => pythonManager!.getWebSocketToken(),
+    )
     console.log('[Main] Connected to Python agent WebSocket')
     const settings = await ipcBridge.loadSettings()
     if (settings.start_minimized === false) {
@@ -718,6 +782,11 @@ app.whenReady().then(async () => {
   // Disable default menu
   Menu.setApplicationMenu(null)
   setupAutoUpdater()
+
+  capabilityManager = new CapabilityManager(app.getPath('userData'), app.getVersion(), {
+    progressiveEnabled: !app.isPackaged,
+  })
+  await capabilityManager.load()
 
   // Create windows
   floatingWindow = createFloatingWindow()

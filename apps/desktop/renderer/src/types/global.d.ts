@@ -35,6 +35,11 @@ export interface HelixAPI {
   getTasks: () => Promise<TaskDefinition[]>
   getProviders: () => Promise<ProviderStatus[]>
   getModels: (requirements?: Partial<ModelRequirements>) => Promise<ModelDefinition[]>
+  getCapabilities: () => Promise<CapabilitySnapshot>
+  refreshCapabilities: () => Promise<CapabilitySnapshot>
+  setInstallationProfile: (profile: InstallationProfile) => Promise<CapabilitySnapshot>
+  installCapability: (manifest: CapabilityPackManifest) => Promise<CapabilityPackState>
+  cancelCapability: (id: string) => Promise<boolean>
   validateKey: (provider: ProviderID, slot: KeySlot, key: string) => Promise<KeyHealth>
   getSkills: () => Promise<SkillSummary[]>
   saveSkill: (skill: SkillDraft) => Promise<SkillSummary>
@@ -79,6 +84,32 @@ export interface HelixAPI {
 }
 
 export interface AdminBackup { version: string; createdAt: string; currentVersion: string | null; synced?: boolean; syncError?: string }
+
+export type InstallationProfile = 'progressive' | 'complete'
+export type CapabilityPackStatus = 'installed' | 'missing' | 'incompatible' | 'error'
+export interface CapabilityPackManifest {
+  id: string
+  version: string
+  capability: string
+  platform: 'win32'
+  arch: 'x64' | 'arm64'
+  coreVersionRange: string
+  sizeBytes: number
+  url: string
+  sha256: string
+  signature: string
+}
+export interface CapabilityPackState extends CapabilityPackManifest {
+  status: CapabilityPackStatus
+  installedPath?: string
+  error?: string
+}
+export interface CapabilitySnapshot {
+  profile: InstallationProfile
+  packs: CapabilityPackState[]
+  missingCount: number
+  ready: boolean
+}
 export interface AdminConfig {
   autoUpdate: boolean
   checkIntervalHours: number
@@ -236,14 +267,28 @@ export interface SkillSummary extends SkillDraft {
   custom: boolean
 }
 
-export interface MCPServerConfig {
+export interface StdioMCPServerConfig {
   name: string
   command: string
   enabled: boolean
 }
 
-export interface MCPServerStatus extends MCPServerConfig {
-  status: 'connected' | 'connecting' | 'error' | 'disabled' | 'pending'
+export type LegacyMCPServerConfig = {
+  name: string
+  command?: string
+  enabled?: boolean
+} & (
+  | { url: string; server_url?: string }
+  | { url?: string; server_url: string }
+)
+
+export type MCPServerConfig = StdioMCPServerConfig | LegacyMCPServerConfig
+
+export interface MCPServerStatus {
+  name: string
+  command?: string
+  enabled: boolean
+  status: 'connected' | 'connecting' | 'error' | 'disabled' | 'pending' | 'unsupported'
   tool_count: number
   error: string | null
 }
@@ -379,6 +424,11 @@ export interface HelixSettings {
   agent_ws_port: number
   display_index?: number
   screen_capture_interval_ms?: number
+  screen_context_enabled?: boolean
+  model_decides_screen_vision_enabled?: boolean
+  continuous_screen_vision_enabled?: boolean
+  continuous_screen_vision_interval_ms?: number
+  complex_workflows_enabled?: boolean
   ocr_engine?: 'local' | 'windows_media_ocr'
   mouse_move_duration_ms?: number
   keystroke_delay_ms?: number

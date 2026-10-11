@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import type { HelixSettings, MCPServerConfig, MCPServerStatus } from '../../../types/global'
+import { isLegacyMcpServer, type SettingsSaveResult } from '../../../hooks/settingsSave'
+import { mcpSaveErrorMessage, saveMcpServerDraft } from './mcpDraft'
 import '../Toolbox.css'
 
 interface Props {
   settings: HelixSettings
-  onSave: (partial: Partial<HelixSettings>) => Promise<void>
+  onSave: (partial: Partial<HelixSettings>) => Promise<SettingsSaveResult>
   saveError: string | null
 }
 
@@ -38,29 +40,23 @@ export default function MCPSection({ settings, onSave, saveError }: Props) {
     }
   }, [settings.mcp_servers])
 
-  const persist = async (next: MCPServerConfig[]) => {
+  const persist = async (next: MCPServerConfig[]): Promise<SettingsSaveResult> => {
     setBusy(true)
     setError(null)
     try {
-      await onSave({ mcp_servers: next })
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save MCP configuration.')
+      const result = await onSave({ mcp_servers: next })
+      if (!result.ok) setError(mcpSaveErrorMessage(result.error))
+      return result
     } finally {
       setBusy(false)
     }
   }
 
   const saveServer = async () => {
-    const name = draft.name.trim()
-    const command = draft.command.trim()
-    if (!name || !command) return
-    const next = [
-      ...servers.filter((server) => server.name !== editingName && server.name !== name),
-      { name, command, enabled: true },
-    ]
-    await persist(next)
-    setDraft(blankServer)
-    setEditingName(null)
+    await saveMcpServerDraft(draft, servers, editingName, persist, () => {
+      setDraft(blankServer)
+      setEditingName(null)
+    })
   }
 
   const removeServer = (name: string) => {
@@ -75,7 +71,7 @@ export default function MCPSection({ settings, onSave, saveError }: Props) {
     <section className="toolbox-section">
       <h2 className="toolbox-section__title">MCP Servers</h2>
       <p className="toolbox-section__desc">
-        Connect local Model Context Protocol servers to add their tools to HELIX. Only add commands from sources you trust; enabled servers run locally.
+        Connect local Model Context Protocol servers over stdio to add their tools to HELIX. URL/HTTP servers are not supported. Only add launch commands from sources you trust; enabled servers run locally.
       </p>
       {(error || saveError) && <p className="toolbox-error" role="alert">{error || saveError}</p>}
       <div className="toolbox-card">
@@ -88,7 +84,7 @@ export default function MCPSection({ settings, onSave, saveError }: Props) {
           <input id="mcp-name" className="form-input" value={draft.name} disabled={Boolean(editingName)} placeholder="e.g. local-files" onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
         </div>
         <div className="form-row">
-          <label className="form-label" htmlFor="mcp-command">Launch command</label>
+          <label className="form-label" htmlFor="mcp-command">Local stdio launch command</label>
           <input id="mcp-command" className="form-input" value={draft.command} placeholder="e.g. npx -y @example/server" onChange={(event) => setDraft({ ...draft, command: event.target.value })} />
         </div>
         <button type="button" className="validate-btn toolbox-action-button" disabled={busy || !draft.name.trim() || !draft.command.trim()} onClick={() => void saveServer()}>
@@ -98,44 +94,49 @@ export default function MCPSection({ settings, onSave, saveError }: Props) {
       <h3 className="toolbox-card__title toolbox-skill-list-title">Configured servers</h3>
       {servers.length === 0 ? (
         <p className="text-xs text-muted">No MCP servers configured.</p>
-      ) : servers.map((server) => (
-        <article className="toolbox-card" key={server.name}>
-          <div className="toolbox-card__header">
-            <div>
-              <div className="toolbox-card__title">{server.name}</div>
-              <code className="toolbox-mcp-command">{server.command}</code>
-              {(() => {
-                const status = statuses.find((item) => item.name === server.name)
-                const label = status?.status ?? 'pending'
-                return (
-                  <div className={`toolbox-mcp-status toolbox-mcp-status--${label}`}>
-                    {label === 'connected'
-                      ? `Connected · ${status?.tool_count ?? 0} tools`
-                      : label === 'connecting'
-                        ? 'Connecting…'
-                        : label === 'disabled'
-                          ? 'Disabled'
+      ) : servers.map((server) => {
+        const legacy = isLegacyMcpServer(server)
+        const status = statuses.find((item) => item.name === server.name)
+        const label = legacy ? 'unsupported' : status?.status ?? 'pending'
+        return (
+          <article className="toolbox-card" key={server.name}>
+            <div className="toolbox-card__header">
+              <div>
+                <div className="toolbox-card__title">{server.name}</div>
+                {!legacy && <code className="toolbox-mcp-command">{server.command}</code>}
+                <div className={`toolbox-mcp-status toolbox-mcp-status--${label}`}>
+                  {label === 'connected'
+                    ? `Connected · ${status?.tool_count ?? 0} tools`
+                    : label === 'connecting'
+                      ? 'Connecting…'
+                      : label === 'disabled'
+                        ? 'Disabled'
+                        : label === 'unsupported'
+                          ? status?.error ?? 'URL-based MCP servers are not supported.'
                           : label === 'error'
                             ? status?.error ?? 'Connection failed'
                             : 'Waiting for connection'}
-                  </div>
-                )
-              })()}
+                </div>
+              </div>
+              {!legacy && (
+                <label className="toggle" title={server.enabled ? 'Disable server' : 'Enable server'}>
+                  <input type="checkbox" checked={server.enabled} disabled={busy} onChange={(event) => toggleServer(server.name, event.target.checked)} />
+                  <span className="toggle__slider" />
+                </label>
+              )}
             </div>
-            <label className="toggle" title={server.enabled ? 'Disable server' : 'Enable server'}>
-              <input type="checkbox" checked={server.enabled} disabled={busy} onChange={(event) => toggleServer(server.name, event.target.checked)} />
-              <span className="toggle__slider" />
-            </label>
-          </div>
-          <div className="toolbox-skill-actions">
-            <button type="button" className="validate-btn" disabled={busy} onClick={() => {
-              setDraft({ name: server.name, command: server.command })
-              setEditingName(server.name)
-            }}>Edit</button>
-            <button type="button" className="validate-btn toolbox-danger-button" disabled={busy} onClick={() => removeServer(server.name)}>Remove</button>
-          </div>
-        </article>
-      ))}
+            <div className="toolbox-skill-actions">
+              {!legacy && (
+                <button type="button" className="validate-btn" disabled={busy} onClick={() => {
+                  setDraft({ name: server.name, command: server.command })
+                  setEditingName(server.name)
+                }}>Edit</button>
+              )}
+              <button type="button" className="validate-btn toolbox-danger-button" disabled={busy} onClick={() => removeServer(server.name)}>Remove</button>
+            </div>
+          </article>
+        )
+      })}
     </section>
   )
 }

@@ -70,3 +70,15 @@ async def test_execution_summary_tracks_steps_tools_progress_and_result():
         "status": "completed",
         "summary": "Finished successfully",
     }
+
+
+@pytest.mark.asyncio
+async def test_task_manager_rejects_duplicate_task_ids():
+    manager = TaskManager(AsyncMock())
+    await manager.create_task("task-once", "First request")
+
+    with pytest.raises(ValueError, match="already exists"):
+        await manager.create_task("task-once", "Duplicate request")
+
+    task = await manager.get_task("task-once")
+    assert task.description == "First request"

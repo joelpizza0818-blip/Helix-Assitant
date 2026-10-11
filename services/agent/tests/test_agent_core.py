@@ -76,6 +76,22 @@ def test_tool_registry_filters_external_tools_by_relevance_but_keeps_native_tool
     }
 
 
+def test_tool_registry_exposes_required_capability_for_pack_loader():
+    registry = ToolRegistry()
+    registry.register_tool(SimpleNamespace(
+        name="screen_tool",
+        description="Observe the screen",
+        required_capability="vision",
+        get_schema=lambda: {
+            "name": "screen_tool",
+            "description": "Observe the screen",
+            "parameters": {},
+        },
+    ))
+
+    assert registry.get_tool_schemas()[0]["x-helix-required-capability"] == "vision"
+
+
 def test_tool_registry_lists_tools_from_a_requested_source():
     registry = ToolRegistry()
     mcp_tool = SimpleNamespace(name="github_search", server_name="github")

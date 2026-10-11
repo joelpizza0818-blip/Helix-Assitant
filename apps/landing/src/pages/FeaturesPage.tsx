@@ -11,6 +11,15 @@ interface Release {
 
 const RELEASES: Release[] = [
   {
+    version: '0.1.10',
+    title: 'More reliable AI and desktop tools',
+    changes: [
+      'Continue provider and model fallback when an individual key or model fails.',
+      'Authenticate the local agent connection and fail safely when a required capability is missing.',
+      'Improve desktop controls for computer actions, voice, and MCP connections.',
+    ],
+  },
+  {
     version: '0.1.9',
     title: 'Windows installer reliability',
     changes: [
@@ -38,7 +47,7 @@ const RELEASES: Release[] = [
     title: 'GitHub profile sign-in',
     changes: [
       'Repair desktop GitHub OAuth and prevent sign-in from waiting indefinitely.',
-      'Bundle a checksum-verified GitHub CLI with Windows builds.',
+      'Use secure GitHub integrations without bundling the GitHub CLI with Windows builds.',
     ],
   },
   {

@@ -1,8 +1,7 @@
 import logging
-import os
 from typing import Optional, List
 import keyring
-from cryptography.fernet import Fernet
+from keyring.backends.Windows import WinVaultKeyring
 
 logger = logging.getLogger(__name__)
 
@@ -11,51 +10,42 @@ class SecretManager:
 
     def __init__(self):
         self._keys: List[str] = []
-        self._fallback_key = os.environ.get("SECRET_ENCRYPTION_KEY")
-        if self._fallback_key:
-            self._cipher = Fernet(self._fallback_key.encode())
-        else:
-            self._cipher = None
 
     def store_secret(self, key_name: str, value: str) -> None:
-        try:
-            if self.is_available():
-                keyring.set_password(self.SERVICE_NAME, key_name, value)
-            elif self._cipher:
-                encrypted = self._cipher.encrypt(value.encode()).decode()
-                # In a real scenario, this would be saved to a file or DB
-                # Skipping persistence for fallback in this simple implementation
-                pass
-            if key_name not in self._keys:
-                self._keys.append(key_name)
-            logger.info(f"Stored secret for key: {key_name}")
-        except Exception as e:
-            logger.error(f"Failed to store secret {key_name}: {e}")
+        self._require_keyring()
+        keyring.set_password(self.SERVICE_NAME, key_name, value)
+        if key_name not in self._keys:
+            self._keys.append(key_name)
+        logger.info("Stored secret")
 
     def get_secret(self, key_name: str) -> Optional[str]:
-        try:
-            if self.is_available():
-                return keyring.get_password(self.SERVICE_NAME, key_name)
-            return None
-        except Exception as e:
-            logger.error(f"Failed to get secret {key_name}: {e}")
-            return None
+        self._require_keyring()
+        value = keyring.get_password(self.SERVICE_NAME, key_name)
+        if value is None and key_name in self._keys:
+            raise RuntimeError(
+                "A secret previously stored by this manager is no longer available"
+            )
+        return value
 
     def delete_secret(self, key_name: str) -> None:
-        try:
-            if self.is_available():
-                keyring.delete_password(self.SERVICE_NAME, key_name)
-            if key_name in self._keys:
-                self._keys.remove(key_name)
-            logger.info(f"Deleted secret for key: {key_name}")
-        except Exception as e:
-            logger.error(f"Failed to delete secret {key_name}: {e}")
+        self._require_keyring()
+        keyring.delete_password(self.SERVICE_NAME, key_name)
+        if key_name in self._keys:
+            self._keys.remove(key_name)
+        logger.info("Deleted secret")
 
     def list_secret_keys(self) -> List[str]:
         return self._keys.copy()
 
     def is_available(self) -> bool:
         try:
-            return keyring.get_keyring() is not None
+            backend = keyring.get_keyring()
+            return type(backend) is WinVaultKeyring and backend.priority > 0
         except Exception:
             return False
+
+    def _require_keyring(self) -> None:
+        if not self.is_available():
+            raise RuntimeError(
+                "The OS credential store is unavailable; SecretManager has no fallback"
+            )

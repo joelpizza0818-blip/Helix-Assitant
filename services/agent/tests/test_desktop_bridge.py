@@ -1,6 +1,7 @@
 import json
 import pytest
 from pathlib import Path
+from types import SimpleNamespace
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
@@ -9,11 +10,13 @@ from services.agent.ai.capability_registry import CapabilityRegistry
 from services.agent.ai.google_provider import GoogleProvider
 from services.agent.ai.key_manager import KeyManager
 from services.agent.ai.openai_provider import OpenAIProvider
+from services.agent.ai.custom_provider import OpenAICompatibleProvider
 from services.agent.ai.provider_registry import ProviderRegistry
 from services.agent.ai.base_provider import KeyHealth
 from services.agent.core.desktop_bridge import DesktopRequestHandler
 from services.agent.core.event_bus import EventBus
 from services.agent.core.browser_page_context import clear_current_page, get_current_page
+from services.agent.core.mcp_settings import _mcp_server_statuses
 from services.agent.core.task_manager import TaskManager
 from services.agent.skills.skill_loader import SkillLoader
 from services.agent.skills.skill_registry import SkillRegistry
@@ -60,6 +63,34 @@ def test_cross_provider_failover_migrates_old_default(request_handler):
 
     assert settings["cross_provider_fallback"] is True
     assert settings["_cross_provider_failover_migrated"] is True
+
+
+@pytest.mark.asyncio
+async def test_complex_workflow_setting_is_opt_in_and_updates_runtime(request_handler):
+    runtime = SimpleNamespace(complex_workflows_enabled=False)
+    request_handler.react_loop = runtime
+    assert request_handler.get_settings()["complex_workflows_enabled"] is False
+
+    saved = await request_handler._save_settings({
+        "complex_workflows_enabled": True,
+    })
+
+    assert saved["complex_workflows_enabled"] is True
+    assert runtime.complex_workflows_enabled is True
+    assert json.loads(request_handler.settings_path.read_text(encoding="utf-8"))[
+        "complex_workflows_enabled"
+    ] is True
+
+
+def test_complex_workflow_setting_rejects_non_boolean(request_handler):
+    with pytest.raises(
+        ValueError,
+        match="complex_workflows_enabled must be a boolean",
+    ):
+        request_handler._apply_runtime_settings({
+            **request_handler.get_settings(),
+            "complex_workflows_enabled": "true",
+        })
 
 
 @pytest.mark.asyncio
@@ -265,6 +296,42 @@ async def test_desktop_requests_return_serializable_data(request_handler):
 
 
 @pytest.mark.asyncio
+async def test_legacy_url_mcp_status_is_visible_without_echoing_url_or_credentials(request_handler):
+    secret_url = "https://mcp.example/private?token=url-secret"
+    secret_credential = "credential-secret"
+    request_handler.settings_path.write_text(
+        json.dumps({
+            "mcp_servers": [{
+                "name": "legacy-remote",
+                "server_url": secret_url,
+                "headers": {"Authorization": secret_credential},
+                "enabled": True,
+            }],
+        }),
+        encoding="utf-8",
+    )
+    request_handler.mcp_status_provider = lambda servers: _mcp_server_statuses(
+        servers,
+        active_servers={},
+        connecting_servers=set(),
+        server_errors={},
+        tools_cache={},
+    )
+
+    response = await request_handler.dispatch({
+        "type": "GET_MCP_SERVERS",
+        "request_id": "legacy-mcp-status",
+        "payload": {},
+    })
+
+    status = response["payload"][0]
+    assert status["status"] == "unsupported"
+    assert "URL-based MCP servers are not supported" in status["error"]
+    assert secret_url not in json.dumps(response)
+    assert secret_credential not in json.dumps(response)
+
+
+@pytest.mark.asyncio
 async def test_settings_are_saved_and_loaded(request_handler):
     saved = await request_handler.dispatch({
         "type": "SAVE_SETTINGS",
@@ -280,6 +347,34 @@ async def test_settings_are_saved_and_loaded(request_handler):
     assert saved["payload"]["wake_word"] == "computer"
     assert saved["payload"]["voice_enabled"] is True
     assert loaded["payload"] == saved["payload"]
+
+
+@pytest.mark.asyncio
+async def test_mcp_settings_accept_only_stdio_launch_commands(request_handler):
+    settings = await request_handler._save_settings({
+        "mcp_servers": [{
+            "name": "local-files",
+            "command": "python local_server.py",
+            "enabled": True,
+        }],
+    })
+
+    assert settings["mcp_servers"] == [{
+        "name": "local-files",
+        "command": "python local_server.py",
+        "enabled": True,
+    }]
+
+    for url_field in ("url", "server_url"):
+        with pytest.raises(ValueError, match="MCP URL transport is not supported"):
+            await request_handler._save_settings({
+                "mcp_servers": [{
+                    "name": "remote",
+                    "command": "python local_server.py",
+                    "enabled": True,
+                    url_field: "http://127.0.0.1/private?token=secret",
+                }],
+            })
 
 @pytest.mark.asyncio
 async def test_custom_endpoint_key_is_not_written_to_settings(request_handler, monkeypatch):
@@ -313,6 +408,70 @@ async def test_custom_endpoint_key_is_not_written_to_settings(request_handler, m
     assert saved["payload"]["custom_endpoints"][0]["api_key_configured"] is True
     assert "endpoint-secret" not in request_handler.settings_path.read_text()
     assert stored[("helix_agent", "custom_endpoint_api_key_local_ollama")] == "endpoint-secret"
+
+
+@pytest.mark.asyncio
+async def test_custom_ollama_endpoint_routes_gemma_model_and_capabilities(
+    request_handler, monkeypatch
+):
+    configured_endpoints = []
+    monkeypatch.setattr(
+        request_handler.key_manager,
+        "configure_custom_endpoint",
+        lambda endpoint_id, allow_empty=False: configured_endpoints.append(
+            (endpoint_id, allow_empty)
+        ),
+    )
+    request_handler._configure_custom_endpoints({
+        "custom_endpoints": [{
+            "id": "custom_ollama",
+            "name": "Ollama",
+            "baseUrl": "http://localhost:11434/v1",
+            "enabled": True,
+        }],
+    })
+    request_handler._configure_custom_models({
+        "custom_models": [{
+            "id": "gemma3:4b",
+            "provider": "custom_ollama",
+            "display_name": "Gemma 3 4B",
+            "capabilities": {
+                "text": True,
+                "tool_calling": True,
+                "vision": True,
+            },
+        }],
+    })
+
+    provider = request_handler.provider_registry.get_registered_provider(
+        "custom_ollama"
+    )
+    assert isinstance(provider, OpenAICompatibleProvider)
+    assert provider.base_url == "http://localhost:11434/v1"
+    assert configured_endpoints == [("custom_ollama", True)]
+    model = provider.get_available_models()[0]
+    assert model.id == "gemma3:4b"
+    assert model.capabilities.vision
+    assert model.capabilities.tool_calling
+    assert request_handler.capability_registry.get_models_for_provider(
+        "custom_ollama"
+    )[0].id == "gemma3:4b"
+
+    routed = {}
+
+    async def fake_chat(_provider, messages, model, **kwargs):
+        routed.update({"messages": messages, "model": model, **kwargs})
+        return "local response"
+
+    monkeypatch.setattr(OpenAIProvider, "chat", fake_chat)
+    response = await provider.chat(
+        [{"role": "user", "content": "Hello"}],
+        model="gemma3:4b",
+    )
+
+    assert response == "local response"
+    assert routed["model"] == "gemma3:4b"
+    assert routed["base_url"] == "http://localhost:11434/v1"
 
 @pytest.mark.asyncio
 async def test_camera_settings_default_to_environment(request_handler, monkeypatch):

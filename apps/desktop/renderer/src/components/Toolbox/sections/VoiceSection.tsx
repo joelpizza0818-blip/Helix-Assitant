@@ -213,7 +213,6 @@ export default function VoiceSection({ settings, onSave }: Props) {
           >
             <option value="openai_whisper">OpenAI Whisper Cloud API (High Accuracy)</option>
             <option value="local_whisper">Local Whisper (Offline CPU/GPU)</option>
-            <option value="windows_sapi">Windows SAPI Speech Engine (Zero Latency)</option>
           </select>
         </div>
 

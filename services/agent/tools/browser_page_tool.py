@@ -6,6 +6,10 @@ from ..core.browser_page_context import get_current_page
 
 class BrowserPageTool(BaseTool):
     @property
+    def required_capability(self):
+        return "browser"
+
+    @property
     def name(self) -> str:
         return "read_active_browser_page"
 

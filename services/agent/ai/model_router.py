@@ -50,13 +50,65 @@ class ModelRouter:
             return None
         return sorted(candidates, key=lambda c: c.score, reverse=True)[0]
 
-    def get_fallback_candidates(self, requirements: TaskRequirements, exclude: List[Tuple[str, str, int]]) -> List[RouteCandidate]:
+    def get_fallback_candidates(
+        self,
+        requirements: TaskRequirements,
+        exclude: List[Tuple[str, str, int]],
+        *,
+        prefer_last_key: bool = False,
+    ) -> List[RouteCandidate]:
         candidates = self._get_all_candidates(requirements)
         valid = []
         for c in candidates:
             if (c.provider_id, c.model_id, c.key_slot) not in exclude:
                 valid.append(c)
+        if prefer_last_key:
+            return sorted(
+                valid,
+                key=lambda candidate: (
+                    -candidate.key_slot,
+                    -candidate.score,
+                    candidate.provider_id,
+                    candidate.model_id,
+                ),
+            )
         return sorted(valid, key=lambda c: c.score, reverse=True)
+
+    def get_separate_vision_candidates(
+        self,
+        response_candidate: RouteCandidate,
+    ) -> List[RouteCandidate]:
+        response_key = self.key_manager.get_key(
+            response_candidate.provider_id,
+            response_candidate.key_slot,
+        )
+        if not response_key:
+            return []
+
+        candidates = self._get_all_candidates(
+            TaskRequirements(text=True, vision=True, cost_preference="low")
+        )
+        separate = [
+            candidate
+            for candidate in candidates
+            if self.key_manager.get_key(
+                candidate.provider_id,
+                candidate.key_slot,
+            )
+            and self.key_manager.get_key(
+                candidate.provider_id,
+                candidate.key_slot,
+            ) != response_key
+        ]
+        return sorted(
+            separate,
+            key=lambda candidate: (
+                -candidate.key_slot,
+                -candidate.score,
+                candidate.provider_id,
+                candidate.model_id,
+            ),
+        )
 
     def _get_all_candidates(self, reqs: TaskRequirements) -> List[RouteCandidate]:
         cost_preference = (

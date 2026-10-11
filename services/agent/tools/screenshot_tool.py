@@ -4,10 +4,18 @@ import io
 import base64
 from typing import Any, Dict, Optional, List
 from .base_tool import BaseTool, ToolResult
+from ..perception.screen_observation_policy import screen_observation_is_allowed
+import logging
+
+logger = logging.getLogger(__name__)
 import win32gui
 import win32con
 
 class ScreenshotTool(BaseTool):
+    @property
+    def required_capability(self):
+        return "vision"
+
     @property
     def name(self) -> str:
         return "screenshot_tool"
@@ -96,6 +104,12 @@ class ScreenshotTool(BaseTool):
         return base64.b64encode(image_bytes).decode('utf-8')
 
     async def execute(self, params: Dict[str, Any]) -> ToolResult:
+        if not screen_observation_is_allowed():
+            return ToolResult(
+                success=False,
+                output=None,
+                error="Screen capture is disabled for this task.",
+            )
         op = params.get("operation")
         try:
             if op == "capture_screen":
@@ -110,4 +124,9 @@ class ScreenshotTool(BaseTool):
                 return ToolResult(success=True, output=await self.list_windows())
             return ToolResult(success=False, output=None, error=f"Unknown operation {op}")
         except Exception as e:
-            return ToolResult(success=False, output=None, error=str(e))
+            logger.exception("Screenshot tool operation failed")
+            return ToolResult(
+                success=False,
+                output=None,
+                error=f"Screen capture failed ({type(e).__name__}). Check the agent log.",
+            )

@@ -20,12 +20,10 @@ _MODELS = [
     ModelDefinition("claude-haiku-4-5-20251001", "anthropic", "Claude Haiku 4.5", ModelCapabilities(text=True, vision=True, tool_calling=True, coding=True, streaming=True, context_window=200000, cost_tier="low")),
 
     # Google
-    ModelDefinition("gemini-3-flash-preview", "google", "Gemini 3 Flash Preview", ModelCapabilities(text=True, tool_calling=True, context_window=1048576, cost_tier="low")),
+    ModelDefinition("gemini-3.8-flash", "google", "Gemini 3.8 Flash", ModelCapabilities(text=True, vision=True, tool_calling=True, coding=True, reasoning=True, streaming=True, long_context=True, context_window=1048576, cost_tier="medium"), priority=1),
+    ModelDefinition("gemini-3.6-flash", "google", "Gemini 3.6 Flash", ModelCapabilities(text=True, vision=True, tool_calling=True, coding=True, reasoning=True, streaming=True, long_context=True, context_window=1048576, cost_tier="medium")),
     ModelDefinition("gemini-3.5-flash-lite", "google", "Gemini 3.5 Flash-Lite", ModelCapabilities(text=True, vision=True, tool_calling=True, streaming=True, context_window=1048576, cost_tier="low")),
     ModelDefinition("gemini-3.1-pro-preview", "google", "Gemini 3.1 Pro Preview", ModelCapabilities(text=True, vision=True, tool_calling=True, coding=True, reasoning=True, streaming=True, long_context=True, context_window=1048576, cost_tier="high")),
-    ModelDefinition("gemini-2.5-flash", "google", "Gemini 2.5 Flash", ModelCapabilities(text=True, vision=True, tool_calling=True, coding=True, reasoning=True, streaming=True, context_window=1048576, cost_tier="low"), priority=-1),
-    ModelDefinition("gemini-2.5-flash-lite", "google", "Gemini 2.5 Flash Lite", ModelCapabilities(text=True, vision=True, tool_calling=True, streaming=True, context_window=1048576, cost_tier="low"), priority=-1),
-    ModelDefinition("gemini-3.5-flash", "google", "Gemini 3.5 Flash", ModelCapabilities(text=True, vision=True, tool_calling=True, coding=True, streaming=True, context_window=1048576, cost_tier="low"), priority=-1),
 ]
 
 class CapabilityRegistry:

@@ -293,20 +293,21 @@ class Agent:
         task_id = str(uuid.uuid4())
         await self.task_manager.create_task(task_id, "Run custom hand command", context={"input_source": "gesture"})
         try:
-            approved = await self.orchestrator.react_loop._request_tool_confirmation(
-                shell,
+            outcome = await self.orchestrator.react_loop.execute_planned_tool(
+                "shell_tool",
                 {"command": command},
-                task_id,
+                task_id=task_id,
+                task_description="Run the user-configured custom gesture command.",
             )
-            if not approved:
-                await self.task_manager.update_status(task_id, TaskStatus.CANCELLED)
-                return
-            result = await shell.execute({"command": command})
-            if result.success:
-                await self.task_manager.set_result(task_id, result=result.output)
+            if outcome.success:
+                await self.task_manager.set_result(task_id, result=outcome.output)
                 await self.task_manager.update_status(task_id, TaskStatus.COMPLETED)
             else:
-                await self.task_manager.set_result(task_id, result=None, error=str(result.error))
+                await self.task_manager.set_result(
+                    task_id,
+                    result=None,
+                    error=outcome.output,
+                )
                 await self.task_manager.update_status(task_id, TaskStatus.FAILED)
         except Exception as error:
             logger.exception("Custom gesture command failed")

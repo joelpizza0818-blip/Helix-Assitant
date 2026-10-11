@@ -9,6 +9,18 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
+try:
+    from services.agent.perception.screen_vision_sampling import (
+        DEFAULT_SCREEN_VISION_INTERVAL_MS,
+        MIN_SCREEN_VISION_INTERVAL_MS,
+        validate_screen_vision_interval_ms,
+    )
+except ImportError:
+    from ..perception.screen_vision_sampling import (
+        DEFAULT_SCREEN_VISION_INTERVAL_MS,
+        MIN_SCREEN_VISION_INTERVAL_MS,
+        validate_screen_vision_interval_ms,
+    )
 
 from services.agent.core.browser_page_context import update_current_page
 
@@ -51,6 +63,11 @@ DEFAULT_SETTINGS = {
     "agent_ws_port": 8765,
     "display_index": 0,
     "screen_capture_interval_ms": 1000,
+    "screen_context_enabled": False,
+    "model_decides_screen_vision_enabled": False,
+    "continuous_screen_vision_enabled": False,
+    "continuous_screen_vision_interval_ms": DEFAULT_SCREEN_VISION_INTERVAL_MS,
+    "complex_workflows_enabled": False,
     "ocr_engine": "local",
     "mouse_move_duration_ms": 200,
     "keystroke_delay_ms": 30,
@@ -82,6 +99,9 @@ DEFAULT_SETTINGS = {
     "embedding_model": "text-embedding-3-small",
     "memory_similarity_threshold": 0.75,
 }
+
+MAX_USER_TEXT_ATTACHMENT_BYTES = 8 * 1024 * 1024
+MAX_AGENT_WEBSOCKET_MESSAGE_BYTES = 16 * 1024 * 1024
 
 
 def _serialize(value: Any) -> Any:
@@ -199,7 +219,7 @@ class DesktopRequestHandler:
                 except (ValueError, TypeError):
                     raise ValueError("USER_TEXT attachment is not valid base64") from None
                 total_bytes += len(raw)
-                if total_bytes > 8 * 1024 * 1024:
+                if total_bytes > MAX_USER_TEXT_ATTACHMENT_BYTES:
                     raise ValueError("USER_TEXT attachments exceed the 8 MB limit")
                 safe_attachments.append({"name": name, "mime_type": mime_type, "data_base64": data})
             if safe_attachments:
@@ -240,7 +260,7 @@ class DesktopRequestHandler:
         elif message_type == "TASK_CANCEL_ALL":
             for task in await self.task_manager.get_running_tasks():
                 await self.task_manager.cancel(task.id)
-        elif message_type in {"CONFIRMATION_GRANTED", "CONFIRMATION_REJECTED"}:
+        elif message_type in {"CONFIRMATION_GRANTED", "CONFIRMATION_REJECTED", "CAPABILITY_RESOLVED"}:
             await self.task_manager.event_bus.publish(message_type, payload)
         else:
             raise ValueError(f"Unsupported desktop event: {message_type}")
@@ -385,6 +405,15 @@ class DesktopRequestHandler:
             if not isinstance(saved, dict):
                 raise ValueError("Saved settings must be a JSON object")
             settings.update(saved)
+            interval = settings.get("continuous_screen_vision_interval_ms")
+            if (
+                isinstance(interval, int)
+                and not isinstance(interval, bool)
+                and interval < MIN_SCREEN_VISION_INTERVAL_MS
+            ):
+                settings["continuous_screen_vision_interval_ms"] = (
+                    MIN_SCREEN_VISION_INTERVAL_MS
+                )
             if not saved.get("_cross_provider_failover_migrated"):
                 settings["cross_provider_fallback"] = True
                 settings["_cross_provider_failover_migrated"] = True
@@ -404,6 +433,20 @@ class DesktopRequestHandler:
         return settings
 
     def _apply_runtime_settings(self, settings: dict) -> None:
+        for setting in (
+            "screen_context_enabled",
+            "model_decides_screen_vision_enabled",
+            "continuous_screen_vision_enabled",
+            "complex_workflows_enabled",
+        ):
+            if not isinstance(settings.get(setting, False), bool):
+                raise ValueError(f"{setting} must be a boolean")
+        validate_screen_vision_interval_ms(
+            settings.get(
+                "continuous_screen_vision_interval_ms",
+                DEFAULT_SCREEN_VISION_INTERVAL_MS,
+            )
+        )
         wake_word_threshold = settings.get("wake_word_threshold", 0.5)
         if (
             isinstance(wake_word_threshold, bool)
@@ -447,6 +490,22 @@ class DesktopRequestHandler:
         if self.memory_manager is not None:
             self.memory_manager.configure(settings)
         if self.react_loop is not None:
+            self.react_loop.on_demand_screen_context_enabled = settings.get(
+                "screen_context_enabled", False
+            )
+            self.react_loop.screen_context_enabled = settings.get(
+                "screen_context_enabled", False
+            )
+            self.react_loop.continuous_screen_vision_enabled = settings.get(
+                "continuous_screen_vision_enabled", False
+            )
+            self.react_loop.complex_workflows_enabled = settings.get(
+                "complex_workflows_enabled",
+                False,
+            )
+            self.react_loop.model_decides_screen_vision_enabled = settings.get(
+                "model_decides_screen_vision_enabled", False
+            )
             ceiling = settings.get("auto_approve_up_to", "LOW_RISK")
             if ceiling not in {"READ_ONLY", "LOW_RISK", "MODIFY"}:
                 raise ValueError(
@@ -710,6 +769,10 @@ class DesktopRequestHandler:
             for server in servers:
                 if not isinstance(server, dict):
                     raise ValueError("Each MCP server must be an object")
+                if "url" in server or "server_url" in server:
+                    raise ValueError(
+                        "MCP URL transport is not supported; configure a local stdio launch command."
+                    )
                 name = server.get("name")
                 command = server.get("command")
                 if (

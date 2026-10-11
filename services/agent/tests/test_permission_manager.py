@@ -21,3 +21,23 @@ def test_protected_processes_detected(permission_manager):
     assert permission_manager.is_app_protected("lsass.exe") is True
     assert permission_manager.is_app_protected("winlogon.exe") is True
     assert permission_manager.is_app_protected("notepad.exe") is False
+
+
+def test_nested_protected_paths_and_process_paths_require_critical_risk(
+    permission_manager,
+):
+    path_risk = permission_manager.evaluate_risk(
+        "filesystem_tool",
+        {"request": {"destination": "C:\\Windows\\System32\\drivers\\etc\\hosts"}},
+        "MODIFY",
+    )
+    app_risk = permission_manager.evaluate_risk(
+        "application_tool",
+        {"process": "C:/Windows/System32/lsass.exe"},
+        "LOW_RISK",
+    )
+
+    assert path_risk.level is PermissionLevel.CRITICAL
+    assert path_risk.requires_confirmation
+    assert app_risk.level is PermissionLevel.CRITICAL
+    assert app_risk.requires_confirmation

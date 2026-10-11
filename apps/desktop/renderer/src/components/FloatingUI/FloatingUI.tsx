@@ -14,6 +14,12 @@ import {
   type ActiveMention,
   type MentionOption,
 } from './mentionAutocomplete'
+import {
+  CHAT_ATTACHMENT_ACCEPT,
+  getAttachmentMimeType,
+  validateAttachmentSelection,
+} from './attachmentFiles'
+import { splitSkillMentions } from './skillMentions'
 import type { ChatAttachment, MCPServerStatus, SkillSummary } from '../../types/global'
 import './FloatingUI.css'
 
@@ -42,6 +48,8 @@ export default function FloatingUI() {
   const [mcpServers, setMcpServers] = useState<MCPServerStatus[]>([])
   const [activeMention, setActiveMention] = useState<ActiveMention | null>(null)
   const [selectedMentionIndex, setSelectedMentionIndex] = useState(0)
+  const [attachmentError, setAttachmentError] = useState<string | null>(null)
+  const [isReadingAttachments, setIsReadingAttachments] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -119,30 +127,72 @@ export default function FloatingUI() {
       })),
   ]
   const filteredMentionOptions = filterMentionOptions(mentionOptions, activeMention)
+  const inputSegments = splitSkillMentions(
+    inputText,
+    skills.map((skill) => skill.name),
+  )
 
   const handleSend = () => {
     const text = inputText.trim()
-    if ((!text && attachments.length === 0) || isLoading) return
+    if ((!text && attachments.length === 0) || isLoading || isReadingAttachments) return
     sendMessage(text, attachments)
     setInputText('')
     setAttachments([])
+    setAttachmentError(null)
     setActiveMention(null)
   }
 
   const readAttachments = async (files: FileList | null) => {
     if (!files) return
-    const next = await Promise.all(Array.from(files).slice(0, 10).map(async (file) => ({
-      name: file.name,
-      mime_type: file.type || 'application/octet-stream',
-      size: file.size,
-      data_base64: (await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = () => resolve(String(reader.result).split(',')[1] || '')
-        reader.onerror = () => reject(reader.error)
-        reader.readAsDataURL(file)
+    const incoming = Array.from(files)
+    const validationError = validateAttachmentSelection(
+      attachments.map(({ name, size, mime_type }) => ({
+        name,
+        size,
+        type: mime_type,
       })),
-    })))
-    setAttachments((current) => [...current, ...next].slice(0, 10))
+      incoming,
+    )
+    if (validationError) {
+      setAttachmentError(validationError)
+      return
+    }
+
+    setIsReadingAttachments(true)
+    try {
+      const next = await Promise.all(incoming.map(async (file) => ({
+        name: file.name,
+        mime_type: getAttachmentMimeType(file),
+        size: file.size,
+        data_base64: await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => {
+            const result = reader.result
+            if (typeof result !== 'string' || !result.startsWith('data:')) {
+              reject(new Error('The selected file could not be read.'))
+              return
+            }
+            const separator = result.indexOf(',')
+            if (separator < 0) {
+              reject(new Error('The selected file could not be read.'))
+              return
+            }
+            resolve(result.slice(separator + 1))
+          }
+          reader.onerror = () => reject(
+            reader.error ?? new Error('The selected file could not be read.'),
+          )
+          reader.readAsDataURL(file)
+        }),
+      })))
+      setAttachments((current) => [...current, ...next])
+      setAttachmentError(null)
+    } catch (error) {
+      console.error('[FloatingUI] Failed to read chat attachment:', error)
+      setAttachmentError('Could not read the selected file. Try choosing it again.')
+    } finally {
+      setIsReadingAttachments(false)
+    }
   }
 
   const updateInput = (value: string, caretPosition: number) => {
@@ -316,7 +366,11 @@ export default function FloatingUI() {
             </div>
           )}
           {messages.map((msg, idx) => (
-            <MessageBubble key={`${msg.timestamp}-${idx}`} message={msg} />
+            <MessageBubble
+              key={`${msg.timestamp}-${idx}`}
+              message={msg}
+              skillNames={skills.map((skill) => skill.name)}
+            />
           ))}
           {isLoading && (
             <div className="message-bubble message-bubble--assistant">
@@ -351,14 +405,27 @@ export default function FloatingUI() {
 
       {/* ── Input Area ────────────────────────── */}
       <div className="floating-ui__input-area">
-        <input ref={fileInputRef} className="floating-ui__file-input" type="file" multiple accept="image/*,.txt,.md,.json,.csv,.pdf,.doc,.docx,.js,.ts,.py,.html,.css" onChange={(event) => { void readAttachments(event.target.files); event.currentTarget.value = '' }} />
+        <input ref={fileInputRef} className="floating-ui__file-input" type="file" multiple accept={CHAT_ATTACHMENT_ACCEPT} disabled={isReadingAttachments} onChange={(event) => { void readAttachments(event.target.files); event.currentTarget.value = '' }} />
         {attachments.length > 0 && <div className="floating-ui__attachments" aria-label="Attached files">
           {attachments.map((attachment) => <button key={`${attachment.name}-${attachment.size}`} type="button" className="floating-ui__attachment" onClick={() => setAttachments((current) => current.filter((item) => item !== attachment))} title="Remove attachment">📎 {attachment.name} ×</button>)}
         </div>}
+        {attachmentError && <div className="floating-ui__attachment-error" role="alert">{attachmentError}</div>}
         <div className="floating-ui__input-wrapper">
+          {inputText.length > 0 && (
+            <div className="floating-ui__input-highlight" aria-hidden="true">
+              {inputSegments.map((segment, index) => (
+                <span
+                  key={`${index}-${segment.value}`}
+                  className={segment.isSkillMention ? 'skill-mention' : undefined}
+                >
+                  {segment.value}
+                </span>
+              ))}
+            </div>
+          )}
           <input
             ref={inputRef}
-            className="floating-ui__input"
+            className={`floating-ui__input ${inputText.length > 0 ? 'floating-ui__input--highlighted' : ''}`}
             type="text"
             placeholder={
               agentStatus === 'listening' ? 'Listening...' :
@@ -404,7 +471,7 @@ export default function FloatingUI() {
           )}
         </div>
 
-        <button className="icon-btn" type="button" onClick={() => fileInputRef.current?.click()} title="Attach files or images" aria-label="Attach files or images"><PaperclipIcon /></button>
+        <button className="icon-btn" type="button" onClick={() => fileInputRef.current?.click()} disabled={isReadingAttachments} title="Attach files or images" aria-label="Attach files or images"><PaperclipIcon /></button>
 
         {/* Microphone button */}
         <button
@@ -432,9 +499,9 @@ export default function FloatingUI() {
 
         {/* Send button */}
         <button
-          className={`send-btn ${inputText.trim() ? 'send-btn--active' : ''}`}
+          className={`send-btn ${inputText.trim() || attachments.length > 0 ? 'send-btn--active' : ''}`}
           onClick={handleSend}
-          disabled={!inputText.trim() || isLoading}
+          disabled={(!inputText.trim() && attachments.length === 0) || isLoading || isReadingAttachments}
           aria-label="Send"
         >
           <SendIcon />

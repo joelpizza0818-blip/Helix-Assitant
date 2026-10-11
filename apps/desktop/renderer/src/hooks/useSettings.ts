@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import type { HelixSettings } from '../types/global'
+import { prepareSettingsSave, type SettingsSaveResult } from './settingsSave'
 
 const DEFAULT_SETTINGS: HelixSettings = {
   voice_enabled: true,
@@ -17,6 +18,11 @@ const DEFAULT_SETTINGS: HelixSettings = {
   start_minimized: true,
   display_index: 0,
   screen_capture_interval_ms: 1000,
+  screen_context_enabled: false,
+  model_decides_screen_vision_enabled: false,
+  continuous_screen_vision_enabled: false,
+  continuous_screen_vision_interval_ms: 10000,
+  complex_workflows_enabled: false,
   ocr_engine: 'local',
   mouse_move_duration_ms: 200,
   keystroke_delay_ms: 30,
@@ -61,7 +67,7 @@ interface UseSettingsReturn {
   isApplied: boolean
   error: string | null
   loadSettings: () => Promise<void>
-  saveSettings: (partial: Partial<HelixSettings>) => Promise<void>
+  saveSettings: (partial: Partial<HelixSettings>) => Promise<SettingsSaveResult>
   updateLocal: (partial: Partial<HelixSettings>) => void
 }
 
@@ -98,17 +104,32 @@ export function useSettings(): UseSettingsReturn {
     }
   }, [])
 
-  const saveSettings = useCallback(async (partial: Partial<HelixSettings>) => {
+  const saveSettings = useCallback(async (
+    partial: Partial<HelixSettings>,
+  ): Promise<SettingsSaveResult> => {
     setIsSaving(true)
     setError(null)
-    const merged = { ...settings, ...partial }
-    setSettings(merged) // optimistic update
+    const prepared = prepareSettingsSave(settings, partial)
+    if (!prepared.ok) {
+      setError('Failed to save settings')
+      setIsSaving(false)
+      return prepared
+    }
+    setSettings(prepared.merged) // optimistic update
     try {
-      await window.helix?.saveSettings(merged)
+      if (!window.helix?.saveSettings) {
+        throw new Error('Settings bridge is unavailable.')
+      }
+      await window.helix.saveSettings(prepared.payload)
+      return { ok: true }
     } catch (err) {
       setError('Failed to save settings')
       setSettings(settings) // revert on error
       console.error('saveSettings error:', err)
+      return {
+        ok: false,
+        error: err instanceof Error ? err : new Error('Failed to save settings'),
+      }
     } finally {
       setIsSaving(false)
     }

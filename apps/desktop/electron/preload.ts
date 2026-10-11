@@ -81,6 +81,21 @@ contextBridge.exposeInMainWorld('helix', {
   getModels: (requirements?: object): Promise<unknown[]> =>
     ipcRenderer.invoke('helix:get-models', requirements),
 
+  getCapabilities: (): Promise<unknown> =>
+    ipcRenderer.invoke('helix:get-capabilities'),
+
+  refreshCapabilities: (): Promise<unknown> =>
+    ipcRenderer.invoke('helix:refresh-capabilities'),
+
+  setInstallationProfile: (profile: 'progressive' | 'complete'): Promise<unknown> =>
+    ipcRenderer.invoke('helix:set-installation-profile', profile),
+
+  installCapability: (manifest: object): Promise<unknown> =>
+    ipcRenderer.invoke('helix:install-capability', manifest),
+
+  cancelCapability: (id: string): Promise<boolean> =>
+    ipcRenderer.invoke('helix:cancel-capability', id),
+
   // Validate an API key — key goes directly to Python, never logged here
   validateKey: (provider: string, slot: number, key: string): Promise<string> =>
     ipcRenderer.invoke('helix:validate-key', provider, slot, key),

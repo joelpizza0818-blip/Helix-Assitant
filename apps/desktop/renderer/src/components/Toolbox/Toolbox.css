@@ -247,6 +247,7 @@
 
 .toolbox__content {
   flex: 1;
+  min-width: 0;
   overflow-y: auto;
   padding: var(--space-3);
 }
@@ -334,10 +335,16 @@
   color: var(--red);
 }
 
+.toolbox-mcp-status--unsupported {
+  color: var(--red);
+}
+
 /* ── Section common styles ─────────────────────────────────────────────────── */
 
 .toolbox-section {
   max-width: 800px;
+  min-width: 0;
+  width: 100%;
 }
 
 .toolbox-section__title {
@@ -364,6 +371,7 @@
 /* ── Card ──────────────────────────────────────────────────────────────────── */
 
 .toolbox-card {
+  min-width: 0;
   background: var(--carbon);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
@@ -389,6 +397,7 @@
 .form-row {
   display: flex;
   align-items: center;
+  min-width: 0;
   gap: var(--space-2);
   margin-bottom: 12px;
 }
@@ -399,6 +408,29 @@
   font-family: var(--font-mono);
   min-width: 140px;
   flex-shrink: 0;
+}
+
+.screen-vision-row {
+  align-items: flex-start;
+}
+
+.screen-vision-row > .form-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.screen-vision-description {
+  display: block;
+  max-width: 100%;
+  margin: 4px 0 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.screen-vision-interval {
+  flex: 0 1 150px;
+  min-width: 90px;
 }
 
 .form-input {

@@ -190,6 +190,28 @@ export default function AISection({ providers, models, settings, onSave, onRefre
         Manage API keys across OpenAI, Anthropic, Google, and Local/OpenAI-compatible endpoints. Register custom models with custom context windows and capability matrices.
       </p>
 
+      <div className="toolbox-card" style={{ marginBottom: 16 }}>
+        <div className="toolbox-card__header">
+          <span className="toolbox-card__title">Complex Workflow Planning</span>
+          <label className="toggle">
+            <input
+              type="checkbox"
+              checked={settings.complex_workflows_enabled ?? false}
+              onChange={(event) => void onSave({
+                complex_workflows_enabled: event.target.checked,
+              })}
+            />
+            <span className="toggle__slider" />
+          </label>
+        </div>
+        <p className="toolbox-section__desc">
+          When enabled, the model decides whether a request needs coordinated
+          tool steps; an explicit request to break down a task also invokes the
+          planner. This can add model calls. Planned actions still use normal
+          permission checks and confirmations. Off by default.
+        </p>
+      </div>
+
       {/* ── Core Providers (3 Keys Each) ────────────────────────── */}
       {ALL_CORE_PROVIDERS.map((providerId) => {
         const status = getProviderStatus(providerId)

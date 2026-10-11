@@ -68,7 +68,20 @@ class FallbackManager:
         self.fallback_enabled = True
         self.cross_provider_fallback = True
 
-    async def execute_with_fallback(self, provider_call_fn: Callable, requirements: TaskRequirements, context: dict) -> Any:
+    async def execute_with_fallback(
+        self,
+        provider_call_fn: Callable,
+        requirements: TaskRequirements,
+        context: dict,
+        *,
+        prefer_last_key: bool = False,
+        allow_cross_provider: bool | None = None,
+    ) -> Any:
+        cross_provider_enabled = (
+            self.cross_provider_fallback
+            if allow_cross_provider is None
+            else allow_cross_provider
+        )
         execution_failed_models = context.setdefault(
             "_execution_failed_models",
             set(),
@@ -77,11 +90,20 @@ class FallbackManager:
             "_execution_failed_keys",
             set(),
         )
+        execution_failed_candidates = context.setdefault(
+            "_execution_failed_candidates",
+            set(),
+        )
 
         def is_blocked(option):
             return (
                 (option.provider_id, option.model_id) in execution_failed_models
                 or (option.provider_id, option.key_slot) in execution_failed_keys
+                or (
+                    option.provider_id,
+                    option.model_id,
+                    option.key_slot,
+                ) in execution_failed_candidates
             )
 
         candidate = next(
@@ -90,6 +112,7 @@ class FallbackManager:
                 for option in self.model_router.get_fallback_candidates(
                     requirements,
                     exclude=[],
+                    prefer_last_key=prefer_last_key,
                 )
                 if not is_blocked(option)
             ),
@@ -158,7 +181,11 @@ class FallbackManager:
                 )
                 last_error = e
                 safe_message = self._redact_key_values(e.message)
-                if e.code != "INTERNAL_CLIENT_ERROR":
+                model_scoped_limit = prefer_last_key and e.code in {
+                    "RATE_LIMIT",
+                    "QUOTA_EXCEEDED",
+                }
+                if e.code != "INTERNAL_CLIENT_ERROR" and not model_scoped_limit:
                     self.key_manager.mark_key_failure(
                         candidate.provider_id,
                         candidate.key_slot,
@@ -210,14 +237,19 @@ class FallbackManager:
                     ) from e
 
                 if e.code == "QUOTA_EXCEEDED":
-                    execution_failed_models.add(
-                        (candidate.provider_id, candidate.model_id)
+                    execution_failed_candidates.add(
+                        (
+                            candidate.provider_id,
+                            candidate.model_id,
+                            candidate.key_slot,
+                        )
                     )
                     logger.info(
-                        "Skipping model for remainder of execution after quota "
-                        "provider=%s model=%s",
+                        "Skipping model/key candidate for remainder of execution "
+                        "after quota provider=%s model=%s key_slot=%d",
                         candidate.provider_id,
                         candidate.model_id,
+                        candidate.key_slot + 1,
                     )
                 elif e.code == "BILLING_EXHAUSTED":
                     execution_failed_keys.add(
@@ -247,6 +279,7 @@ class FallbackManager:
                 candidates = self.model_router.get_fallback_candidates(
                     requirements,
                     exclude=list(tried_candidates),
+                    prefer_last_key=prefer_last_key,
                 )
                 next_candidate = next(
                     (
@@ -254,7 +287,7 @@ class FallbackManager:
                         for option in candidates
                         if not is_blocked(option)
                         and (
-                            self.cross_provider_fallback
+                            cross_provider_enabled
                             or option.provider_id == candidate.provider_id
                         )
                     ),

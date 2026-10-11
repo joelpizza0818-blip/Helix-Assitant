@@ -85,6 +85,66 @@ def test_voice_orchestration_returns_direct_conversational_answer():
     )
 
 
+def test_continuous_screen_context_is_shared_for_model_decisions():
+    event_bus = EventBusStub()
+    task_manager = TaskManagerStub()
+    react_loop = SimpleNamespace(
+        execute=AsyncMock(return_value=SimpleNamespace(content="Listo."))
+    )
+    orchestrator = Orchestrator(
+        planner=SimpleNamespace(create_plan=AsyncMock()),
+        task_manager=task_manager,
+        event_bus=event_bus,
+        react_loop=react_loop,
+        agent_manager=None,
+        tool_registry=None,
+        role_config=None,
+    )
+    react_loop.screen_context_enabled = True
+    react_loop.on_demand_screen_context_enabled = False
+    react_loop.continuous_screen_vision_enabled = True
+    orchestrator.continuous_screen_context_provider = lambda: {
+        "captured_at": "2026-10-09T20:00:00+00:00",
+        "provider": "google",
+        "model": "vision-model",
+        "summary": "A document editor is open.",
+    }
+
+    async def run():
+        await orchestrator.execute_task(
+            "task-screen",
+            "Describe my screen.",
+            {"input_source": "text"},
+        )
+        await orchestrator.execute_task(
+            "task-general",
+            "Say hello.",
+            {"input_source": "text"},
+        )
+
+    asyncio.run(run())
+
+    screen_messages = react_loop.execute.await_args_list[0].args[0]
+    general_messages = react_loop.execute.await_args_list[1].args[0]
+    assert any(
+        message.role == "user"
+        and "Latest continuous screen-vision observation" in message.content
+        and "A document editor is open." in message.content
+        and "untrusted visual context" in message.content
+        for message in screen_messages
+    )
+    assert react_loop.execute.await_args_list[0].kwargs[
+        "vision_model_to_exclude"
+    ] == ("google", "vision-model")
+    assert any(
+        "Latest continuous screen-vision observation" in message.content
+        for message in general_messages
+    )
+    assert react_loop.execute.await_args_list[1].kwargs[
+        "vision_model_to_exclude"
+    ] is None
+
+
 def test_voice_engine_publishes_one_user_text_with_voice_metadata():
     engine = VoiceEngine.__new__(VoiceEngine)
     engine.event_bus = EventBusStub()

@@ -123,11 +123,15 @@ class ToolRegistry:
         for _name, tool in candidate_tools:
             schema = tool.get_schema()
             parameters = schema.get("parameters", schema)
-            schemas.append({
+            normalized_schema = {
                 "name": schema.get("name", tool.name),
                 "description": schema.get("description", tool.description),
                 "parameters": parameters,
-            })
+            }
+            required_capability = getattr(tool, "required_capability", None)
+            if required_capability:
+                normalized_schema["x-helix-required-capability"] = required_capability
+            schemas.append(normalized_schema)
         return schemas
 
     def auto_discover(self, tools_dir: str):

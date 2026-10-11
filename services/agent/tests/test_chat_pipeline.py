@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import pytest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -178,6 +179,45 @@ def test_provider_tool_formats_and_tool_result_history():
     google_tools = GoogleProvider._convert_tools(canonical_tools)
     assert google_tools[0].function_declarations[0].name == "lookup"
 
+def test_google_tool_schema_drops_unsupported_additional_properties_recursively():
+    schema = {
+        "type": "object",
+        "properties": {
+            "options": {
+                "type": "object",
+                "properties": {"enabled": {"type": "boolean"}},
+                "additionalProperties": False,
+            },
+        },
+        "additionalProperties": False,
+    }
+    tools = [{
+        "name": "configure",
+        "description": "Configure an option.",
+        "parameters": schema,
+    }]
+
+    converted = GoogleProvider._convert_tools(tools)[0]
+    converted_schema = converted.function_declarations[0].parameters.model_dump(
+        by_alias=True,
+        exclude_none=True,
+    )
+
+    def has_additional_properties(value):
+        if isinstance(value, dict):
+            return any(
+                key in {"additionalProperties", "additional_properties"}
+                or has_additional_properties(item)
+                for key, item in value.items()
+            )
+        if isinstance(value, list):
+            return any(has_additional_properties(item) for item in value)
+        return False
+
+    assert not has_additional_properties(converted_schema)
+    assert schema["additionalProperties"] is False
+    assert schema["properties"]["options"]["additionalProperties"] is False
+
 def test_google_messages_match_installed_sdk_and_preserve_roles_and_modal_parts():
     history = [
         ChatMessage(role="system", content="Be concise."),
@@ -204,6 +244,26 @@ def test_google_messages_match_installed_sdk_and_preserve_roles_and_modal_parts(
     assert contents[1].parts[1].function_call.name == "lookup"
     assert contents[2].parts[0].function_response.name == "lookup"
     assert GoogleProvider._get_system_instruction(history) == "Be concise."
+
+
+def test_image_messages_preserve_mime_types_for_supported_providers():
+    image_bytes = b"mock-webp-bytes"
+    message = ChatMessage(
+        role="user",
+        content="Describe this image.",
+        image_bytes=image_bytes,
+        image_mime_type="image/webp",
+    )
+
+    openai_content = OpenAIProvider()._convert_messages([message])[0]["content"]
+    anthropic_content = AnthropicProvider()._convert_messages([message])[0]["content"]
+    google_content = GoogleProvider()._convert_messages([message])[0]
+
+    assert openai_content[1]["image_url"]["url"].startswith("data:image/webp;base64,")
+    assert anthropic_content[1]["source"]["media_type"] == "image/webp"
+    assert anthropic_content[1]["source"]["data"] == base64.b64encode(image_bytes).decode("ascii")
+    assert google_content.parts[1].inline_data.mime_type == "image/webp"
+    assert google_content.parts[1].inline_data.data == image_bytes
 
 
 def test_google_native_function_call_content_preserves_thought_signature():
@@ -415,6 +475,9 @@ def test_react_loop_keeps_execution_model_exclusions_between_tool_iterations():
                 requirements=TaskRequirements()
             )
         ),
+    )
+    loop._verify_if_important = AsyncMock(
+        side_effect=lambda _description, _tool_call, outcome, **_kwargs: outcome
     )
 
     response = asyncio.run(
@@ -645,6 +708,51 @@ def test_text_chat_uses_conversation_loop_and_returns_renderable_message():
     assert message_events[0][1]["role"] == "assistant"
     assert message_events[0][1]["content"] == "Hola."
     assert message_events[0][1]["model"] == "claude-sonnet-5-5"
+
+
+def test_image_attachment_reaches_the_model_with_its_mime_type():
+    image_bytes = b"\x89PNG\r\n\x1a\nmock-image"
+    react_loop = SimpleNamespace(execute=AsyncMock(return_value=ChatResponse(
+        content="A test image.",
+        model="gpt-4o",
+        provider="openai",
+        usage=None,
+        finish_reason="stop",
+    )))
+    orchestrator = Orchestrator(
+        planner=SimpleNamespace(create_plan=AsyncMock()),
+        task_manager=SimpleNamespace(update_status=AsyncMock()),
+        event_bus=SimpleNamespace(publish=AsyncMock()),
+        react_loop=react_loop,
+        agent_manager=None,
+        tool_registry=None,
+        role_config=None,
+    )
+
+    asyncio.run(orchestrator.execute_task(
+        "task-image",
+        "What is in this picture?",
+        {
+            "input_source": "text",
+            "conversation_history": [
+                {
+                    "role": "user",
+                    "content": "What is in this picture?\n\nAttachments: sample.png",
+                },
+            ],
+            "attachments": [{
+                "name": "sample.png",
+                "mime_type": "image/png",
+                "data_base64": base64.b64encode(image_bytes).decode("ascii"),
+            }],
+        },
+    ))
+
+    model_messages = react_loop.execute.await_args.args[0]
+    image_message = next(message for message in model_messages if message.image_bytes)
+    assert image_message.image_bytes == image_bytes
+    assert image_message.image_mime_type == "image/png"
+    assert "sample.png" in image_message.content
 
 
 def test_long_conversation_history_is_compacted_without_losing_current_request():

@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.PythonManager = void 0;
 const child_process_1 = require("child_process");
 const net_1 = require("net");
+const websocket_auth_1 = require("./websocket-auth");
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
 const ws_1 = __importDefault(require("ws"));
@@ -15,6 +16,7 @@ class PythonManager {
         this.process = null;
         this.agentDir = '';
         this.wsPort = 8765;
+        this.wsToken = null;
         this.settingsPath = '';
         this.packagedAgent = null;
         this.restartCount = 0;
@@ -45,6 +47,12 @@ class PythonManager {
         }
         return this.wsPort;
     }
+    getWebSocketToken() {
+        if (!this.wsToken) {
+            throw new Error('Python agent WebSocket token is not available');
+        }
+        return this.wsToken;
+    }
     async _waitForReady(timeoutMs = 90000) {
         const deadline = Date.now() + timeoutMs;
         while (Date.now() < deadline) {
@@ -53,7 +61,9 @@ class PythonManager {
                 throw new Error('Python agent exited before its WebSocket became ready');
             }
             const ready = await new Promise((resolve) => {
-                const socket = new ws_1.default(`ws://127.0.0.1:${this.wsPort}`);
+                const socket = new ws_1.default(`ws://127.0.0.1:${this.wsPort}`, {
+                    headers: (0, websocket_auth_1.websocketAuthHeaders)(this.getWebSocketToken()),
+                });
                 let settled = false;
                 let timeout = null;
                 const finish = (connected) => {
@@ -113,6 +123,7 @@ class PythonManager {
         });
     }
     async _spawn() {
+        this.wsToken = (0, websocket_auth_1.createWebSocketToken)();
         const executable = this.packagedAgent || this._findPython();
         if (!executable) {
             throw new Error('Python executable not found. Install Python 3.11+ and ensure it is in PATH.');
@@ -141,7 +152,8 @@ class PythonManager {
                     path_1.default.resolve(this.agentDir, '../..'),
                     process.env.PYTHONPATH
                 ].filter(Boolean).join(path_1.default.delimiter),
-                HELIX_SETTINGS_PATH: this.settingsPath
+                HELIX_SETTINGS_PATH: this.settingsPath,
+                ...(0, websocket_auth_1.websocketTokenEnvironment)(this.getWebSocketToken())
             }
         });
         let stdoutBuffer = '';
@@ -169,6 +181,7 @@ class PythonManager {
         this.process.on('exit', (code) => {
             this.exitHandlers.forEach((h) => h(code));
             this.process = null;
+            this.wsToken = null;
             if (!this.stopping && this.restartCount < this.maxRestarts) {
                 const delay = RESTART_DELAYS_MS[Math.min(this.restartCount, RESTART_DELAYS_MS.length - 1)];
                 console.warn(`[PythonManager] Process exited (code ${code}). Restarting in ${delay}ms... (attempt ${this.restartCount + 1}/${this.maxRestarts})`);
@@ -194,8 +207,10 @@ class PythonManager {
             this.restartTimer = null;
         }
         const agentProcess = this.process;
-        if (!agentProcess)
+        if (!agentProcess) {
+            this.wsToken = null;
             return;
+        }
         if (process.platform === 'win32' && agentProcess.pid) {
             await new Promise((resolve, reject) => {
                 (0, child_process_1.execFile)('taskkill', ['/PID', String(agentProcess.pid), '/T', '/F'], { windowsHide: true }, (error) => {

@@ -4,6 +4,7 @@ from typing import Any, Callable, Optional
 
 from .base_tool import BaseTool, ToolResult
 from ..perception.screen_engine import ScreenEngine
+from ..perception.screen_observation_policy import screen_observation_is_allowed
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,13 @@ class _ComputerActions:
             self._ocr_engine = OCREngine(provider=self.ocr_provider)
         return self._ocr_engine
 
+    @staticmethod
+    def _require_screen_observation() -> None:
+        if not screen_observation_is_allowed():
+            raise RuntimeError("Screen observation is disabled for this task.")
+
     async def capture_context(self, include_ocr: bool = True) -> dict:
+        self._require_screen_observation()
         if not include_ocr:
             return await asyncio.to_thread(self.screen_engine.capture_context)
         try:
@@ -37,7 +44,7 @@ class _ComputerActions:
             return await asyncio.to_thread(
                 self.screen_engine.capture_context,
                 None,
-                f"{type(error).__name__}: {error}",
+                f"{type(error).__name__}",
             )
         return await asyncio.to_thread(
             self.screen_engine.capture_context,
@@ -60,6 +67,7 @@ class _ComputerActions:
         return None
 
     async def click_on_text(self, text_on_screen: str) -> bool:
+        self._require_screen_observation()
         image = await asyncio.to_thread(self.screen_engine.capture_full)
         position = await self._locate_text(image, text_on_screen)
         if position is None:
@@ -69,6 +77,7 @@ class _ComputerActions:
         return True
 
     async def click_on_element(self, element_description: str) -> bool:
+        self._require_screen_observation()
         window = await asyncio.to_thread(self.screen_engine.get_active_window_info)
         hwnd = window.get("hwnd") if window else None
         try:
@@ -85,6 +94,7 @@ class _ComputerActions:
         return await self.click_on_text(element_description)
 
     async def _screen_text(self) -> str:
+        self._require_screen_observation()
         ocr_engine = await asyncio.to_thread(self._get_ocr_engine)
         image = await asyncio.to_thread(self.screen_engine.capture_full)
         return await asyncio.to_thread(ocr_engine.extract_text, image)
@@ -128,6 +138,10 @@ class _ComputerActions:
 
 class ScreenObserveTool(_ComputerActions, BaseTool):
     @property
+    def required_capability(self):
+        return "vision"
+
+    @property
     def name(self) -> str:
         return "computer.observe_screen"
 
@@ -161,6 +175,12 @@ class ScreenObserveTool(_ComputerActions, BaseTool):
         }
 
     async def execute(self, params: dict) -> ToolResult:
+        if not screen_observation_is_allowed():
+            return ToolResult(
+                success=False,
+                output=None,
+                error="Screen observation is disabled for this task.",
+            )
         try:
             context = await self.capture_context()
             return ToolResult(success=True, output=context)
@@ -169,11 +189,18 @@ class ScreenObserveTool(_ComputerActions, BaseTool):
             return ToolResult(
                 success=False,
                 output=None,
-                error=f"{type(error).__name__}: {error}",
+                error=(
+                    f"Screen observation failed ({type(error).__name__}). "
+                    "Check the agent log for details."
+                ),
             )
 
 
 class ComputerTool(_ComputerActions, BaseTool):
+    @property
+    def required_capability(self):
+        return "computer"
+
     @property
     def name(self) -> str:
         return "computer.click_element"
@@ -238,11 +265,15 @@ class ComputerTool(_ComputerActions, BaseTool):
             return ToolResult(
                 success=False,
                 output=None,
-                error=f"{type(error).__name__}: {error}",
+                error=f"Desktop action failed ({type(error).__name__}). Check the agent log.",
             )
 
 
 class ClickTextTool(_ComputerActions, BaseTool):
+    @property
+    def required_capability(self):
+        return "computer"
+
     @property
     def name(self) -> str:
         return "computer.click_text"
@@ -297,11 +328,15 @@ class ClickTextTool(_ComputerActions, BaseTool):
             return ToolResult(
                 success=False,
                 output=None,
-                error=f"{type(error).__name__}: {error}",
+                error=f"Desktop action failed ({type(error).__name__}). Check the agent log.",
             )
 
 
 class VisualClickTool(_ComputerActions, BaseTool):
+    @property
+    def required_capability(self):
+        return "vision"
+
     @property
     def name(self) -> str:
         return "computer.click_at"
@@ -373,11 +408,15 @@ class VisualClickTool(_ComputerActions, BaseTool):
             return ToolResult(
                 success=False,
                 output=None,
-                error=f"{type(error).__name__}: {error}",
+                error=f"Desktop action failed ({type(error).__name__}). Check the agent log.",
             )
 
 
 class TypeInFieldTool(_ComputerActions, BaseTool):
+    @property
+    def required_capability(self):
+        return "computer"
+
     @property
     def name(self) -> str:
         return "computer.type_in_field"
@@ -454,5 +493,5 @@ class TypeInFieldTool(_ComputerActions, BaseTool):
             return ToolResult(
                 success=False,
                 output=None,
-                error=f"{type(error).__name__}: {error}",
+                error=f"Desktop action failed ({type(error).__name__}). Check the agent log.",
             )

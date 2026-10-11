@@ -147,6 +147,8 @@ class TaskManager:
         metadata: Optional[dict] = None,
     ) -> Task:
         async with self.lock:
+            if task_id in self.tasks:
+                raise ValueError(f"Task id {task_id} already exists.")
             task = Task(
                 id=task_id,
                 description=description,

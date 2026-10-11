@@ -1,5 +1,10 @@
 import { execFile, spawn, ChildProcess } from 'child_process'
 import { createServer } from 'net'
+import {
+  createWebSocketToken,
+  websocketAuthHeaders,
+  websocketTokenEnvironment,
+} from './websocket-auth'
 import path from 'path'
 import fs from 'fs'
 import WebSocket from 'ws'
@@ -13,6 +18,7 @@ export class PythonManager {
   private process: ChildProcess | null = null
   private agentDir: string = ''
   private wsPort: number = 8765
+  private wsToken: string | null = null
   private settingsPath: string = ''
   private packagedAgent: string | null = null
   private restartCount: number = 0
@@ -49,6 +55,13 @@ export class PythonManager {
     return this.wsPort
   }
 
+  getWebSocketToken(): string {
+    if (!this.wsToken) {
+      throw new Error('Python agent WebSocket token is not available')
+    }
+    return this.wsToken
+  }
+
   private async _waitForReady(timeoutMs = 90000): Promise<void> {
     const deadline = Date.now() + timeoutMs
     while (Date.now() < deadline) {
@@ -58,7 +71,9 @@ export class PythonManager {
       }
 
       const ready = await new Promise<boolean>((resolve) => {
-        const socket = new WebSocket(`ws://127.0.0.1:${this.wsPort}`)
+        const socket = new WebSocket(`ws://127.0.0.1:${this.wsPort}`, {
+          headers: websocketAuthHeaders(this.getWebSocketToken()),
+        })
         let settled = false
         let timeout: NodeJS.Timeout | null = null
         const finish = (connected: boolean) => {
@@ -117,6 +132,7 @@ export class PythonManager {
   }
 
   private async _spawn(): Promise<void> {
+    this.wsToken = createWebSocketToken()
     const executable = this.packagedAgent || this._findPython()
     if (!executable) {
       throw new Error('Python executable not found. Install Python 3.11+ and ensure it is in PATH.')
@@ -133,14 +149,6 @@ export class PythonManager {
     const workingDirectory = this.packagedAgent
       ? path.dirname(this.packagedAgent)
       : this.agentDir
-    const agentPath = [process.env.PATH]
-    if (this.packagedAgent) {
-      const githubCliBin = path.join(process.resourcesPath, 'agent-runtime', 'github-cli', 'bin')
-      if (!fs.existsSync(path.join(githubCliBin, 'gh.exe'))) {
-        throw new Error(`Bundled GitHub CLI not found at: ${githubCliBin}`)
-      }
-      agentPath.unshift(githubCliBin)
-    }
 
     console.log(`[PythonManager] Spawning: ${executable} ${args.join(' ')}`)
     console.log(`[PythonManager] Working dir: ${workingDirectory}`)
@@ -151,14 +159,14 @@ export class PythonManager {
       windowsHide: true,
       env: {
         ...process.env,
-        PATH: agentPath.filter(Boolean).join(path.delimiter),
         PYTHONIOENCODING: 'utf-8',
         PYTHONUTF8: '1',
         PYTHONPATH: [
           path.resolve(this.agentDir, '../..'),
           process.env.PYTHONPATH
         ].filter(Boolean).join(path.delimiter),
-        HELIX_SETTINGS_PATH: this.settingsPath
+        HELIX_SETTINGS_PATH: this.settingsPath,
+        ...websocketTokenEnvironment(this.getWebSocketToken())
       }
     })
 
@@ -189,6 +197,7 @@ export class PythonManager {
     this.process.on('exit', (code) => {
       this.exitHandlers.forEach((h) => h(code))
       this.process = null
+      this.wsToken = null
 
       if (!this.stopping && this.restartCount < this.maxRestarts) {
         const delay = RESTART_DELAYS_MS[Math.min(this.restartCount, RESTART_DELAYS_MS.length - 1)]
@@ -215,7 +224,10 @@ export class PythonManager {
       this.restartTimer = null
     }
     const agentProcess = this.process
-    if (!agentProcess) return
+    if (!agentProcess) {
+      this.wsToken = null
+      return
+    }
 
     if (process.platform === 'win32' && agentProcess.pid) {
       await new Promise<void>((resolve, reject) => {

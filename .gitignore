@@ -25,6 +25,7 @@ venv/
 /apps/desktop/.pyinstaller-spec/
 /apps/desktop/agent-runtime/*
 !/apps/desktop/agent-runtime/.gitkeep
+/apps/desktop-tauri/src-tauri/target/
 /apps/landing/public/downloads/
 /apps/landing/private-downloads/
 release/

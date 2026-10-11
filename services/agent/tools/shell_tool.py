@@ -74,12 +74,76 @@ class ShellTool(BaseTool):
         return True
 
     def validate_params(self, params: Dict[str, Any]) -> bool:
-        return "command" in params
+        if not isinstance(params, dict):
+            return False
+        if not set(params).issubset(
+            {"command", "working_dir", "timeout", "shell_type"}
+        ):
+            return False
+        command = params.get("command")
+        if not isinstance(command, str) or not command.strip() or len(command) > 32_000:
+            return False
+        working_dir = params.get("working_dir")
+        if working_dir is not None and (
+            not isinstance(working_dir, str) or not working_dir.strip()
+        ):
+            return False
+        timeout = params.get("timeout", self.default_timeout)
+        if (
+            isinstance(timeout, bool)
+            or not isinstance(timeout, int)
+            or not 1 <= timeout <= 300
+        ):
+            return False
+        shell_type = params.get("shell_type", self.default_shell_type)
+        if not isinstance(shell_type, str) or shell_type not in {
+            "cmd",
+            "powershell",
+            "wsl",
+            "bash",
+        }:
+            return False
+        return self.validate_command(command)
 
     def get_schema(self) -> Dict[str, Any]:
         return {
             "type": "object",
-            "properties": {"command": {"type": "string"}}
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 32000,
+                    "description": (
+                        "A command for the configured shell and current OS. "
+                        "Use the runtime command guidance from the system context, "
+                        "quote paths and user-provided values, and prefer one "
+                        "focused command with explicit error handling."
+                    ),
+                },
+                "working_dir": {
+                    "type": "string",
+                    "description": (
+                        "Optional existing working directory. Use an absolute path "
+                        "valid for the selected shell and OS."
+                    ),
+                },
+                "timeout": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 300,
+                    "description": "Optional execution timeout in seconds.",
+                },
+                "shell_type": {
+                    "type": "string",
+                    "enum": ["cmd", "powershell", "wsl", "bash"],
+                    "description": (
+                        "Optional shell override. Prefer the configured shell unless "
+                        "the task explicitly requires another installed shell."
+                    ),
+                },
+            },
+            "required": ["command"],
+            "additionalProperties": False,
         }
 
     def validate_command(self, command: str) -> bool:
@@ -140,9 +204,13 @@ class ShellTool(BaseTool):
         return ShellResult(stdout=stdout, stderr=stderr, exit_code=exit_code, execution_time_ms=exec_time)
 
     async def execute(self, params: Dict[str, Any]) -> ToolResult:
+        if not self.validate_params(params):
+            return ToolResult(
+                success=False,
+                output=None,
+                error="Invalid shell parameters. Check command, working directory, shell, and timeout.",
+            )
         command = params["command"]
-        if not self.validate_command(command):
-            return ToolResult(success=False, output=None, error="Blocked dangerous command.")
         res = await self.execute_command(
             command,
             params.get("working_dir"),

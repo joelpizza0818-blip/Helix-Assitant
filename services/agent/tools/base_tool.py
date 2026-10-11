@@ -20,6 +20,11 @@ class ToolSchema:
 
 class BaseTool(ABC):
     @property
+    def required_capability(self) -> Optional[str]:
+        """Optional signed pack id required before this tool can run."""
+        return None
+
+    @property
     @abstractmethod
     def name(self) -> str:
         pass

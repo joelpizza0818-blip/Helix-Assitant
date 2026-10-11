@@ -7,10 +7,13 @@
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
+    "dev:tauri": "cross-env HELIX_DESKTOP_RUNTIME=tauri vite",
+    "build:renderer:tauri": "cross-env HELIX_DESKTOP_RUNTIME=tauri vite build",
     "electron:dev": "cross-env NODE_ENV=development electron .",
     "dev:all": "vite",
     "build": "tsc -p tsconfig.main.json && vite build && electron-builder --publish never",
     "preview": "vite preview",
+    "test": "cross-env TS_NODE_PROJECT=tsconfig.test.json node --test --require ts-node/register renderer/src/components/FloatingUI/mentionAutocomplete.test.ts renderer/src/components/FloatingUI/skillMentions.test.ts renderer/src/components/FloatingUI/taskExecutionSummary.test.ts renderer/src/components/FloatingUI/attachmentFiles.test.ts renderer/src/components/Toolbox/sections/MCPSection.test.ts renderer/src/components/Toolbox/sections/ComputerSection.test.ts electron/websocket-auth.test.ts electron/capability-manager.test.ts",
     "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit"
   },
   "dependencies": {
@@ -28,15 +31,14 @@
     "@types/react-dom": "^18.2.0",
     "@types/ws": "^8.5.10",
     "@vitejs/plugin-react": "^4.2.0",
-    "concurrently": "^8.2.2",
     "cross-env": "^7.0.3",
     "electron": "^29.0.0",
     "electron-builder": "^24.9.1",
+    "ts-node": "^10.9.2",
     "typescript": "^5.3.0",
     "vite": "^5.1.0",
     "vite-plugin-electron": "^0.28.0",
-    "vite-plugin-electron-renderer": "^0.14.5",
-    "wait-on": "^7.2.0"
+    "vite-plugin-electron-renderer": "^0.14.5"
   },
   "build": {
     "electronVersion": "29.0.0",
@@ -89,7 +91,10 @@
           "**/*",
           "!.venv/**",
           "!__pycache__/**",
-          "!*.pyc"
+          "!*.pyc",
+          "!tests/**",
+          "!script.py",
+          "!get_quiz.py"
         ]
       },
       {

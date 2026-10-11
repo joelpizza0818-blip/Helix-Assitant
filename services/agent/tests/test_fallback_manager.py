@@ -73,6 +73,52 @@ async def test_fallback_stays_within_same_provider(all_providers_env, fallback_m
 
 
 @pytest.mark.asyncio
+async def test_vision_fallback_tries_models_on_last_key_before_previous_keys(
+    google_only_env, fallback_manager, monkeypatch
+):
+    monkeypatch.setenv("GOOGLE_API_KEY_2", "test-google-key-2")
+    fallback_manager.key_manager._load_keys()
+    fallback_manager.key_manager.key_states = {
+        provider: {
+            slot: {
+                "health": KeyHealth.HEALTHY if key else KeyHealth.UNCONFIGURED,
+                "failures": 0,
+                "cooldown_until": 0,
+            }
+            for slot, key in enumerate(keys)
+        }
+        for provider, keys in fallback_manager.key_manager.keys.items()
+    }
+    calls = []
+
+    async def fail_one_vision_model(candidate, _context):
+        calls.append((candidate.model_id, candidate.key_slot))
+        if len(calls) == 1:
+            raise AgentError(
+                code="RATE_LIMIT",
+                message="Quota exhausted for this model and key",
+                provider=candidate.provider_id,
+                model=candidate.model_id,
+                retryable=True,
+            )
+        return "description"
+
+    result = await fallback_manager.execute_with_fallback(
+        fail_one_vision_model,
+        TaskRequirements(text=True, vision=True, cost_preference="low"),
+        {},
+        prefer_last_key=True,
+        allow_cross_provider=True,
+    )
+
+    assert result == "description"
+    assert len(calls) >= 2
+    assert calls[0][1] == 1
+    assert calls[1][1] == 1
+    assert calls[1][0] != calls[0][0]
+
+
+@pytest.mark.asyncio
 async def test_disabled_fallback_makes_only_one_provider_attempt(
     all_providers_env, fallback_manager, monkeypatch
 ):
@@ -264,7 +310,7 @@ async def test_internal_client_error_does_not_penalize_key_or_try_another_key(
 
 
 @pytest.mark.asyncio
-async def test_quota_failure_skips_model_for_remaining_execution_but_keeps_it_registered(
+async def test_quota_failure_skips_only_failed_model_key_candidate(
     google_only_env, fallback_manager, monkeypatch
 ):
     monkeypatch.setenv("GOOGLE_API_KEY_2", "test-google-key-2")
@@ -305,16 +351,23 @@ async def test_quota_failure_skips_model_for_remaining_execution_but_keeps_it_re
 
     assert result == "SUCCESS"
     assert len(attempts) == 2
-    assert attempts[0][1] == "gemini-3-flash-preview"
-    assert attempts[1][1] != attempts[0][1]
+    assert attempts[0][1] == "gemini-3.8-flash"
+    assert attempts[1][1] == attempts[0][1]
+    assert attempts[0][2] == 0
+    assert attempts[1][2] == 1
+    assert execution_context["_execution_failed_candidates"] == {
+        ("google", attempts[0][1], attempts[0][2])
+    }
     assert fallback_manager.model_router.capability_registry.get_model(
-        "gemini-3-flash-preview"
+        "gemini-3.8-flash"
     ) is not None
 
     next_attempts = []
 
     async def succeed(candidate, _context):
-        next_attempts.append(candidate.model_id)
+        next_attempts.append(
+            (candidate.provider_id, candidate.model_id, candidate.key_slot)
+        )
         return "NEXT_SUCCESS"
 
     assert await fallback_manager.execute_with_fallback(
@@ -322,7 +375,7 @@ async def test_quota_failure_skips_model_for_remaining_execution_but_keeps_it_re
         TaskRequirements(text=True, tool_calling=True, preferred_provider="google"),
         execution_context,
     ) == "NEXT_SUCCESS"
-    assert "gemini-3-flash-preview" not in next_attempts
+    assert next_attempts[0] == ("google", attempts[0][1], 1)
 
 
 @pytest.mark.asyncio
@@ -353,13 +406,13 @@ async def test_model_unavailable_is_disabled_for_future_routing(
         requirements,
         {},
     ) == "SUCCESS"
-    assert attempts[0] == "gemini-3-flash-preview"
+    assert attempts[0] == "gemini-3.8-flash"
     assert attempts[1] != attempts[0]
     assert fallback_manager.model_router.capability_registry.get_model(
-        "gemini-3-flash-preview"
+        "gemini-3.8-flash"
     ) is not None
     assert all(
-        candidate.model_id != "gemini-3-flash-preview"
+        candidate.model_id != "gemini-3.8-flash"
         for candidate in fallback_manager.model_router.get_fallback_candidates(
             requirements,
             exclude=[],

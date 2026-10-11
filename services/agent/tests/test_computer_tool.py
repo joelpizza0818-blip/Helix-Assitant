@@ -3,6 +3,9 @@ from unittest.mock import AsyncMock
 import pytest
 
 from services.agent.tools.computer_tool import ComputerTool, TypeInFieldTool
+from services.agent.perception.screen_observation_policy import (
+    screen_observation_scope,
+)
 
 
 class FakeScreen:
@@ -31,7 +34,8 @@ async def test_computer_click_falls_back_from_ui_automation_to_ocr():
     computer._ocr_engine = FakeOCR()
     computer._click = AsyncMock()
 
-    assert await computer.click_on_element("Save")
+    with screen_observation_scope(True):
+        assert await computer.click_on_element("Save")
     computer._click.assert_awaited_once_with(20, 30)
 
 
@@ -58,7 +62,8 @@ async def test_type_in_field_retries_keyboard_and_requires_verification(monkeypa
     checks = iter((False, True))
     tool._wait_for_text = AsyncMock(side_effect=lambda _text: next(checks))
 
-    assert await tool.type_in_field("Document", "HELIX verification")
+    with screen_observation_scope(True):
+        assert await tool.type_in_field("Document", "HELIX verification")
     assert calls == ["paste", ("hotkey", ("ctrl", "a")), "keyboard"]
 
 

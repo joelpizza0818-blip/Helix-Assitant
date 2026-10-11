@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import WebSocket from 'ws'
 import type { BrowserPageSnapshot } from './browser-extension-bridge'
+import { websocketAuthHeaders } from './websocket-auth'
 
 interface AgentMessage {
   type: string
@@ -25,8 +26,10 @@ export class IPCBridge {
   private requestTimeouts: Map<string, NodeJS.Timeout> = new Map()
   private reconnectAttempts: number = 0
   private wsUrl: string = ''
+  private wsTokenProvider: (() => string) | null = null
   private reconnecting: boolean = false
   private settingsAppliedHandler: ((settings: Record<string, unknown>) => void) | null = null
+  private capabilityRequiredHandler: ((payload: Record<string, unknown>) => Promise<void>) | null = null
 
   setupHandlers(
     mainWindow: BrowserWindow,
@@ -142,8 +145,9 @@ export class IPCBridge {
     })
   }
 
-  async connectToPython(wsUrl: string): Promise<void> {
+  async connectToPython(wsUrl: string, getToken: () => string): Promise<void> {
     this.wsUrl = wsUrl
+    this.wsTokenProvider = getToken
     return this._connect()
   }
 
@@ -160,6 +164,14 @@ export class IPCBridge {
 
   onSettingsApplied(handler: (settings: Record<string, unknown>) => void): void {
     this.settingsAppliedHandler = handler
+  }
+
+  onCapabilityRequired(handler: (payload: Record<string, unknown>) => Promise<void>): void {
+    this.capabilityRequiredHandler = handler
+  }
+
+  sendCapabilityResolved(payload: Record<string, unknown>): void {
+    this._sendToPython({ type: 'CAPABILITY_RESOLVED', payload, timestamp: new Date().toISOString() })
   }
 
   sendEmergencyStop(): void {
@@ -195,7 +207,12 @@ export class IPCBridge {
       let connected = false
       let settled = false
       try {
-        const ws = new (WebSocket as any)(this.wsUrl)
+        if (!this.wsTokenProvider) {
+          throw new Error('Python agent WebSocket token provider is not configured')
+        }
+        const ws = new WebSocket(this.wsUrl, {
+          headers: websocketAuthHeaders(this.wsTokenProvider()),
+        })
         this.ws = ws
 
         ws.on('open', () => {
@@ -360,6 +377,12 @@ export class IPCBridge {
     }
 
     const channel = typeMap[message.type] ?? `helix:${message.type}`
+
+    if (channel === 'helix:capability-required') {
+      void this.capabilityRequiredHandler?.(message.payload)
+      this._sendToAll(channel, message.payload)
+      return
+    }
 
     if (channel === 'helix:confirmation-request') {
       this.activeConfirmation = message.payload

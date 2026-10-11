@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.IPCBridge = void 0;
 const electron_1 = require("electron");
 const ws_1 = __importDefault(require("ws"));
+const websocket_auth_1 = require("./websocket-auth");
 const RECONNECT_DELAY_MS = 3000;
 class IPCBridge {
     constructor() {
@@ -20,8 +21,10 @@ class IPCBridge {
         this.requestTimeouts = new Map();
         this.reconnectAttempts = 0;
         this.wsUrl = '';
+        this.wsTokenProvider = null;
         this.reconnecting = false;
         this.settingsAppliedHandler = null;
+        this.capabilityRequiredHandler = null;
     }
     setupHandlers(mainWindow, toolboxWindow, confirmationWindow) {
         this.mainWindow = mainWindow;
@@ -107,8 +110,9 @@ class IPCBridge {
             return this._request({ type: 'GET_MCP_SERVERS', payload: {} });
         });
     }
-    async connectToPython(wsUrl) {
+    async connectToPython(wsUrl, getToken) {
         this.wsUrl = wsUrl;
+        this.wsTokenProvider = getToken;
         return this._connect();
     }
     async loadSettings() {
@@ -123,6 +127,12 @@ class IPCBridge {
     }
     onSettingsApplied(handler) {
         this.settingsAppliedHandler = handler;
+    }
+    onCapabilityRequired(handler) {
+        this.capabilityRequiredHandler = handler;
+    }
+    sendCapabilityResolved(payload) {
+        this._sendToPython({ type: 'CAPABILITY_RESOLVED', payload, timestamp: new Date().toISOString() });
     }
     sendEmergencyStop() {
         this._sendToPython({ type: 'TASK_CANCEL_ALL', payload: {}, timestamp: new Date().toISOString() });
@@ -153,7 +163,12 @@ class IPCBridge {
             let connected = false;
             let settled = false;
             try {
-                const ws = new ws_1.default(this.wsUrl);
+                if (!this.wsTokenProvider) {
+                    throw new Error('Python agent WebSocket token provider is not configured');
+                }
+                const ws = new ws_1.default(this.wsUrl, {
+                    headers: (0, websocket_auth_1.websocketAuthHeaders)(this.wsTokenProvider()),
+                });
                 this.ws = ws;
                 ws.on('open', () => {
                     connected = true;
@@ -307,6 +322,11 @@ class IPCBridge {
             'hand_landmarks': 'helix:hand-landmarks'
         };
         const channel = typeMap[message.type] ?? `helix:${message.type}`;
+        if (channel === 'helix:capability-required') {
+            void this.capabilityRequiredHandler?.(message.payload);
+            this._sendToAll(channel, message.payload);
+            return;
+        }
         if (channel === 'helix:confirmation-request') {
             this.activeConfirmation = message.payload;
             this.activeConfirmationId = typeof message.payload.id === 'string' ? message.payload.id : null;

@@ -114,13 +114,38 @@ class PermissionManager:
             level = PermissionLevel.SYSTEM
 
         protected = False
-        for key in ("path", "destination", "dest"):
-            value = params.get(key)
-            if isinstance(value, str) and self.is_path_protected(value):
-                protected = True
-        app = params.get("app") or params.get("application") or params.get("process")
-        if isinstance(app, str) and self.is_app_protected(app):
-            protected = True
+        path_keys = {"path", "destination", "dest", "working_dir", "file_path"}
+        app_keys = {
+            "app",
+            "app_name",
+            "application",
+            "application_name",
+            "process",
+            "process_name",
+            "executable",
+        }
+        values = [params]
+        while values:
+            value = values.pop()
+            if isinstance(value, dict):
+                for key, item in value.items():
+                    normalized_key = str(key).casefold()
+                    if (
+                        normalized_key in path_keys
+                        and isinstance(item, str)
+                        and self.is_path_protected(item)
+                    ):
+                        protected = True
+                    elif (
+                        normalized_key in app_keys
+                        and isinstance(item, str)
+                        and self.is_app_protected(item)
+                    ):
+                        protected = True
+                    if isinstance(item, (dict, list, tuple)):
+                        values.append(item)
+            elif isinstance(value, (list, tuple)):
+                values.extend(value)
         if protected and level.value < PermissionLevel.CRITICAL.value:
             level = PermissionLevel.CRITICAL
 
@@ -158,19 +183,30 @@ class PermissionManager:
         return allowed
 
     def is_path_protected(self, path: str) -> bool:
-        norm_path = os.path.normcase(os.path.abspath(os.path.normpath(path)))
-        for protected in self.protected_paths:
-            protected_path = os.path.normcase(os.path.abspath(os.path.normpath(protected)))
-            try:
-                if norm_path == protected_path or Path(protected_path) in Path(norm_path).parents:
-                    return True
-            except (OSError, ValueError):
-                if norm_path.startswith(protected_path.rstrip("\\/") + os.sep):
-                    return True
+        try:
+            resolved_path = Path(path).expanduser().resolve(strict=False)
+            protected_paths = [
+                Path(protected).expanduser().resolve(strict=False)
+                for protected in self.protected_paths
+            ]
+        except (OSError, RuntimeError, TypeError, ValueError):
+            return True
+        norm_path = os.path.normcase(str(resolved_path))
+        for protected_path in protected_paths:
+            normalized_protected = os.path.normcase(str(protected_path))
+            if (
+                norm_path == normalized_protected
+                or protected_path in resolved_path.parents
+            ):
+                return True
         return False
 
     def is_app_protected(self, app_name: str) -> bool:
-        return app_name.lower() in [app.lower() for app in self.protected_apps]
+        normalized_app = os.path.basename(app_name.replace("/", "\\")).casefold()
+        return normalized_app in {
+            os.path.basename(app.replace("/", "\\")).casefold()
+            for app in self.protected_apps
+        }
 
     def get_required_level(self, tool_name: str) -> PermissionLevel:
         return PermissionLevel.EXECUTE

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useCallback, useState, useEffect, useRef } from 'react'
 import { useSettings } from '../../hooks/useSettings'
 import { useAgent } from '../../hooks/useAgent'
 import { HelixLogo } from '../HelixLogo/HelixLogo'
@@ -18,6 +18,7 @@ import BrowserExtensionSection from './sections/BrowserExtensionSection'
 import UpdateSection from './sections/UpdateSection'
 import AdminSection from './sections/AdminSection'
 import ProfilesSection from './sections/ProfilesSection'
+import CapabilitiesSection from './sections/CapabilitiesSection'
 import {
   adminRequest,
   desktopSupabase,
@@ -47,6 +48,7 @@ type Section =
   | 'updates'
   | 'profiles'
   | 'admin'
+  | 'capabilities'
 
 interface NavItem {
   id: Section
@@ -69,6 +71,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'clipboard', label: 'Clipboard', icon: <NavIcon d="M8 4h8l1 2h3v15H4V6h3l1-2zm0 4h8m-8 4h8m-8 4h5" /> },
   { id: 'browser-companion', label: 'Browser Companion', icon: <NavIcon d="M3 4h18v15H3zM3 9h18m-9 10v3m-4 0h8" /> },
   { id: 'updates', label: 'Updates', icon: <NavIcon d="M20 7v5h-5M4 17v-5h5m-3.5-3A7 7 0 0 1 18 6l2 2M4 16l2 2a7 7 0 0 0 12.5-3" /> },
+  { id: 'capabilities', label: 'Capabilities', icon: <NavIcon d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6l8-4zm0 5v6m-3 0h6" /> },
   { id: 'profiles', label: 'Perfil', icon: <NavIcon d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2m8-10a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" /> },
   { id: 'admin', label: 'Admin', icon: <NavIcon d="M12 2l8 4v5c0 5-3.5 9-8 11-4.5-2-8-6-8-11V6l8-4zm0 6v5m0 3h.01" /> },
 ]
@@ -90,6 +93,9 @@ export default function Toolbox() {
   const oauthTimeoutRef = useRef<number | null>(null)
   const [pendingReportsCount, setPendingReportsCount] = useState(0)
   const { settings, isLoading, isSaving, isApplied, error, loadSettings, saveSettings } = useSettings()
+  const saveOtherSettings = useCallback(async (partial: Partial<typeof settings>) => {
+    await saveSettings(partial)
+  }, [saveSettings])
   const { providers, models, loadProviders, loadModels } = useAgent()
   const isAdmin = profile?.rank === 'admin' || profile?.rank === 'master-admin'
   const isMaster = profile?.rank === 'master-admin'
@@ -212,7 +218,10 @@ export default function Toolbox() {
       <div className="toolbox__layout">
         {/* ── Sidebar ────────────────────────────── */}
         <nav className="toolbox__sidebar">
-          {NAV_ITEMS.filter((item) => item.id !== 'admin' || isAdmin).map((item) => (
+          {NAV_ITEMS.filter((item) => (
+            (item.id !== 'admin' || isAdmin)
+            && (item.id !== 'capabilities' || import.meta.env.DEV)
+          )).map((item) => (
             <button
               key={item.id}
               className={`toolbox__nav-item ${activeSection === item.id ? 'toolbox__nav-item--active' : ''}`}
@@ -240,33 +249,33 @@ export default function Toolbox() {
                   providers={providers}
                   models={models}
                   settings={settings}
-                  onSave={saveSettings}
+                  onSave={saveOtherSettings}
                   onRefresh={() => { loadProviders(); loadModels() }}
                 />
               )}
               {activeSection === 'voice' && (
-                <VoiceSection settings={settings} onSave={saveSettings} />
+                <VoiceSection settings={settings} onSave={saveOtherSettings} />
               )}
               {activeSection === 'vision' && (
-                <VisionSection settings={settings} onSave={saveSettings} />
+                <VisionSection settings={settings} onSave={saveOtherSettings} />
               )}
               {activeSection === 'computer' && (
-                <ComputerSection settings={settings} onSave={saveSettings} />
+                <ComputerSection settings={settings} onSave={saveOtherSettings} />
               )}
               {activeSection === 'system' && (
-                <SystemSection settings={settings} onSave={saveSettings} />
+                <SystemSection settings={settings} onSave={saveOtherSettings} />
               )}
               {activeSection === 'web' && (
-                <WebSection settings={settings} onSave={saveSettings} />
+                <WebSection settings={settings} onSave={saveOtherSettings} />
               )}
               {activeSection === 'memory' && (
-                <MemorySection settings={settings} onSave={saveSettings} />
+                <MemorySection settings={settings} onSave={saveOtherSettings} />
               )}
               {activeSection === 'security' && (
-                <SecuritySection settings={settings} onSave={saveSettings} />
+                <SecuritySection settings={settings} onSave={saveOtherSettings} />
               )}
               {activeSection === 'startup' && (
-                <StartupSection settings={settings} onSave={saveSettings} />
+                <StartupSection settings={settings} onSave={saveOtherSettings} />
               )}
               {activeSection === 'skills' && <SkillsSection />}
               {activeSection === 'mcp' && (
@@ -275,6 +284,7 @@ export default function Toolbox() {
               {activeSection === 'clipboard' && <ClipboardSection />}
               {activeSection === 'browser-companion' && <BrowserExtensionSection />}
               {activeSection === 'updates' && <UpdateSection />}
+              {activeSection === 'capabilities' && <CapabilitiesSection />}
               {activeSection === 'profiles' && (
                 <ProfilesSection
                   configured={desktopSupabaseConfigured}

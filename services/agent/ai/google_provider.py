@@ -5,9 +5,22 @@ try:
 except ImportError:
     genai = None
 
-from typing import AsyncIterator, List, Dict
+from typing import Any, AsyncIterator, List, Dict
 import json
 from .base_provider import BaseAIProvider, ChatMessage, ChatResponse, StreamChunk, ToolCallResponse, Usage, ModelDefinition, ModelCapabilities, AgentError, KeyHealth, ToolCall
+
+
+def _normalize_google_schema(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _normalize_google_schema(item)
+            for key, item in value.items()
+            if key not in {"additionalProperties", "additional_properties"}
+        }
+    if isinstance(value, list):
+        return [_normalize_google_schema(item) for item in value]
+    return value
+
 
 class GoogleProvider(BaseAIProvider):
     @property
@@ -75,7 +88,7 @@ class GoogleProvider(BaseAIProvider):
             types.FunctionDeclaration(
                 name=tool["name"],
                 description=tool["description"],
-                parameters=tool["parameters"],
+                parameters=_normalize_google_schema(tool["parameters"]),
             )
             for tool in tools
         ])]
@@ -142,8 +155,14 @@ class GoogleProvider(BaseAIProvider):
             )
             tool_calls = []
             if response.function_calls:
-                for fc in response.function_calls:
-                    tool_calls.append(ToolCall(id=fc.name, name=fc.name, arguments=fc.args))
+                for index, fc in enumerate(response.function_calls):
+                    tool_calls.append(
+                        ToolCall(
+                            id=f"{fc.name}-{index}",
+                            name=fc.name,
+                            arguments=fc.args,
+                        )
+                    )
             candidate_content = (
                 response.candidates[0].content
                 if response.candidates

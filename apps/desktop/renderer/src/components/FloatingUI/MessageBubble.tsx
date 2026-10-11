@@ -2,13 +2,15 @@ import React from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { AgentMessage } from '../../types/global'
+import { skillMentionPlugin } from './skillMentions'
 import './MessageBubble.css'
 
 interface Props {
   message: AgentMessage
+  skillNames?: readonly string[]
 }
 
-export default function MessageBubble({ message }: Props) {
+export default function MessageBubble({ message, skillNames = [] }: Props) {
   const { role, content, timestamp, tool_name, model, provider } = message
 
   const formattedTime = new Date(timestamp).toLocaleTimeString([], {
@@ -50,7 +52,10 @@ export default function MessageBubble({ message }: Props) {
               ))}
             </div>
           ) : null}
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[
+            remarkGfm,
+            skillMentionPlugin(skillNames),
+          ]}>{content}</ReactMarkdown>
         </div>
         <div className="bubble__meta">
           {role === 'assistant' && model && (

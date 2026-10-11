@@ -14,8 +14,11 @@ logger = logging.getLogger(__name__)
 
 class MCPClient:
     def __init__(self, server_command: str = None, server_url: str = None):
+        if server_url is not None:
+            raise ValueError(
+                "MCP URL transport is not supported; provide a local stdio server_command."
+            )
         self.server_command = server_command
-        self.server_url = server_url
         self.process = None
         self._req_id = 0
         self._pending_requests: Dict[int, asyncio.Future] = {}
@@ -42,10 +45,10 @@ class MCPClient:
             self._reader_task = asyncio.create_task(self._read_responses())
             self._stderr_task = asyncio.create_task(self._drain_stderr())
             logger.info("Connected to MCP server process.")
-        elif self.server_url:
-            raise NotImplementedError("HTTP/URL transport not yet implemented")
         else:
-            raise ValueError("Must provide either server_command or server_url")
+            raise ValueError(
+                "MCP currently supports local stdio servers only; provide server_command."
+            )
 
     async def disconnect(self):
         if self.process:
