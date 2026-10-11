@@ -1,11 +1,12 @@
 import { supabase } from './supabase'
 
 const UPDATE_METADATA_URL = 'https://zqjktbpymrfjmggjmbfp.supabase.co/functions/v1/installer-updates/latest.yml'
-const LITE_RELEASES_URL = 'https://api.github.com/repos/joelpizza0818-blip/Helix-Assitant/releases?per_page=100'
+const LITE_RELEASE_URL = 'https://zqjktbpymrfjmggjmbfp.supabase.co/functions/v1/installer-lite-updates'
 
 export interface LiteReleaseDownload {
   version: string
   installerUrl: string
+  checksumUrl: string
   releaseUrl: string
 }
 
@@ -30,67 +31,50 @@ export async function getLatestInstallerVersion(signal?: AbortSignal): Promise<s
 }
 
 export async function getLatestLiteRelease(signal?: AbortSignal): Promise<LiteReleaseDownload> {
-  const response = await fetch(LITE_RELEASES_URL, {
-    headers: { Accept: 'application/vnd.github+json' },
+  const response = await fetch(LITE_RELEASE_URL, {
     signal,
+    cache: 'no-store',
   })
   if (!response.ok) throw new Error(`The HELIX Lite release service returned HTTP ${response.status}.`)
+  const release: unknown = await response.json()
+  if (
+    !release
+    || typeof release !== 'object'
+    || !('version' in release)
+    || typeof release.version !== 'string'
+    || !/^\d+\.\d+\.\d+$/.test(release.version)
+    || !('tag' in release)
+    || release.tag !== `lite-v${release.version}`
+    || !('installerUrl' in release)
+    || typeof release.installerUrl !== 'string'
+    || !('checksumUrl' in release)
+    || typeof release.checksumUrl !== 'string'
+    || !('releaseUrl' in release)
+    || typeof release.releaseUrl !== 'string'
+  ) throw new Error('The HELIX Lite release service returned invalid data.')
 
-  const releases: unknown = await response.json()
-  if (!Array.isArray(releases)) throw new Error('The HELIX Lite release service returned invalid data.')
-  const release = releases.find((candidate: unknown) => {
-    if (!candidate || typeof candidate !== 'object') return false
-    const value = candidate as Record<string, unknown>
-    return typeof value.tag_name === 'string'
-      && /^lite-v\d+\.\d+\.\d+$/.test(value.tag_name)
-      && value.draft === false
-      && value.prerelease === false
-  }) as Record<string, unknown> | undefined
-  if (!release || !Array.isArray(release.assets) || typeof release.html_url !== 'string') {
-    throw new Error('No stable HELIX Lite release with downloadable assets is published.')
-  }
-  const tagName = typeof release.tag_name === 'string' ? release.tag_name : ''
-  if (!/^lite-v\d+\.\d+\.\d+$/.test(tagName)) {
-    throw new Error('The latest HELIX Lite release has an invalid version tag.')
-  }
-
-  const installer = release.assets.find((asset: unknown) => (
-    asset !== null
-    && typeof asset === 'object'
-    && 'name' in asset
-    && asset.name === 'HELIX-Lite-Setup.exe'
-    && 'browser_download_url' in asset
-    && typeof asset.browser_download_url === 'string'
-  )) as { browser_download_url: string } | undefined
-  const checksum = release.assets.find((asset: unknown) => (
-    asset !== null
-    && typeof asset === 'object'
-    && 'name' in asset
-    && asset.name === 'HELIX-Lite-Setup.exe.sha256'
-    && 'browser_download_url' in asset
-    && typeof asset.browser_download_url === 'string'
-  )) as { browser_download_url: string } | undefined
-  if (!installer || !checksum) {
-    throw new Error('The latest HELIX Lite release is missing its installer or SHA-256 checksum.')
-  }
-
-  const releaseUrl = new URL(release.html_url)
-  const installerUrl = new URL(installer.browser_download_url)
-  const checksumUrl = new URL(checksum.browser_download_url)
+  const releaseUrl = new URL(release.releaseUrl)
+  const installerUrl = new URL(release.installerUrl)
+  const checksumUrl = new URL(release.checksumUrl)
+  const releaseBase = '/joelpizza0818-blip/Helix-Assitant/releases'
   if (
     releaseUrl.protocol !== 'https:'
     || releaseUrl.hostname !== 'github.com'
+    || releaseUrl.pathname !== `${releaseBase}/tag/${release.tag}`
     || installerUrl.protocol !== 'https:'
     || installerUrl.hostname !== 'github.com'
+    || installerUrl.pathname !== `${releaseBase}/download/${release.tag}/HELIX-Lite-Setup.exe`
     || checksumUrl.protocol !== 'https:'
     || checksumUrl.hostname !== 'github.com'
+    || checksumUrl.pathname !== `${releaseBase}/download/${release.tag}/HELIX-Lite-Setup.exe.sha256`
   ) {
     throw new Error('The HELIX Lite release returned an untrusted asset URL.')
   }
 
   return {
-    version: tagName.slice('lite-v'.length),
+    version: release.version,
     installerUrl: installerUrl.toString(),
+    checksumUrl: checksumUrl.toString(),
     releaseUrl: releaseUrl.toString(),
   }
 }

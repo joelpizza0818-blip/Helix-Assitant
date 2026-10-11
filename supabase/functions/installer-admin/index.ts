@@ -1,6 +1,8 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const GITHUB_API = 'https://api.github.com'
+const LITE_RELEASE_OWNER = 'joelpizza0818-blip'
+const LITE_RELEASE_REPOSITORY = 'Helix-Assitant'
 
 function releaseTag(version: string): string {
   return version.startsWith('v') ? version : `v${version}`
@@ -261,6 +263,59 @@ async function verifyRelease(
   return { ok: true }
 }
 
+async function verifyLiteRelease(version: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const tag = `lite-v${version}`
+  let response: Response
+  try {
+    response = await fetch(
+      `${GITHUB_API}/repos/${LITE_RELEASE_OWNER}/${LITE_RELEASE_REPOSITORY}/releases/tags/${encodeURIComponent(tag)}`,
+      {
+        headers: {
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+          'User-Agent': 'HELIX-Lite-release-admin',
+        },
+        signal: AbortSignal.timeout(8000),
+      },
+    )
+  } catch (error) {
+    console.error('Could not verify the public HELIX Lite release:', error)
+    return { ok: false, error: 'Could not verify the HELIX Lite release right now.' }
+  }
+  if (response.status === 404) return { ok: false, error: `HELIX Lite release ${tag} does not exist.` }
+  if (!response.ok) return { ok: false, error: `HELIX Lite release verification failed (HTTP ${response.status}).` }
+
+  const release: unknown = await response.json().catch(() => null)
+  if (
+    release === null
+    || typeof release !== 'object'
+    || !('tag_name' in release)
+    || release.tag_name !== tag
+    || !('draft' in release)
+    || release.draft !== false
+    || !('prerelease' in release)
+    || release.prerelease !== false
+    || !('assets' in release)
+    || !Array.isArray(release.assets)
+  ) {
+    return { ok: false, error: `HELIX Lite release ${tag} returned invalid or non-stable metadata.` }
+  }
+
+  const requiredAssets = new Set(['HELIX-Lite-Setup.exe', 'HELIX-Lite-Setup.exe.sha256'])
+  for (const asset of release.assets) {
+    if (
+      asset !== null
+      && typeof asset === 'object'
+      && 'name' in asset
+      && typeof asset.name === 'string'
+    ) requiredAssets.delete(asset.name)
+  }
+  if (requiredAssets.size) {
+    return { ok: false, error: `HELIX Lite release ${tag} is missing its installer or SHA-256 checksum.` }
+  }
+  return { ok: true }
+}
+
 function isPolicyBody(value: unknown): value is {
   publicVersion: string
   channel: 'stable' | 'beta'
@@ -487,6 +542,65 @@ Deno.serve(async (request: Request) => {
     }
     if (!data) return jsonResponse(404, { error: 'Error report was not found.' })
     return jsonResponse(200, { success: true, report: data })
+  }
+
+  if (route === 'lite-policy') {
+    if (!isAdmin) return jsonResponse(403, { error: 'Admin rank required to view HELIX Lite release policy.' })
+    if (request.method === 'GET') {
+      const { data, error } = await admin
+        .from('release_policies')
+        .select('public_version, channel, updated_at')
+        .eq('id', 'lite')
+        .maybeSingle()
+      if (error) {
+        console.error('Could not load HELIX Lite release policy:', error.message)
+        return jsonResponse(503, { error: 'Could not load the HELIX Lite release policy.' })
+      }
+      if (!data) return jsonResponse(503, { error: 'HELIX Lite release policy has not been provisioned.' })
+      return jsonResponse(200, {
+        success: true,
+        data: { publicVersion: data.public_version, channel: data.channel, updatedAt: data.updated_at },
+      })
+    }
+    if (request.method === 'PUT') {
+      if (profile.rank !== 'master-admin') {
+        return jsonResponse(403, { error: 'Master admin rank required to publish HELIX Lite releases.' })
+      }
+      const body: unknown = await request.json().catch(() => null)
+      if (
+        body === null
+        || typeof body !== 'object'
+        || !('publicVersion' in body)
+        || typeof body.publicVersion !== 'string'
+        || !/^\d+\.\d+\.\d+$/.test(body.publicVersion)
+      ) return jsonResponse(400, { error: 'HELIX Lite version must use the format major.minor.patch.' })
+
+      const verified = await verifyLiteRelease(body.publicVersion)
+      if (!verified.ok) return jsonResponse(422, { error: verified.error })
+
+      const { data, error } = await admin
+        .from('release_policies')
+        .upsert({
+          id: 'lite',
+          public_version: body.publicVersion,
+          channel: 'stable',
+          auto_update: true,
+          check_interval_hours: 24,
+          updated_by_user_id: auth.githubId,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'id' })
+        .select('public_version, channel, updated_at')
+        .single()
+      if (error) {
+        console.error('Could not save HELIX Lite release policy:', error.message)
+        return jsonResponse(503, { error: 'Could not save the HELIX Lite release policy.' })
+      }
+      return jsonResponse(200, {
+        success: true,
+        data: { publicVersion: data.public_version, channel: data.channel, updatedAt: data.updated_at },
+      })
+    }
+    return jsonResponse(405, { error: 'Method not allowed.' })
   }
 
   if (!isAdmin) {

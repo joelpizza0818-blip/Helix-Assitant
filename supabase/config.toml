@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.installer-admin]
 verify_jwt = false
+
+[functions.installer-lite-updates]
+verify_jwt = false

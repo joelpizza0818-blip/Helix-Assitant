@@ -37,9 +37,9 @@ const MAX_PENDING_REQUESTS: usize = 64;
 const AGENT_READY_TIMEOUT: Duration = Duration::from_secs(90);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const ADMIN_API: &str = "https://zqjktbpymrfjmggjmbfp.supabase.co/functions/v1/installer-admin";
-const LITE_RELEASES_API: &str =
-    "https://api.github.com/repos/joelpizza0818-blip/Helix-Assitant/releases?per_page=100";
-const LITE_RELEASE_TAG_PREFIX: &str = "lite-v";
+const LITE_UPDATES_API: &str =
+    "https://zqjktbpymrfjmggjmbfp.supabase.co/functions/v1/installer-lite-updates";
+const LITE_RELEASE_REPOSITORY: &str = "joelpizza0818-blip/Helix-Assitant";
 const LITE_INSTALLER_ASSET: &str = "HELIX-Lite-Setup.exe";
 
 #[derive(Default)]
@@ -57,19 +57,12 @@ struct AgentBridge(Arc<Mutex<AgentRuntime>>);
 struct UpdaterState(Mutex<Option<PathBuf>>);
 
 #[derive(serde::Deserialize)]
-struct GithubRelease {
-    tag_name: String,
-    #[serde(default)]
-    draft: bool,
-    #[serde(default)]
-    prerelease: bool,
-    assets: Vec<GithubAsset>,
-}
-
-#[derive(serde::Deserialize)]
-struct GithubAsset {
-    name: String,
-    browser_download_url: String,
+#[serde(rename_all = "camelCase")]
+struct LiteReleaseInfo {
+    version: String,
+    tag: String,
+    installer_url: String,
+    checksum_url: String,
 }
 
 fn is_newer_version(candidate: &str, current: &str) -> bool {
@@ -92,42 +85,56 @@ fn is_newer_version(candidate: &str, current: &str) -> bool {
         .is_some_and(|(left, right)| left > right)
 }
 
-async fn latest_lite_release() -> Result<(String, Vec<GithubAsset>), String> {
-    let response = reqwest::Client::new()
-        .get(LITE_RELEASES_API)
+fn is_trusted_release_asset(url_value: &str, version: &str, asset: &str) -> bool {
+    let expected_path =
+        format!("/{LITE_RELEASE_REPOSITORY}/releases/download/lite-v{version}/{asset}");
+    reqwest::Url::parse(url_value).is_ok_and(|url| {
+        url.scheme() == "https"
+            && url.host_str() == Some("github.com")
+            && url.path() == expected_path
+    })
+}
+
+fn is_valid_release_version(version: &str) -> bool {
+    version.split('.').count() == 3
+        && version
+            .split('.')
+            .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
+}
+
+async fn latest_lite_release() -> Result<LiteReleaseInfo, String> {
+    let release = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|error| format!("Could not initialize the HELIX Lite updater: {error}"))?
+        .get(LITE_UPDATES_API)
         .header("User-Agent", "HELIX-Lite-Updater")
         .send()
         .await
-        .map_err(|error| format!("Could not check the HELIX Lite release feed: {error}"))?
+        .map_err(|error| format!("Could not check the HELIX Lite release policy: {error}"))?
         .error_for_status()
-        .map_err(|error| format!("HELIX Lite release feed rejected the request: {error}"))?;
-    let releases = response
-        .json::<Vec<GithubRelease>>()
+        .map_err(|error| format!("HELIX Lite release policy rejected the request: {error}"))?
+        .json::<LiteReleaseInfo>()
         .await
-        .map_err(|error| format!("Invalid HELIX Lite release feed: {error}"))?;
-    releases
-        .into_iter()
-        .find(|release| {
-            release.tag_name.starts_with(LITE_RELEASE_TAG_PREFIX)
-                && !release.draft
-                && !release.prerelease
-        })
-        .map(|release| (release.tag_name, release.assets))
-        .ok_or_else(|| "No stable HELIX Lite release is published".to_string())
-}
-
-fn release_version(tag: &str) -> Result<&str, String> {
-    let version = tag
-        .strip_prefix(LITE_RELEASE_TAG_PREFIX)
-        .ok_or_else(|| "The release feed returned an invalid HELIX Lite tag".to_string())?;
-    if version.split('.').count() != 3
-        || version
-            .split('.')
-            .any(|part| part.is_empty() || !part.bytes().all(|byte| byte.is_ascii_digit()))
+        .map_err(|error| format!("Invalid HELIX Lite release policy: {error}"))?;
+    if !is_valid_release_version(&release.version)
+        || release.tag != format!("lite-v{}", release.version)
+        || !is_trusted_release_asset(
+            &release.installer_url,
+            &release.version,
+            LITE_INSTALLER_ASSET,
+        )
+        || !is_trusted_release_asset(
+            &release.checksum_url,
+            &release.version,
+            &format!("{LITE_INSTALLER_ASSET}.sha256"),
+        )
     {
-        return Err("The release feed returned an invalid HELIX Lite version".to_string());
+        return Err(
+            "HELIX Lite release policy returned an invalid or untrusted release".to_string(),
+        );
     }
-    Ok(version)
+    Ok(release)
 }
 
 fn create_token() -> Result<String, String> {
@@ -669,7 +676,7 @@ async fn admin_request(
 #[tauri::command]
 async fn check_for_updates(app: AppHandle) -> Result<Value, String> {
     let current_version = env!("CARGO_PKG_VERSION");
-    let (tag, assets) = match latest_lite_release().await {
+    let release = match latest_lite_release().await {
         Ok(release) => release,
         Err(error) => {
             let _ = app.emit(
@@ -679,51 +686,31 @@ async fn check_for_updates(app: AppHandle) -> Result<Value, String> {
             return Err(error);
         }
     };
-    let version = release_version(&tag)?.to_string();
-    let status = if is_newer_version(&version, current_version) {
+    let status = if is_newer_version(&release.version, current_version) {
         "available"
     } else {
         "current"
     };
-    let installer_available = assets
-        .iter()
-        .any(|asset| asset.name == LITE_INSTALLER_ASSET);
-    let checksum_available = assets
-        .iter()
-        .any(|asset| asset.name == format!("{LITE_INSTALLER_ASSET}.sha256"));
-    let status = if status == "available" && (!installer_available || !checksum_available) {
-        "error"
-    } else {
-        status
-    };
-    let result = if status == "error" {
-        json!({ "status": status, "message": "The HELIX Lite release is missing its installer or SHA-256 checksum." })
-    } else {
-        json!({ "status": status, "currentVersion": current_version, "version": version, "unsigned": true })
-    };
+    let result = json!({
+        "status": status,
+        "currentVersion": current_version,
+        "version": release.version,
+        "unsigned": true
+    });
     let _ = app.emit("helix:updater-status", result.clone());
     Ok(result)
 }
 
 #[tauri::command]
 async fn download_update(app: AppHandle, updater: State<'_, UpdaterState>) -> Result<(), String> {
-    let (tag, assets) = latest_lite_release().await?;
-    let version = release_version(&tag)?.to_string();
-    let installer = assets
-        .iter()
-        .find(|asset| asset.name == LITE_INSTALLER_ASSET)
-        .ok_or_else(|| "This HELIX Lite release has no installer asset".to_string())?;
-    let checksum_asset = assets
-        .iter()
-        .find(|asset| asset.name == format!("{LITE_INSTALLER_ASSET}.sha256"))
-        .ok_or_else(|| "This HELIX Lite release has no SHA-256 checksum asset".to_string())?;
+    let release = latest_lite_release().await?;
     let client = reqwest::Client::new();
     let _ = app.emit(
         "helix:updater-status",
         json!({ "status": "downloading", "percent": 0, "transferred": 0, "total": 0 }),
     );
     let installer_bytes = client
-        .get(&installer.browser_download_url)
+        .get(&release.installer_url)
         .send()
         .await
         .map_err(|error| format!("Could not download HELIX Lite update: {error}"))?
@@ -733,7 +720,7 @@ async fn download_update(app: AppHandle, updater: State<'_, UpdaterState>) -> Re
         .await
         .map_err(|error| format!("Could not read HELIX Lite update: {error}"))?;
     let expected_checksum = client
-        .get(&checksum_asset.browser_download_url)
+        .get(&release.checksum_url)
         .send()
         .await
         .map_err(|error| format!("Could not download update checksum: {error}"))?
@@ -762,13 +749,17 @@ async fn download_update(app: AppHandle, updater: State<'_, UpdaterState>) -> Re
         .map_err(|error| format!("Could not resolve update cache directory: {error}"))?;
     fs::create_dir_all(&cache_dir)
         .map_err(|error| format!("Could not create update cache: {error}"))?;
-    let installer_path = cache_dir.join(format!("HELIX-Lite-{version}-Setup.exe"));
+    let installer_path = cache_dir.join(format!("HELIX-Lite-{}-Setup.exe", release.version));
     fs::write(&installer_path, &installer_bytes)
         .map_err(|error| format!("Could not save HELIX Lite update: {error}"))?;
     *updater.0.lock().await = Some(installer_path);
     let _ = app.emit(
         "helix:updater-status",
-        json!({ "status": "downloaded", "currentVersion": env!("CARGO_PKG_VERSION"), "version": version }),
+        json!({
+            "status": "downloaded",
+            "currentVersion": env!("CARGO_PKG_VERSION"),
+            "version": release.version
+        }),
     );
     Ok(())
 }
@@ -1003,10 +994,31 @@ mod tests {
     }
 
     #[test]
-    fn updater_only_uses_a_lite_release_tag_and_version_order() {
-        assert_eq!(release_version("lite-v0.1.11").unwrap(), "0.1.11");
-        assert!(release_version("v0.1.11").is_err());
-        assert!(release_version("lite-vstable").is_err());
+    fn updater_only_accepts_the_admin_selected_lite_release_and_trusted_assets() {
+        assert!(is_valid_release_version("0.1.11"));
+        assert!(!is_valid_release_version("v0.1.11"));
+        assert!(!is_valid_release_version("0.1"));
+        assert!(!is_valid_release_version("0.1.x"));
+        assert!(is_trusted_release_asset(
+            "https://github.com/joelpizza0818-blip/Helix-Assitant/releases/download/lite-v0.1.11/HELIX-Lite-Setup.exe",
+            "0.1.11",
+            LITE_INSTALLER_ASSET
+        ));
+        assert!(!is_trusted_release_asset(
+            "https://github.com/someone-else/Helix-Assitant/releases/download/lite-v0.1.11/HELIX-Lite-Setup.exe",
+            "0.1.11",
+            LITE_INSTALLER_ASSET
+        ));
+        assert!(!is_trusted_release_asset(
+            "https://github.com/joelpizza0818-blip/Helix-Assitant/releases/download/lite-v0.1.10/HELIX-Lite-Setup.exe",
+            "0.1.11",
+            LITE_INSTALLER_ASSET
+        ));
+        assert!(!is_trusted_release_asset(
+            "http://github.com/joelpizza0818-blip/Helix-Assitant/releases/download/lite-v0.1.11/HELIX-Lite-Setup.exe",
+            "0.1.11",
+            LITE_INSTALLER_ASSET
+        ));
         assert!(is_newer_version("0.1.11", "0.1.10"));
         assert!(!is_newer_version("0.1.9", "0.1.10"));
         assert!(!is_newer_version("0.1.10", "0.1.10"));
