@@ -220,7 +220,7 @@ export default function Toolbox() {
         <nav className="toolbox__sidebar">
           {NAV_ITEMS.filter((item) => (
             (item.id !== 'admin' || isAdmin)
-            && (item.id !== 'capabilities' || import.meta.env.DEV)
+            && (item.id !== 'capabilities' || import.meta.env.DEV || '__TAURI_INTERNALS__' in window)
           )).map((item) => (
             <button
               key={item.id}

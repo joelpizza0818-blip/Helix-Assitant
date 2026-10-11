@@ -75,7 +75,12 @@ export default function CapabilitiesSection() {
       </div>
       {snapshot.profile === 'progressive' && snapshot.missingCount > 0 && (
         <div className="toolbox-card" style={{ marginTop: 12 }}>
-          <strong>Missing capabilities</strong>
+          <strong>Progressive capabilities unavailable</strong>
+          {snapshot.packs.length === 0 && (
+            <p className="toolbox-error" role="alert">
+              This Lite release has no signed capability catalog. Tools requiring an optional pack will wait only until the agent reports the missing capability, then fail explicitly; no pack can be downloaded yet.
+            </p>
+          )}
           {snapshot.packs.filter((pack) => pack.status !== 'installed').map((pack) => (
             <div key={`${pack.id}-${pack.version}`} className="form-row">
               <span>{pack.capability} · {pack.version}</span>
@@ -92,11 +97,13 @@ export default function CapabilitiesSection() {
           ))}
         </div>
       )}
-      {snapshot.profile === 'complete' && snapshot.missingCount > 0 && (
+      {snapshot.profile === 'complete' && snapshot.missingCount > 0 && snapshot.packs.length > 0 && (
         <p className="text-xs text-muted" role="status">Complete installation is incomplete; repair the missing signed packs.</p>
       )}
       {snapshot.packs.length === 0 && (
-        <p className="text-xs text-muted">No signed capability catalog is configured for this build.</p>
+        <p className="text-xs text-muted" role="status">
+          No signed capability catalog is configured for this build; pack readiness cannot be verified.
+        </p>
       )}
       {error && <p className="toolbox-error" role="alert">{error}</p>}
       <button type="button" className="validate-btn" onClick={() => void refresh()} disabled={busy !== null}>Refresh status</button>

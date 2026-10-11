@@ -19,6 +19,7 @@
     "dev:server": "npm run dev --workspace=@helix/server",
     "build": "npm run build --workspaces",
     "build:desktop": "npm run build --workspace=@helix/desktop",
+    "build:desktop-tauri": "npm run build:agent-runtime && npm run tauri --workspace=@helix/desktop-tauri -- build",
     "build:agent-runtime": "powershell -ExecutionPolicy Bypass -File scripts/build-agent-runtime.ps1",
     "stage:windows-installer": "node scripts/stage-windows-installer.mjs",
     "build:windows": "npm run build:agent-runtime && npm run build:desktop && npm run stage:windows-installer && npm run build:landing",

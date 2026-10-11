@@ -1,0 +1,101 @@
+name: Release HELIX Lite (Tauri)
+
+on:
+  push:
+    tags:
+      - "lite-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Lite version to publish (must match the Tauri package)"
+        required: true
+        default: "0.1.10"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-tauri-lite-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Resolve and verify Lite version
+        id: lite-version
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "push") {
+            $version = "${{ github.ref_name }}".Substring(6)
+          } else {
+            $version = "${{ inputs.version }}"
+          }
+          $packageVersion = (Get-Content apps\desktop-tauri\package.json -Raw | ConvertFrom-Json).version
+          $tauriVersion = (Get-Content apps\desktop-tauri\src-tauri\tauri.conf.json -Raw | ConvertFrom-Json).version
+          $crateVersion = (Select-String -Path apps\desktop-tauri\src-tauri\Cargo.toml -Pattern '^version = "([^"]+)"').Matches[0].Groups[1].Value
+          if ($version -ne $packageVersion -or $version -ne $tauriVersion -or $version -ne $crateVersion) {
+            throw "Requested Lite version $version does not match package ($packageVersion), Tauri ($tauriVersion), and Rust crate ($crateVersion)."
+          }
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Invalid Lite version: $version" }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Prepare Python runtime environment
+        shell: pwsh
+        run: |
+          python -m venv services\agent\.venv
+          services\agent\.venv\Scripts\python.exe -m pip install --upgrade pip
+          services\agent\.venv\Scripts\python.exe -m pip install -r services\agent\requirements.txt pyinstaller
+
+      - name: Build HELIX Lite NSIS installer
+        run: npm run build:desktop-tauri
+
+      - name: Prepare installer and checksum assets
+        id: assets
+        shell: pwsh
+        run: |
+          $source = "apps\desktop-tauri\src-tauri\target\release\bundle\nsis\HELIX Lite_${{ steps.lite-version.outputs.version }}_x64-setup.exe"
+          if (-not (Test-Path $source)) { throw "Tauri did not produce the expected installer: $source" }
+          $installer = "HELIX-Lite-Setup.exe"
+          Copy-Item $source $installer
+          $checksum = (Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$checksum  $installer" | Set-Content -NoNewline "$installer.sha256"
+          "installer=$installer" >> $env:GITHUB_OUTPUT
+          "checksum=$installer.sha256" >> $env:GITHUB_OUTPUT
+
+      - name: Create or update HELIX Lite-only release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "lite-v${{ steps.lite-version.outputs.version }}"
+          gh release view $tag --repo "${{ github.repository }}" *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag "${{ steps.assets.outputs.installer }}" "${{ steps.assets.outputs.checksum }}" --repo "${{ github.repository }}" --clobber
+          } else {
+            gh release create $tag "${{ steps.assets.outputs.installer }}" "${{ steps.assets.outputs.checksum }}" `
+              --repo "${{ github.repository }}" `
+              --target "${{ github.sha }}" `
+              --title "HELIX Lite ${{ steps.lite-version.outputs.version }}" `
+              --notes "HELIX Lite (Tauri) Windows x64 installer. This installer is unsigned; Windows may show an unknown-publisher warning. Verify the attached SHA-256 file before running it. This release and updater are separate from HELIX Normal/Electron."
+          }

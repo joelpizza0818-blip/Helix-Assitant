@@ -92,6 +92,18 @@
   line-height: 1.6;
 }
 
+.release-options-warning {
+  padding: var(--spacing-16);
+  border: 1px solid var(--orange);
+  border-radius: var(--radius-cards);
+  color: var(--bone);
+}
+
+.release-checksum-link {
+  color: var(--secondary);
+  font-size: 12px;
+}
+
 .download-actions {
   display: flex;
   align-items: center;

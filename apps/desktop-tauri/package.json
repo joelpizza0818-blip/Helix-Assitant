@@ -1,9 +1,15 @@
 {
   "name": "@helix/desktop-tauri",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "private": true,
   "scripts": {
     "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.8.0",
+    "@tauri-apps/plugin-clipboard-manager": "^2.3.0",
+    "@tauri-apps/plugin-deep-link": "^2.4.0",
+    "@tauri-apps/plugin-opener": "^2.5.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.8.4"
