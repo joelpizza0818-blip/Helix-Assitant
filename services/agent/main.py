@@ -257,6 +257,7 @@ async def main():
         model_router,
         memory_manager,
         skill_registry,
+        plugin_manager,
     )
     request_handler.get_settings()
     clients = set()

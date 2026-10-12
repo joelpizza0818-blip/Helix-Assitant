@@ -33,6 +33,12 @@ class EventBus:
         return None
 
 
+class ReplacedCapabilityTool(CapabilityTool):
+    async def execute(self, params):
+        self.executions += 1
+        return ToolResult(success=True, output="loaded pack")
+
+
 def make_loop(tool, requester):
     registry = ToolRegistry()
     registry.register_tool(tool)
@@ -54,6 +60,29 @@ def test_required_capability_is_installed_before_tool_execution():
     requester.assert_awaited_once_with("vision", "capability_tool", None)
     assert tool.executions == 1
     assert outcome.success is True
+
+
+def test_tool_is_reloaded_from_registry_after_capability_installation():
+    stub_tool = CapabilityTool()
+    installed_tool = ReplacedCapabilityTool()
+    registry = ToolRegistry()
+    registry.register_tool(stub_tool)
+
+    async def install_and_register(*_args):
+        registry.register_tool(installed_tool)
+        return True
+
+    loop = ReActLoop(
+        None, None, None, registry, None, EventBus(),
+        SimpleNamespace(), capability_requester=install_and_register,
+    )
+    loop._verify_if_important = AsyncMock(side_effect=lambda *args, **_kwargs: args[2])
+
+    outcome = asyncio.run(loop.execute_planned_tool("capability_tool", {}))
+
+    assert stub_tool.executions == 0
+    assert installed_tool.executions == 1
+    assert outcome.output == "loaded pack"
 
 
 def test_failed_capability_installation_never_executes_the_tool():

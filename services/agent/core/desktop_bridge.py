@@ -1,4 +1,5 @@
 import json
+import hashlib
 import os
 import re
 import base64
@@ -144,6 +145,7 @@ class DesktopRequestHandler:
         model_router=None,
         memory_manager=None,
         skill_registry=None,
+        plugin_manager=None,
     ):
         self.task_manager = task_manager
         self.provider_registry = provider_registry
@@ -156,6 +158,7 @@ class DesktopRequestHandler:
         self.model_router = model_router
         self.memory_manager = memory_manager
         self.skill_registry = skill_registry
+        self.plugin_manager = plugin_manager
         self.mcp_status_provider = None
 
     async def dispatch(self, message: dict) -> dict:
@@ -176,6 +179,7 @@ class DesktopRequestHandler:
             "SAVE_SKILL": lambda: self._save_skill(payload.get("skill")),
             "DELETE_SKILL": lambda: self._delete_skill(payload.get("name")),
             "GET_MCP_SERVERS": self._get_mcp_servers,
+            "LOAD_CAPABILITY_PACK": lambda: self._load_capability_pack(payload),
         }
 
         if request_id is None:
@@ -188,6 +192,41 @@ class DesktopRequestHandler:
 
         result = await handler()
         return {"request_id": request_id, "payload": result}
+
+    async def _load_capability_pack(self, payload: dict) -> dict:
+        pack_id = payload.get("id")
+        version = payload.get("version")
+        expected_hash = payload.get("sha256")
+        if (
+            not isinstance(pack_id, str)
+            or re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", pack_id) is None
+            or not isinstance(version, str)
+            or re.fullmatch(r"\d+\.\d+\.\d+", version) is None
+            or not isinstance(expected_hash, str)
+            or re.fullmatch(r"[a-fA-F0-9]{64}", expected_hash) is None
+        ):
+            raise ValueError("Capability pack identity is invalid")
+        if self.plugin_manager is None:
+            raise RuntimeError("Capability plugin manager is unavailable")
+
+        pack_path = (
+            self.settings_path.parent
+            / "capabilities"
+            / "packs"
+            / pack_id
+            / f"{version}.py"
+        ).resolve(strict=True)
+        trusted_root = (
+            self.settings_path.parent / "capabilities" / "packs"
+        ).resolve(strict=True)
+        if not pack_path.is_relative_to(trusted_root) or not pack_path.is_file():
+            raise ValueError("Capability pack path is outside the managed pack directory")
+        actual_hash = hashlib.sha256(pack_path.read_bytes()).hexdigest()
+        if actual_hash.casefold() != expected_hash.casefold():
+            raise ValueError("Installed capability pack failed SHA-256 verification")
+
+        name = await self.plugin_manager.load_installed_pack(str(pack_path))
+        return {"loaded": True, "plugin": name}
 
     async def _dispatch_event(self, message_type: str, payload: dict) -> None:
         if message_type == "BROWSER_PAGE_UPDATE":
@@ -390,7 +429,10 @@ class DesktopRequestHandler:
 
     def get_settings(self) -> dict:
         settings = dict(DEFAULT_SETTINGS)
-        settings["camera_enabled"] = os.environ.get("CAMERA_ENABLED", "false").lower() == "true"
+        settings["camera_enabled"] = os.environ.get(
+            "CAMERA_ENABLED",
+            os.environ.get("HELIX_CAMERA_ENABLED_BY_DEFAULT", "false"),
+        ).lower() == "true"
         try:
             settings["camera_device_index"] = int(os.environ.get("CAMERA_DEVICE_INDEX", "0"))
         except ValueError:

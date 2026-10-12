@@ -8,7 +8,9 @@ use std::{
     time::Duration,
 };
 
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use futures_util::{SinkExt, StreamExt};
+use ring::signature::{UnparsedPublicKey, ED25519};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tauri::{
@@ -41,6 +43,11 @@ const LITE_UPDATES_API: &str =
     "https://zqjktbpymrfjmggjmbfp.supabase.co/functions/v1/installer-lite-updates";
 const LITE_RELEASE_REPOSITORY: &str = "joelpizza0818-blip/Helix-Assitant";
 const LITE_INSTALLER_ASSET: &str = "HELIX-Lite-Setup.exe";
+const CAPABILITY_CATALOG_URL: &str =
+    "https://github.com/joelpizza0818-blip/Helix-Assitant/releases/download/capability-packs/catalog.json";
+const CAPABILITY_ASSET_BASE: &str =
+    "https://github.com/joelpizza0818-blip/Helix-Assitant/releases/download/capability-packs/";
+const MAX_CAPABILITY_PACK_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Default)]
 struct AgentRuntime {
@@ -56,6 +63,9 @@ struct AgentBridge(Arc<Mutex<AgentRuntime>>);
 #[derive(Default)]
 struct UpdaterState(Mutex<Option<PathBuf>>);
 
+#[derive(Default)]
+struct CapabilityDownloads(Arc<Mutex<HashMap<String, tokio::task::AbortHandle>>>);
+
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct LiteReleaseInfo {
@@ -63,6 +73,30 @@ struct LiteReleaseInfo {
     tag: String,
     installer_url: String,
     checksum_url: String,
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CapabilityPackManifest {
+    id: String,
+    version: String,
+    capability: String,
+    format: String,
+    required_for_complete: bool,
+    platform: String,
+    arch: String,
+    core_version_range: String,
+    size_bytes: usize,
+    url: String,
+    sha256: String,
+    signature: String,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SignedCapabilityCatalog {
+    version: u32,
+    packs: Vec<CapabilityPackManifest>,
+    signature: String,
 }
 
 fn is_newer_version(candidate: &str, current: &str) -> bool {
@@ -326,6 +360,7 @@ async fn start_agent_inner(app: AppHandle, bridge: AgentBridge) -> Result<(), St
             .env("PYTHONUTF8", "1")
             .env("HELIX_SETTINGS_PATH", &settings_path)
             .env("HELIX_WS_TOKEN", &token)
+            .env("HELIX_CAMERA_ENABLED_BY_DEFAULT", "true")
             .env("PYTHONPATH", &python_path)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -451,20 +486,33 @@ async fn run_websocket(
                 let event_type = message.get("type").and_then(Value::as_str).unwrap_or("message");
                 let payload = message.get("payload").cloned().unwrap_or(Value::Null);
                 if event_type == "capability-required" {
-                    let request_id = payload.get("request_id").and_then(Value::as_str).unwrap_or("");
-                    let capability = payload.get("capability").and_then(Value::as_str).unwrap_or("unknown");
-                    let response = json!({
-                        "type": "CAPABILITY_RESOLVED",
-                        "payload": {
-                            "request_id": request_id,
-                            "capability": capability,
-                            "status": "error",
-                            "error": "This HELIX Lite build has no verified capability pack catalog; the required capability was not installed."
-                        }
+                    let request_id = payload.get("request_id").and_then(Value::as_str).unwrap_or("").to_string();
+                    let capability = payload.get("capability").and_then(Value::as_str).unwrap_or("").to_string();
+                    let app = app.clone();
+                    let bridge = bridge.clone();
+                    tokio::spawn(async move {
+                        let result = async {
+                            let catalog = verified_capability_catalog(&app).await?;
+                            let manifest = catalog.packs.iter()
+                                .find(|pack| pack.capability == capability)
+                                .ok_or_else(|| format!("No signed capability pack provides {capability}."))?;
+                            install_capability_inner(&app, &bridge, &manifest.id).await
+                        }.await;
+                        let resolved = match result {
+                            Ok(_) => json!({
+                                "request_id": request_id,
+                                "capability": capability,
+                                "status": "installed"
+                            }),
+                            Err(error) => json!({
+                                "request_id": request_id,
+                                "capability": capability,
+                                "status": "error",
+                                "error": error
+                            }),
+                        };
+                        let _ = send_agent_message(&bridge, "CAPABILITY_RESOLVED", resolved, None).await;
                     });
-                    if let Some(sender) = bridge.0.lock().await.outgoing.clone() {
-                        let _ = sender.try_send(response.to_string());
-                    }
                 }
                 let _ = app.emit(&event_channel(event_type), payload);
             }
@@ -534,6 +582,15 @@ async fn agent_request(
     if !is_supported_request(&message_type) {
         return Err(format!("Unsupported agent request: {message_type}"));
     }
+    request_agent_inner(bridge.inner(), &message_type, payload, timeout_ms).await
+}
+
+async fn request_agent_inner(
+    bridge: &AgentBridge,
+    message_type: &str,
+    payload: Value,
+    timeout_ms: Option<u64>,
+) -> Result<Value, String> {
     let (request_id, response) = {
         let mut runtime = bridge.0.lock().await;
         if runtime.outgoing.is_none() {
@@ -549,13 +606,8 @@ async fn agent_request(
         (request_id, receiver)
     };
 
-    if let Err(error) = send_agent_message(
-        bridge.inner(),
-        &message_type,
-        payload,
-        Some(request_id.clone()),
-    )
-    .await
+    if let Err(error) =
+        send_agent_message(bridge, message_type, payload, Some(request_id.clone())).await
     {
         bridge.0.lock().await.pending.remove(&request_id);
         return Err(error);
@@ -577,14 +629,138 @@ async fn agent_request(
     Ok(result)
 }
 
-#[tauri::command]
-fn get_capabilities(app: AppHandle) -> Result<Value, String> {
-    let data_dir = app
+fn canonical_json(value: &Value) -> Result<String, String> {
+    match value {
+        Value::Array(values) => Ok(format!(
+            "[{}]",
+            values
+                .iter()
+                .map(canonical_json)
+                .collect::<Result<Vec<_>, _>>()?
+                .join(",")
+        )),
+        Value::Object(values) => {
+            let mut keys = values.keys().collect::<Vec<_>>();
+            keys.sort();
+            let entries = keys
+                .into_iter()
+                .map(|key| {
+                    Ok(format!(
+                        "{}:{}",
+                        serde_json::to_string(key).map_err(|error| format!(
+                            "Could not canonicalize catalog key: {error}"
+                        ))?,
+                        canonical_json(&values[key])?
+                    ))
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            Ok(format!("{{{}}}", entries.join(",")))
+        }
+        _ => serde_json::to_string(value)
+            .map_err(|error| format!("Could not canonicalize signed content: {error}")),
+    }
+}
+
+fn capability_public_key() -> Result<Vec<u8>, String> {
+    let encoded = option_env!("HELIX_CAPABILITY_PUBLIC_KEY")
+        .ok_or_else(|| "HELIX Lite was built without a capability trust key.".to_string())?;
+    let key = BASE64
+        .decode(encoded)
+        .map_err(|_| "HELIX Lite capability trust key is not valid Base64.".to_string())?;
+    if key.len() != 32 {
+        return Err("HELIX Lite capability trust key must contain 32 bytes.".to_string());
+    }
+    Ok(key)
+}
+
+fn verify_capability_signature(value: &Value, signature: &str) -> Result<(), String> {
+    let key = capability_public_key()?;
+    let signature = BASE64
+        .decode(signature)
+        .map_err(|_| "Capability signature is not valid Base64.".to_string())?;
+    let message = canonical_json(value)?;
+    UnparsedPublicKey::new(&ED25519, &key)
+        .verify(message.as_bytes(), &signature)
+        .map_err(|_| "Capability signature verification failed.".to_string())
+}
+
+fn verify_capability_catalog(catalog: &SignedCapabilityCatalog) -> Result<(), String> {
+    if catalog.version != 1 {
+        return Err("Unsupported capability catalog version.".to_string());
+    }
+    let catalog_value = serde_json::to_value(catalog)
+        .map_err(|error| format!("Could not parse capability catalog: {error}"))?;
+    let mut unsigned_catalog = catalog_value.clone();
+    unsigned_catalog
+        .as_object_mut()
+        .ok_or_else(|| "Capability catalog is invalid.".to_string())?
+        .remove("signature");
+    verify_capability_signature(&unsigned_catalog, &catalog.signature)?;
+
+    for manifest in &catalog.packs {
+        if !is_safe_pack_id(&manifest.id)
+            || !valid_pack_version(&manifest.version)
+            || manifest.format != "python-plugin"
+            || manifest.capability.is_empty()
+            || manifest.platform != "win32"
+            || manifest.arch != "x64"
+            || manifest.size_bytes == 0
+            || manifest.size_bytes > MAX_CAPABILITY_PACK_BYTES
+            || manifest.sha256.len() != 64
+            || !manifest.sha256.bytes().all(|byte| byte.is_ascii_hexdigit())
+            || !manifest.url.starts_with(CAPABILITY_ASSET_BASE)
+            || manifest.signature.is_empty()
+        {
+            return Err(format!(
+                "Capability pack {} has invalid signed metadata.",
+                manifest.id
+            ));
+        }
+        let mut unsigned_manifest = serde_json::to_value(manifest)
+            .map_err(|error| format!("Could not parse capability manifest: {error}"))?;
+        unsigned_manifest
+            .as_object_mut()
+            .ok_or_else(|| "Capability manifest is invalid.".to_string())?
+            .remove("signature");
+        verify_capability_signature(&unsigned_manifest, &manifest.signature)?;
+    }
+    Ok(())
+}
+
+fn is_safe_pack_id(id: &str) -> bool {
+    let mut bytes = id.bytes();
+    let Some(first) = bytes.next() else {
+        return false;
+    };
+    id.len() <= 64
+        && (first.is_ascii_lowercase() || first.is_ascii_digit())
+        && bytes.all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"._-".contains(&byte)
+        })
+}
+
+fn valid_pack_version(version: &str) -> bool {
+    let parts = version.split('.').collect::<Vec<_>>();
+    parts.len() == 3
+        && parts
+            .iter()
+            .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
+}
+
+fn capability_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .map(|path| path.join("capabilities"))
+        .map_err(|error| format!("Could not resolve HELIX capability directory: {error}"))
+}
+
+fn installation_profile(app: &AppHandle) -> Result<String, String> {
+    let path = app
         .path()
         .app_data_dir()
-        .map_err(|error| format!("Could not resolve HELIX data directory: {error}"))?;
-    let profile_path = data_dir.join("installation-profile.json");
-    let profile = fs::read_to_string(profile_path)
+        .map_err(|error| format!("Could not resolve HELIX data directory: {error}"))?
+        .join("installation-profile.json");
+    let profile = fs::read_to_string(path)
         .ok()
         .and_then(|contents| serde_json::from_str::<Value>(&contents).ok())
         .and_then(|value| {
@@ -595,16 +771,178 @@ fn get_capabilities(app: AppHandle) -> Result<Value, String> {
         })
         .filter(|profile| matches!(profile.as_str(), "complete" | "progressive"))
         .unwrap_or_else(|| "complete".to_string());
-    Ok(json!({
-        "profile": profile,
-        "packs": [],
-        "missingCount": 1,
-        "ready": false
-    }))
+    Ok(profile)
+}
+
+async fn fetch_capability_catalog(app: &AppHandle) -> Result<SignedCapabilityCatalog, String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .build()
+        .map_err(|error| format!("Could not initialize capability catalog client: {error}"))?;
+    let response = client
+        .get(CAPABILITY_CATALOG_URL)
+        .send()
+        .await
+        .map_err(|error| format!("Could not download capability catalog: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "Capability catalog returned HTTP {}.",
+            response.status()
+        ));
+    }
+    let catalog: SignedCapabilityCatalog = response
+        .json()
+        .await
+        .map_err(|error| format!("Capability catalog is invalid JSON: {error}"))?;
+    verify_capability_catalog(&catalog)?;
+    let directory = capability_data_dir(app)?;
+    fs::create_dir_all(&directory)
+        .map_err(|error| format!("Could not create capability directory: {error}"))?;
+    let bytes = serde_json::to_vec_pretty(&catalog)
+        .map_err(|error| format!("Could not serialize verified catalog: {error}"))?;
+    fs::write(directory.join("catalog.json"), bytes)
+        .map_err(|error| format!("Could not cache verified catalog: {error}"))?;
+    Ok(catalog)
+}
+
+fn read_cached_catalog(app: &AppHandle) -> Result<SignedCapabilityCatalog, String> {
+    let path = capability_data_dir(app)?.join("catalog.json");
+    let bytes = fs::read(path)
+        .map_err(|error| format!("No verified capability catalog is cached: {error}"))?;
+    let catalog: SignedCapabilityCatalog = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("Cached capability catalog is invalid: {error}"))?;
+    verify_capability_catalog(&catalog)?;
+    Ok(catalog)
+}
+
+async fn verified_capability_catalog(app: &AppHandle) -> Result<SignedCapabilityCatalog, String> {
+    match fetch_capability_catalog(app).await {
+        Ok(catalog) => Ok(catalog),
+        Err(network_error) => match read_cached_catalog(app) {
+            Ok(catalog) => Ok(catalog),
+            Err(cache_error) => Err(format!("{network_error} {cache_error}")),
+        },
+    }
+}
+
+fn installed_pack_path(
+    app: &AppHandle,
+    manifest: &CapabilityPackManifest,
+) -> Result<PathBuf, String> {
+    if !is_safe_pack_id(&manifest.id) || !valid_pack_version(&manifest.version) {
+        return Err("Capability pack path is invalid.".to_string());
+    }
+    Ok(capability_data_dir(app)?
+        .join("packs")
+        .join(&manifest.id)
+        .join(format!("{}.py", manifest.version)))
+}
+
+fn hash_file(path: &Path) -> Option<String> {
+    let bytes = fs::read(path).ok()?;
+    Some(format!("{:x}", Sha256::digest(bytes)))
+}
+
+fn pack_is_compatible(manifest: &CapabilityPackManifest) -> bool {
+    let range = manifest.core_version_range.trim();
+    if range == "*" || range.is_empty() {
+        return true;
+    }
+    let Some(current) = parse_semver(env!("CARGO_PKG_VERSION")) else {
+        return false;
+    };
+    range.split_whitespace().all(|constraint| {
+        let (operator, version) = ["^", "~", ">=", "<=", ">", "<", "="]
+            .iter()
+            .find_map(|operator| {
+                constraint
+                    .strip_prefix(operator)
+                    .map(|version| (*operator, version))
+            })
+            .unwrap_or(("=", constraint));
+        let Some(target) = parse_semver(version) else {
+            return false;
+        };
+        let ordering = current.cmp(&target);
+        match operator {
+            "^" => {
+                let compatible = if target[0] > 0 {
+                    current[0] == target[0]
+                } else if target[1] > 0 {
+                    current[0] == 0 && current[1] == target[1]
+                } else {
+                    current[0] == 0 && current[1] == 0 && current[2] == target[2]
+                };
+                ordering.is_ge() && compatible
+            }
+            "~" => ordering.is_ge() && current[0] == target[0] && current[1] == target[1],
+            ">=" => ordering.is_ge(),
+            "<=" => ordering.is_le(),
+            ">" => ordering.is_gt(),
+            "<" => ordering.is_lt(),
+            _ => ordering.is_eq(),
+        }
+    })
+}
+
+fn parse_semver(value: &str) -> Option<[u64; 3]> {
+    let core = value
+        .trim()
+        .trim_start_matches('v')
+        .split(['-', '+'])
+        .next()?;
+    let parts = core.split('.').collect::<Vec<_>>();
+    if parts.len() != 3 {
+        return None;
+    }
+    Some([
+        parts[0].parse().ok()?,
+        parts[1].parse().ok()?,
+        parts[2].parse().ok()?,
+    ])
 }
 
 #[tauri::command]
-fn set_installation_profile(app: AppHandle, profile: String) -> Result<Value, String> {
+async fn get_capabilities(app: AppHandle) -> Result<Value, String> {
+    let profile = installation_profile(&app)?;
+    let catalog = verified_capability_catalog(&app).await?;
+    let packs = catalog.packs.iter().map(|manifest| {
+        let path = installed_pack_path(&app, manifest).ok();
+        let installed = path.as_deref().and_then(hash_file).is_some_and(|hash| hash.eq_ignore_ascii_case(&manifest.sha256));
+        let compatible = pack_is_compatible(manifest);
+        let status = if !compatible { "incompatible" } else if installed { "installed" } else { "missing" };
+        json!({
+            "id": manifest.id,
+            "version": manifest.version,
+            "capability": manifest.capability,
+            "format": manifest.format,
+            "requiredForComplete": manifest.required_for_complete,
+            "platform": manifest.platform,
+            "arch": manifest.arch,
+            "coreVersionRange": manifest.core_version_range,
+            "sizeBytes": manifest.size_bytes,
+            "url": manifest.url,
+            "sha256": manifest.sha256,
+            "signature": manifest.signature,
+            "status": status,
+            "installedPath": if installed { path.map(|value| value.to_string_lossy().into_owned()) } else { None::<String> }
+        })
+    }).collect::<Vec<_>>();
+    let missing_count = packs
+        .iter()
+        .filter(|pack| pack["status"] != "installed")
+        .count();
+    let required_missing_count = packs
+        .iter()
+        .filter(|pack| pack["requiredForComplete"] == true && pack["status"] != "installed")
+        .count();
+    Ok(
+        json!({ "profile": profile, "packs": packs, "missingCount": missing_count, "requiredMissingCount": required_missing_count, "ready": required_missing_count == 0 }),
+    )
+}
+
+#[tauri::command]
+async fn set_installation_profile(app: AppHandle, profile: String) -> Result<Value, String> {
     if !matches!(profile.as_str(), "complete" | "progressive") {
         return Err("Unsupported HELIX Lite installation profile".to_string());
     }
@@ -620,17 +958,173 @@ fn set_installation_profile(app: AppHandle, profile: String) -> Result<Value, St
             .map_err(|error| format!("Could not save installation profile: {error}"))?,
     )
     .map_err(|error| format!("Could not save installation profile: {error}"))?;
-    get_capabilities(app)
+    get_capabilities(app).await
 }
 
 #[tauri::command]
-fn install_capability() -> Result<Value, String> {
-    Err("HELIX Lite cannot install capability packs until a signed, hash-verified Lite catalog is published.".to_string())
+async fn install_capability(
+    app: AppHandle,
+    bridge: State<'_, AgentBridge>,
+    downloads: State<'_, CapabilityDownloads>,
+    pack_id: String,
+) -> Result<Value, String> {
+    let app_for_task = app.clone();
+    let bridge_for_task = bridge.inner().clone();
+    let pack_for_task = pack_id.clone();
+    let handle = tokio::spawn(async move {
+        install_capability_inner(&app_for_task, &bridge_for_task, &pack_for_task).await
+    });
+    downloads
+        .0
+        .lock()
+        .await
+        .insert(pack_id.clone(), handle.abort_handle());
+    let result = handle
+        .await
+        .map_err(|error| format!("Capability installation task failed: {error}"));
+    downloads.0.lock().await.remove(&pack_id);
+    result?
+}
+
+async fn install_capability_inner(
+    app: &AppHandle,
+    bridge: &AgentBridge,
+    pack_id: &str,
+) -> Result<Value, String> {
+    if !is_safe_pack_id(&pack_id) {
+        return Err("Capability pack id is invalid.".to_string());
+    }
+    if installation_profile(app)? != "progressive" {
+        return Err(
+            "Capability packs can only be installed on demand in a progressive installation."
+                .to_string(),
+        );
+    }
+    let catalog = verified_capability_catalog(app).await?;
+    let manifest = catalog
+        .packs
+        .iter()
+        .find(|pack| pack.id == pack_id)
+        .ok_or_else(|| format!("Capability pack {pack_id} is not in the verified catalog."))?;
+    if !pack_is_compatible(manifest) {
+        return Err(format!(
+            "Capability pack {} is incompatible with this HELIX Lite version.",
+            manifest.capability
+        ));
+    }
+    let response = reqwest::Client::builder()
+        .timeout(Duration::from_secs(300))
+        .build()
+        .map_err(|error| format!("Could not initialize capability download: {error}"))?
+        .get(&manifest.url)
+        .send()
+        .await
+        .map_err(|error| format!("Could not download capability pack: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "Capability pack download returned HTTP {}.",
+            response.status()
+        ));
+    }
+    if response
+        .content_length()
+        .is_some_and(|size| size as usize > MAX_CAPABILITY_PACK_BYTES)
+    {
+        return Err("Capability pack exceeds the maximum allowed size.".to_string());
+    }
+    let expected_size = manifest.size_bytes;
+    let mut stream = response.bytes_stream();
+    let mut bytes = Vec::with_capacity(expected_size);
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|error| format!("Could not read capability pack: {error}"))?;
+        if bytes.len().saturating_add(chunk.len()) > MAX_CAPABILITY_PACK_BYTES
+            || bytes.len().saturating_add(chunk.len()) > expected_size
+        {
+            return Err("Capability pack exceeded its signed size limit.".to_string());
+        }
+        bytes.extend_from_slice(&chunk);
+        let _ = app.emit(
+            "helix:capability-download-progress",
+            json!({
+                "id": pack_id,
+                "receivedBytes": bytes.len(),
+                "totalBytes": expected_size
+            }),
+        );
+    }
+    if bytes.len() != manifest.size_bytes || bytes.len() > MAX_CAPABILITY_PACK_BYTES {
+        return Err("Capability pack size does not match its signed manifest.".to_string());
+    }
+    let hash = format!("{:x}", Sha256::digest(&bytes));
+    if !hash.eq_ignore_ascii_case(&manifest.sha256) {
+        return Err("Capability pack SHA-256 verification failed.".to_string());
+    }
+    let destination = installed_pack_path(app, manifest)?;
+    let parent = destination
+        .parent()
+        .ok_or_else(|| "Capability pack destination is invalid.".to_string())?;
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("Could not create capability pack directory: {error}"))?;
+    let staging = parent.join(format!("{}.py.download", manifest.version));
+    fs::write(&staging, &bytes)
+        .map_err(|error| format!("Could not stage capability pack: {error}"))?;
+    let backup = parent.join(format!("{}.py.backup", manifest.version));
+    if backup.exists() {
+        fs::remove_file(&backup)
+            .map_err(|error| format!("Could not clear stale capability backup: {error}"))?;
+    }
+    let had_previous = destination.exists();
+    if had_previous {
+        fs::rename(&destination, &backup)
+            .map_err(|error| format!("Could not preserve the previous capability pack: {error}"))?;
+    }
+    if let Err(error) = fs::rename(&staging, &destination) {
+        if had_previous {
+            fs::rename(&backup, &destination).map_err(|restore| {
+                format!("Could not activate or restore capability pack: {error}; restore failed: {restore}")
+            })?;
+        }
+        fs::remove_file(&staging).map_err(|cleanup| {
+            format!(
+                "Could not activate capability pack: {error}; staging cleanup failed: {cleanup}"
+            )
+        })?;
+        return Err(format!(
+            "Could not activate verified capability pack: {error}"
+        ));
+    }
+    if had_previous {
+        fs::remove_file(&backup).map_err(|error| {
+            format!(
+                "Capability pack installed, but its previous backup could not be removed: {error}"
+            )
+        })?;
+    }
+    request_agent_inner(
+        bridge,
+        "LOAD_CAPABILITY_PACK",
+        json!({
+            "id": manifest.id,
+            "version": manifest.version,
+            "sha256": manifest.sha256
+        }),
+        Some(30000),
+    )
+    .await?;
+    get_capabilities(app.clone()).await
 }
 
 #[tauri::command]
-fn cancel_capability() -> bool {
-    false
+async fn cancel_capability(
+    downloads: State<'_, CapabilityDownloads>,
+    pack_id: String,
+) -> Result<bool, String> {
+    if let Some(handle) = downloads.0.lock().await.remove(&pack_id) {
+        handle.abort();
+        Ok(true)
+    } else {
+        Ok(false)
+    }
 }
 
 #[tauri::command]
@@ -852,6 +1346,7 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_deep_link::init())
         .manage(bridge.clone())
+        .manage(CapabilityDownloads::default())
         .manage(updater)
         .setup(|app| {
             let show = MenuItem::with_id(app, "show", "Show HELIX Lite", true, None::<&str>)?;
@@ -942,6 +1437,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn capability_pack_ids_and_versions_are_path_safe() {
+        assert!(is_safe_pack_id("system-diagnostics"));
+        assert!(is_safe_pack_id("2fa"));
+        assert!(!is_safe_pack_id("../outside"));
+        assert!(!is_safe_pack_id(""));
+        assert!(valid_pack_version("1.0.0"));
+        assert!(!valid_pack_version("1.0"));
+        assert_eq!(parse_semver("v0.1.11"), Some([0, 1, 11]));
+        assert!(parse_semver("latest").is_none());
+    }
+
+    #[test]
+    fn canonical_signed_json_uses_stable_lexical_key_order() {
+        let value = json!({ "zeta": 1, "alpha": { "last": true, "first": false } });
+        assert_eq!(
+            canonical_json(&value).unwrap(),
+            r#"{"alpha":{"first":false,"last":true},"zeta":1}"#
+        );
+    }
+
+    #[test]
     fn websocket_handshake_uses_bearer_auth_without_changing_url() {
         let request = authenticated_request("ws://127.0.0.1:8765", "opaque-token").unwrap();
         assert_eq!(request.uri().to_string(), "ws://127.0.0.1:8765/");
@@ -991,6 +1507,19 @@ mod tests {
         assert!(is_supported_request("SAVE_SKILL"));
         assert!(is_supported_request("DELETE_SKILL"));
         assert!(!is_supported_request("RUN_ARBITRARY_COMMAND"));
+    }
+
+    #[test]
+    fn lite_main_window_uses_compact_floating_defaults() {
+        let config: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let window = &config["app"]["windows"][0];
+
+        assert_eq!(window["width"], 420);
+        assert_eq!(window["height"], 640);
+        assert_eq!(window["center"], true);
+        assert_eq!(window["resizable"], false);
+        assert_eq!(window["alwaysOnTop"], true);
+        assert_eq!(window["skipTaskbar"], true);
     }
 
     #[test]

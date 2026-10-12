@@ -196,6 +196,8 @@ contextBridge.exposeInMainWorld('helix', {
 
   onUpdaterStatus: (fn: (status: unknown) => void): (() => void) =>
     createEventListener('helix:updater-status', fn),
+  onCapabilityDownloadProgress: (fn: (progress: unknown) => void): (() => void) =>
+    createEventListener('helix:capability-download-progress', fn),
   onOAuthCallback: (fn: (url: string) => void): (() => void) =>
     createEventListener('helix:oauth-callback', fn),
   getAppVersion: (): Promise<string> => ipcRenderer.invoke('helix:app-version'),

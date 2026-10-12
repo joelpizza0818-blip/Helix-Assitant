@@ -9,7 +9,7 @@ on:
       version:
         description: "Lite version to publish (must match the Tauri package)"
         required: true
-        default: "0.1.11"
+        default: "0.1.13"
 
 permissions:
   contents: write
@@ -67,7 +67,22 @@ jobs:
           services\agent\.venv\Scripts\python.exe -m pip install --upgrade pip
           services\agent\.venv\Scripts\python.exe -m pip install -r services\agent\requirements.txt pyinstaller
 
+      - name: Validate capability trust key
+        shell: pwsh
+        env:
+          HELIX_CAPABILITY_PUBLIC_KEY: ${{ vars.HELIX_CAPABILITY_PUBLIC_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:HELIX_CAPABILITY_PUBLIC_KEY)) {
+            throw "Configure the HELIX_CAPABILITY_PUBLIC_KEY repository variable before releasing Lite."
+          }
+          $key = [Convert]::FromBase64String($env:HELIX_CAPABILITY_PUBLIC_KEY)
+          if ($key.Length -ne 32 -or [Convert]::ToBase64String($key) -ne $env:HELIX_CAPABILITY_PUBLIC_KEY) {
+            throw "HELIX_CAPABILITY_PUBLIC_KEY must be the canonical Base64 encoding of the raw 32-byte Ed25519 public key."
+          }
+
       - name: Build HELIX Lite NSIS installer
+        env:
+          HELIX_CAPABILITY_PUBLIC_KEY: ${{ vars.HELIX_CAPABILITY_PUBLIC_KEY }}
         run: npm run build:desktop-tauri
 
       - name: Prepare installer and checksum assets

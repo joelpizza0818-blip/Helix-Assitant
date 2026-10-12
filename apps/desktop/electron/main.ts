@@ -26,6 +26,7 @@ import {
   type CapabilityPackManifest,
   type InstallationProfile,
 } from './capability-manager'
+import { readCapabilityConfig } from './capability-config'
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 const rendererPort = Number(process.env.HELIX_RENDERER_PORT || 5173)
@@ -453,7 +454,8 @@ function setupIPC(): void {
       return
     }
     try {
-      await manager!.installPack(manifest)
+      const installed = await manager!.installPack(manifest)
+      await ipcBridge!.loadCapabilityPack(installed)
       ipcBridge?.sendCapabilityResolved({ request_id: requestId, capability: id, status: 'installed' })
     } catch (error) {
       ipcBridge?.sendCapabilityResolved({
@@ -502,7 +504,10 @@ function setupIPC(): void {
   })
   ipcMain.handle('helix:install-capability', async (_event, manifest: CapabilityPackManifest) => {
     if (!capabilityManager) throw new Error('Capability manager is not initialized.')
-    return capabilityManager.installPack(manifest)
+    const installed = await capabilityManager.installPack(manifest)
+    if (!ipcBridge) throw new Error('Python agent bridge is not initialized.')
+    await ipcBridge.loadCapabilityPack(installed)
+    return installed
   })
   ipcMain.handle('helix:cancel-capability', (_event, id: string) => {
     if (typeof id !== 'string') throw new TypeError('Capability pack id must be a string.')
@@ -783,10 +788,19 @@ app.whenReady().then(async () => {
   Menu.setApplicationMenu(null)
   setupAutoUpdater()
 
+  const capabilityConfig = readCapabilityConfig(app.isPackaged, process.resourcesPath)
   capabilityManager = new CapabilityManager(app.getPath('userData'), app.getVersion(), {
-    progressiveEnabled: !app.isPackaged,
+    publicKey: capabilityConfig.publicKey,
+    manifestUrl: capabilityConfig.catalogUrl,
+    progressiveEnabled: true,
+    onProgress: (progress) => sendToDesktopWindows('helix:capability-download-progress', progress),
   })
   await capabilityManager.load()
+  try {
+    await capabilityManager.refreshCatalog()
+  } catch (error) {
+    console.error('[Capabilities] Could not refresh the signed capability catalog:', error)
+  }
 
   // Create windows
   floatingWindow = createFloatingWindow()

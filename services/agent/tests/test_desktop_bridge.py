@@ -1,4 +1,5 @@
 import json
+import hashlib
 import pytest
 from pathlib import Path
 from types import SimpleNamespace
@@ -80,6 +81,58 @@ async def test_complex_workflow_setting_is_opt_in_and_updates_runtime(request_ha
     assert json.loads(request_handler.settings_path.read_text(encoding="utf-8"))[
         "complex_workflows_enabled"
     ] is True
+
+
+@pytest.mark.asyncio
+async def test_load_capability_pack_accepts_only_verified_managed_plugin(tmp_path, clean_env):
+    key_manager = KeyManager()
+    plugin_manager = SimpleNamespace(load_installed_pack=AsyncMock(return_value="system-diagnostics"))
+    handler = DesktopRequestHandler(
+        TaskManager(EventBus()),
+        ProviderRegistry(key_manager),
+        CapabilityRegistry(),
+        key_manager,
+        tmp_path / "settings.json",
+        plugin_manager=plugin_manager,
+    )
+    plugin_path = tmp_path / "capabilities" / "packs" / "system-diagnostics" / "1.0.0.py"
+    plugin_path.parent.mkdir(parents=True)
+    plugin_path.write_text("# verified plugin\n", encoding="utf-8")
+    digest = hashlib.sha256(plugin_path.read_bytes()).hexdigest()
+
+    response = await handler.dispatch({
+        "type": "LOAD_CAPABILITY_PACK",
+        "request_id": "load-1",
+        "payload": {"id": "system-diagnostics", "version": "1.0.0", "sha256": digest},
+    })
+
+    assert response["payload"] == {"loaded": True, "plugin": "system-diagnostics"}
+    plugin_manager.load_installed_pack.assert_awaited_once_with(str(plugin_path.resolve()))
+
+
+@pytest.mark.asyncio
+async def test_load_capability_pack_rejects_modified_file(tmp_path, clean_env):
+    key_manager = KeyManager()
+    plugin_manager = SimpleNamespace(load_installed_pack=AsyncMock())
+    handler = DesktopRequestHandler(
+        TaskManager(EventBus()),
+        ProviderRegistry(key_manager),
+        CapabilityRegistry(),
+        key_manager,
+        tmp_path / "settings.json",
+        plugin_manager=plugin_manager,
+    )
+    plugin_path = tmp_path / "capabilities" / "packs" / "system-diagnostics" / "1.0.0.py"
+    plugin_path.parent.mkdir(parents=True)
+    plugin_path.write_text("modified plugin\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="failed SHA-256 verification"):
+        await handler._load_capability_pack({
+            "id": "system-diagnostics",
+            "version": "1.0.0",
+            "sha256": "a" * 64,
+        })
+    plugin_manager.load_installed_pack.assert_not_awaited()
 
 
 def test_complex_workflow_setting_rejects_non_boolean(request_handler):
@@ -488,6 +541,25 @@ async def test_camera_settings_default_to_environment(request_handler, monkeypat
     assert response["payload"]["camera_enabled"] is True
     assert response["payload"]["camera_device_index"] == 2
     assert response["payload"]["gesture_sensitivity"] == 0.65
+
+
+def test_lite_camera_default_is_enabled_but_saved_opt_out_is_preserved(
+    request_handler, monkeypatch
+):
+    monkeypatch.delenv("CAMERA_ENABLED", raising=False)
+    monkeypatch.delenv("HELIX_CAMERA_ENABLED_BY_DEFAULT", raising=False)
+    assert request_handler.get_settings()["camera_enabled"] is False
+
+    monkeypatch.setenv("HELIX_CAMERA_ENABLED_BY_DEFAULT", "true")
+
+    assert request_handler.get_settings()["camera_enabled"] is True
+
+    request_handler.settings_path.write_text(
+        json.dumps({"camera_enabled": False}),
+        encoding="utf-8",
+    )
+
+    assert request_handler.get_settings()["camera_enabled"] is False
 
 
 @pytest.mark.asyncio

@@ -1,7 +1,9 @@
 import os
 import sys
 import logging
+import hashlib
 import importlib.util
+from pathlib import Path
 from typing import List, Dict, Optional
 from .base_plugin import BasePlugin, PluginContext
 
@@ -19,13 +21,17 @@ class PluginManager:
         if not os.path.exists(plugin_path):
             raise FileNotFoundError(f"Plugin path {plugin_path} does not exist")
             
-        module_name = os.path.basename(plugin_path).replace('.py', '')
         if os.path.isdir(plugin_path):
             main_file = os.path.join(plugin_path, '__init__.py')
             if not os.path.exists(main_file):
                 main_file = os.path.join(plugin_path, 'main.py')
         else:
             main_file = plugin_path
+
+        resolved_main_file = str(Path(main_file).resolve())
+        module_name = "helix_plugin_" + hashlib.sha256(
+            resolved_main_file.encode("utf-8")
+        ).hexdigest()[:16]
             
         if not os.path.exists(main_file):
             raise FileNotFoundError(f"Cannot find entry point for plugin at {plugin_path}")
@@ -80,6 +86,13 @@ class PluginManager:
             await self.event_bus.publish('plugin.loaded', {'name': name, 'version': metadata.version})
             
         return name
+
+    async def load_installed_pack(self, plugin_path: str) -> str:
+        resolved_path = str(Path(plugin_path).resolve(strict=True))
+        for name, loaded_path in self.plugin_paths.items():
+            if str(Path(loaded_path).resolve()) == resolved_path:
+                return name
+        return await self.load_plugin(resolved_path)
 
     async def load_plugins_from_directory(self, plugins_dir: str):
         if not os.path.exists(plugins_dir):

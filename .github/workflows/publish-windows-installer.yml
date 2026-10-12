@@ -29,12 +29,19 @@ jobs:
           INSTALLER_REPO_TOKEN: ${{ secrets.INSTALLER_REPO_TOKEN }}
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          HELIX_CAPABILITY_PUBLIC_KEY: ${{ vars.HELIX_CAPABILITY_PUBLIC_KEY }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:INSTALLER_REPO_TOKEN)) {
             throw "Configure the INSTALLER_REPO_TOKEN secret with write access to joelpizza0818-blip/helix-installer-downloads."
           }
           if ([string]::IsNullOrWhiteSpace($env:VITE_SUPABASE_URL) -or [string]::IsNullOrWhiteSpace($env:VITE_SUPABASE_ANON_KEY)) {
             throw "Configure the VITE_SUPABASE_URL repository variable and VITE_SUPABASE_ANON_KEY repository secret for desktop GitHub OAuth."
+          }
+          $capabilityPublicKey = [Convert]::FromBase64String($env:HELIX_CAPABILITY_PUBLIC_KEY)
+          if ([string]::IsNullOrWhiteSpace($env:HELIX_CAPABILITY_PUBLIC_KEY) -or
+              $capabilityPublicKey.Length -ne 32 -or
+              [Convert]::ToBase64String($capabilityPublicKey) -ne $env:HELIX_CAPABILITY_PUBLIC_KEY) {
+            throw "Configure HELIX_CAPABILITY_PUBLIC_KEY as a repository variable containing the raw 32-byte Ed25519 public key encoded as Base64."
           }
           if ($env:GITHUB_EVENT_NAME -eq "workflow_dispatch" -and
               $env:GITHUB_REF -ne "refs/heads/main" -and
@@ -85,6 +92,7 @@ jobs:
         env:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          HELIX_CAPABILITY_PUBLIC_KEY: ${{ vars.HELIX_CAPABILITY_PUBLIC_KEY }}
         run: npm run build:windows
 
       - name: Verify installer version and calculate checksum

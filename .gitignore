@@ -23,6 +23,8 @@ venv/
 /apps/desktop/dist/
 /apps/desktop/.pyinstaller-work/
 /apps/desktop/.pyinstaller-spec/
+/apps/desktop/capability-config.json
+/capability-pack-output/
 /apps/desktop/agent-runtime/*
 !/apps/desktop/agent-runtime/.gitkeep
 /apps/desktop-tauri/src-tauri/target/

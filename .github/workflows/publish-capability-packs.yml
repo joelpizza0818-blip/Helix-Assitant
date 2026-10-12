@@ -1,0 +1,45 @@
+name: Publish capability packs
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/capability-packs/**"
+      - "scripts/publish-capability-packs.mjs"
+      - ".github/workflows/publish-capability-packs.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-capability-packs
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CAPABILITY_SIGNING_PRIVATE_KEY: ${{ secrets.CAPABILITY_SIGNING_PRIVATE_KEY }}
+      HELIX_CAPABILITY_PUBLIC_KEY: ${{ vars.HELIX_CAPABILITY_PUBLIC_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Sign catalog and plugin packs
+        run: node scripts/publish-capability-packs.mjs
+      - name: Create or update independent capability-pack release
+        shell: bash
+        run: |
+          if gh release view capability-packs >/dev/null 2>&1; then
+            gh release upload capability-packs capability-pack-output/catalog.json capability-pack-output/system-diagnostics-1.0.0.py --clobber
+          else
+            gh release create capability-packs \
+              capability-pack-output/catalog.json \
+              capability-pack-output/system-diagnostics-1.0.0.py \
+              --title "HELIX Capability Packs" \
+              --notes "Independently versioned signed capability catalog and optional plugin assets."
+          fi

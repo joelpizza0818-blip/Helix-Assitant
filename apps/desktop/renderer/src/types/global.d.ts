@@ -75,6 +75,7 @@ export interface HelixAPI {
   downloadUpdate: () => Promise<void>
   installUpdate: () => Promise<void>
   onUpdaterStatus: (fn: (status: unknown) => void) => () => void
+  onCapabilityDownloadProgress: (fn: (progress: CapabilityDownloadProgress) => void) => () => void
   onOAuthCallback: (fn: (url: string) => void) => () => void
   getAdminStatus: () => Promise<{ configured: boolean; authenticated: boolean }>
   validateAdmin: (accessToken: string) => Promise<{ authenticated: boolean }>
@@ -91,6 +92,8 @@ export interface CapabilityPackManifest {
   id: string
   version: string
   capability: string
+  format: 'python-plugin'
+  requiredForComplete: boolean
   platform: 'win32'
   arch: 'x64' | 'arm64'
   coreVersionRange: string
@@ -108,7 +111,14 @@ export interface CapabilitySnapshot {
   profile: InstallationProfile
   packs: CapabilityPackState[]
   missingCount: number
+  requiredMissingCount: number
   ready: boolean
+}
+
+export interface CapabilityDownloadProgress {
+  id: string
+  receivedBytes: number
+  totalBytes: number
 }
 export interface AdminConfig {
   autoUpdate: boolean

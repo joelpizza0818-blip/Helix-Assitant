@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type {
   CapabilityPackState,
+  CapabilityDownloadProgress,
   CapabilitySnapshot,
   InstallationProfile,
 } from '../../../types/global'
@@ -9,6 +10,7 @@ export default function CapabilitiesSection() {
   const [snapshot, setSnapshot] = useState<CapabilitySnapshot | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [downloadProgress, setDownloadProgress] = useState<CapabilityDownloadProgress | null>(null)
 
   const refresh = useCallback(async () => {
     try {
@@ -21,6 +23,9 @@ export default function CapabilitiesSection() {
   }, [])
 
   useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => window.helix.onCapabilityDownloadProgress((progress) => {
+    setDownloadProgress(progress)
+  }), [])
 
   const changeProfile = async (profile: InstallationProfile) => {
     setBusy('profile')
@@ -36,12 +41,15 @@ export default function CapabilitiesSection() {
 
   const install = async (pack: CapabilityPackState) => {
     setBusy(pack.id)
+    setDownloadProgress({ id: pack.id, receivedBytes: 0, totalBytes: pack.sizeBytes })
     try {
       const { status: _status, installedPath: _installedPath, error: _error, ...manifest } = pack
       await window.helix.installCapability(manifest)
       await refresh()
+      setDownloadProgress(null)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : `Could not install ${pack.capability}.`)
+      setDownloadProgress(null)
     } finally {
       setBusy(null)
     }
@@ -52,7 +60,21 @@ export default function CapabilitiesSection() {
     await window.helix.cancelCapability(pack.id)
   }
 
-  if (!snapshot) return <div className="toolbox__loading">Loading capabilities...</div>
+  if (!snapshot) {
+    return (
+      <section className="toolbox-card">
+        <h2 className="toolbox-card__title">Capabilities & installation</h2>
+        {error ? (
+          <p className="toolbox-error" role="alert">{error}</p>
+        ) : (
+          <div className="toolbox__loading">Loading capabilities...</div>
+        )}
+        <button type="button" className="validate-btn" onClick={() => void refresh()}>
+          Retry
+        </button>
+      </section>
+    )
+  }
 
   return (
     <section className="toolbox-card">
@@ -85,9 +107,16 @@ export default function CapabilitiesSection() {
             <div key={`${pack.id}-${pack.version}`} className="form-row">
               <span>{pack.capability} · {pack.version}</span>
               {busy === pack.id ? (
-                <button type="button" className="validate-btn" onClick={() => void cancel(pack)}>
-                  Cancel download
-                </button>
+                <>
+                  <span role="status">
+                    {downloadProgress?.id === pack.id && downloadProgress.totalBytes > 0
+                      ? `${Math.min(100, Math.round(downloadProgress.receivedBytes / downloadProgress.totalBytes * 100))}%`
+                      : 'Installing...'}
+                  </span>
+                  <button type="button" className="validate-btn" onClick={() => void cancel(pack)}>
+                    Cancel download
+                  </button>
+                </>
               ) : (
                 <button type="button" className="validate-btn" disabled={busy !== null} onClick={() => void install(pack)}>
                   Install ({Math.ceil(pack.sizeBytes / 1024 / 1024)} MB)
@@ -97,7 +126,7 @@ export default function CapabilitiesSection() {
           ))}
         </div>
       )}
-      {snapshot.profile === 'complete' && snapshot.missingCount > 0 && snapshot.packs.length > 0 && (
+      {snapshot.profile === 'complete' && snapshot.requiredMissingCount > 0 && (
         <p className="text-xs text-muted" role="status">Complete installation is incomplete; repair the missing signed packs.</p>
       )}
       {snapshot.packs.length === 0 && (

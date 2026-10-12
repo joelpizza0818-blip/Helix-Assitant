@@ -6,6 +6,8 @@ import { openUrl } from '@tauri-apps/plugin-opener'
 import type {
   AdminBackup,
   AdminConfig,
+  CapabilityPackManifest,
+  CapabilityDownloadProgress,
   HelixAPI,
   HelixSettings,
   InstallationProfile,
@@ -29,6 +31,7 @@ const rendererEvents: Record<string, string> = {
   onHandLandmarks: 'helix:hand_landmarks',
   onShowTasks: 'helix:show-tasks',
   onUpdaterStatus: 'helix:updater-status',
+  onCapabilityDownloadProgress: 'helix:capability-download-progress',
   onOAuthCallback: 'helix:oauth-callback',
 }
 
@@ -167,8 +170,9 @@ export async function installTauriBridge(): Promise<void> {
     refreshCapabilities: () => invoke('get_capabilities') as ReturnType<HelixAPI['refreshCapabilities']>,
     setInstallationProfile: (profile: InstallationProfile) =>
       invoke('set_installation_profile', { profile }) as ReturnType<HelixAPI['setInstallationProfile']>,
-    installCapability: () => invoke('install_capability') as ReturnType<HelixAPI['installCapability']>,
-    cancelCapability: () => invoke<boolean>('cancel_capability'),
+    installCapability: (manifest: CapabilityPackManifest) =>
+      invoke('install_capability', { packId: manifest.id }) as ReturnType<HelixAPI['installCapability']>,
+    cancelCapability: (id: string) => invoke<boolean>('cancel_capability', { packId: id }),
     validateKey: (provider: string, slot: number, key: string) =>
       request('VALIDATE_KEY', { provider, slot, key }) as ReturnType<HelixAPI['validateKey']>,
     getSkills: () => request('GET_SKILLS') as ReturnType<HelixAPI['getSkills']>,
@@ -200,6 +204,8 @@ export async function installTauriBridge(): Promise<void> {
     onProviderUpdate: (handler: EventHandler) => subscribe('onProviderUpdate', handler),
     onHandLandmarks: (handler: EventHandler) => subscribe('onHandLandmarks', handler),
     onUpdaterStatus: (handler: EventHandler) => subscribe('onUpdaterStatus', handler),
+    onCapabilityDownloadProgress: (handler: (progress: CapabilityDownloadProgress) => void) =>
+      subscribe('onCapabilityDownloadProgress', handler),
     onOAuthCallback: (handler: EventHandler) => {
       pendingOAuthCallbacks.splice(0).forEach((url) => handler(url))
       return subscribe('onOAuthCallback', handler)

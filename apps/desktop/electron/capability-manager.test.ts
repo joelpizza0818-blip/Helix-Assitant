@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import { generateKeyPairSync, sign } from 'node:crypto'
+import { generateKeyPairSync, sign, type KeyObject } from 'node:crypto'
 import {
   CapabilityManager,
   validatePackManifest,
@@ -11,21 +11,40 @@ import {
   type CapabilityPackManifest,
 } from './capability-manager'
 
-function makeManifest(publicKeyPem: string): CapabilityPackManifest {
-  const unsigned = {
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value)
+      .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
+      .join(',')}}`
+  }
+  return JSON.stringify(value) ?? 'null'
+}
+
+function publicKeyBase64(publicKey: KeyObject): string {
+  return publicKey.export({ type: 'spki', format: 'der' }).subarray(-32).toString('base64')
+}
+
+function makeManifest(
+  privateKey: KeyObject,
+  overrides: Partial<CapabilityPackManifest> = {},
+): CapabilityPackManifest {
+  const unsigned: Omit<CapabilityPackManifest, 'signature'> = {
     arch: 'x64' as const,
     capability: 'vision',
     coreVersionRange: '*',
+    format: 'python-plugin',
     id: 'vision',
     platform: 'win32' as const,
+    requiredForComplete: false,
     sha256: 'a'.repeat(64),
     sizeBytes: 4,
-    url: 'https://example.test/vision.pack',
+    url: 'https://github.com/joelpizza0818-blip/Helix-Assitant/releases/download/capability-packs/vision-1.0.0.py',
     version: '1.0.0',
+    ...overrides,
   }
-  const privateKey = generateKeyPairSync('ed25519').privateKey
-  const signature = sign(null, Buffer.from(JSON.stringify(unsigned), 'utf8'), privateKey).toString('base64')
-  void publicKeyPem
+  const signature = sign(null, Buffer.from(canonicalJson(unsigned), 'utf8'), privateKey).toString('base64')
   return { ...unsigned, signature }
 }
 
@@ -33,7 +52,8 @@ test('rejects unsigned or unsafe capability manifests', () => {
   assert.throws(() => validatePackManifest({} as CapabilityPackManifest), /invalid capability pack id/i)
   assert.throws(() => validatePackManifest({
     id: '../escape', version: '1', capability: 'vision', platform: 'win32', arch: 'x64',
-    coreVersionRange: '*', sizeBytes: 1, url: 'http://example.test', sha256: 'a'.repeat(64), signature: 'x',
+    format: 'python-plugin', requiredForComplete: false, coreVersionRange: '*', sizeBytes: 1,
+    url: 'http://example.test', sha256: 'a'.repeat(64), signature: 'x',
   }), /invalid capability pack id/i)
 })
 
@@ -41,24 +61,16 @@ test('persists progressive profile and reports signed catalog entries as missing
   const root = await mkdtemp(path.join(tmpdir(), 'helix-capability-test-'))
   try {
     const keys = generateKeyPairSync('ed25519')
-    const publicKeyPem = keys.publicKey.export({ type: 'spki', format: 'pem' }).toString()
-    const manager = new CapabilityManager(root, '0.1.9', { publicKeyPem })
-    const manifest = makeManifest(publicKeyPem)
-    // Re-sign with the private key matching the public key used by the manager.
-    const unsigned = { ...manifest }
-    delete (unsigned as Partial<CapabilityPackManifest>).signature
-    const signature = sign(null, Buffer.from(JSON.stringify({
-      arch: unsigned.arch, capability: unsigned.capability, coreVersionRange: unsigned.coreVersionRange,
-      id: unsigned.id, platform: unsigned.platform, sha256: unsigned.sha256, sizeBytes: unsigned.sizeBytes,
-      url: unsigned.url, version: unsigned.version,
-    }), 'utf8'), keys.privateKey).toString('base64')
-    const signed = { ...manifest, signature }
-    assert.equal(verifyPackManifest(signed, publicKeyPem), true)
+    const publicKey = publicKeyBase64(keys.publicKey)
+    const manager = new CapabilityManager(root, '0.1.9', { publicKey })
+    const signed = makeManifest(keys.privateKey)
+    assert.equal(verifyPackManifest(signed, publicKey), true)
     await manager.load()
     manager.registerManifest(signed)
     const snapshot = await manager.setProfile('progressive')
     assert.equal(snapshot.profile, 'progressive')
     assert.equal(snapshot.missingCount, 1)
+    assert.equal(snapshot.requiredMissingCount, 0)
     assert.equal(snapshot.packs[0].status, 'missing')
   } finally {
     await rm(root, { recursive: true, force: true })
@@ -69,17 +81,9 @@ test('marks packs outside the signed core version range as incompatible', async 
   const root = await mkdtemp(path.join(tmpdir(), 'helix-capability-range-'))
   try {
     const keys = generateKeyPairSync('ed25519')
-    const publicKeyPem = keys.publicKey.export({ type: 'spki', format: 'pem' }).toString()
-    const manager = new CapabilityManager(root, '0.1.9', { publicKeyPem })
-    const manifest = makeManifest(publicKeyPem)
-    manifest.coreVersionRange = '^2.0.0'
-    const unsigned = { ...manifest }
-    delete (unsigned as Partial<CapabilityPackManifest>).signature
-    manifest.signature = sign(null, Buffer.from(JSON.stringify({
-      arch: unsigned.arch, capability: unsigned.capability, coreVersionRange: unsigned.coreVersionRange,
-      id: unsigned.id, platform: unsigned.platform, sha256: unsigned.sha256, sizeBytes: unsigned.sizeBytes,
-      url: unsigned.url, version: unsigned.version,
-    }), 'utf8'), keys.privateKey).toString('base64')
+    const publicKey = publicKeyBase64(keys.publicKey)
+    const manager = new CapabilityManager(root, '0.1.9', { publicKey })
+    const manifest = makeManifest(keys.privateKey, { coreVersionRange: '^2.0.0' })
     manager.registerManifest(manifest)
     assert.equal((await manager.setProfile('progressive')).packs[0].status, 'incompatible')
   } finally {
@@ -91,13 +95,13 @@ test('does not treat a complete profile as proof that a capability pack is insta
   const root = await mkdtemp(path.join(tmpdir(), 'helix-capability-complete-'))
   try {
     const keys = generateKeyPairSync('ed25519')
-    const publicKeyPem = keys.publicKey.export({ type: 'spki', format: 'pem' }).toString()
-    const manager = new CapabilityManager(root, '0.1.9', { publicKeyPem })
+    const publicKey = publicKeyBase64(keys.publicKey)
+    const manager = new CapabilityManager(root, '0.1.9', { publicKey })
     await manager.load()
     await manager.setProfile('complete')
     assert.equal(manager.isPackInstalled('vision'), false)
 
-    manager.registerManifest(makeManifest(publicKeyPem))
+    manager.registerManifest(makeManifest(keys.privateKey))
     assert.equal(manager.isPackInstalled('vision'), false)
   } finally {
     await rm(root, { recursive: true, force: true })
@@ -116,7 +120,7 @@ test('complete release builds reject progressive selection and normalize saved p
     assert.equal(releaseManager.getProfile(), 'complete')
     await assert.rejects(releaseManager.setProfile('progressive'), /not enabled in this build/i)
     await assert.rejects(
-      releaseManager.installPack(makeManifest('')),
+      releaseManager.installPack(makeManifest(generateKeyPairSync('ed25519').privateKey)),
       /not enabled in this build/i,
     )
   } finally {

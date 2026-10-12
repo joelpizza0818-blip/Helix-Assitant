@@ -189,6 +189,21 @@ class ReActLoop:
                     raw_output=None,
                     execution_succeeded=False,
                 )
+            tool = self.tool_registry.get_tool(tool_name)
+            if tool is None:
+                return _ToolExecutionOutcome(
+                    success=False,
+                    output=f"Error: Tool {tool_name} disappeared after capability installation.",
+                    raw_output=None,
+                    execution_succeeded=False,
+                )
+            if not tool.validate_params(arguments):
+                return _ToolExecutionOutcome(
+                    success=False,
+                    output=f"Error: Installed capability provided an incompatible '{tool_name}' tool.",
+                    raw_output=None,
+                    execution_succeeded=False,
+                )
 
         is_screen_capture_tool = tool_name in _SCREEN_CAPTURE_TOOL_NAMES
         is_screen_action_tool = (
