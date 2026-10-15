@@ -100,6 +100,7 @@ DEFAULT_SETTINGS = {
     "memory_auto_compaction": True,
     "embedding_model": "text-embedding-3-small",
     "memory_similarity_threshold": 0.75,
+    "tool_verification_enabled": True,
 }
 
 MAX_USER_TEXT_ATTACHMENT_BYTES = 8 * 1024 * 1024
@@ -568,6 +569,9 @@ class DesktopRequestHandler:
                 )
             self.react_loop.auto_approve_up_to = ceiling
             self.react_loop.permissions_mode = mode
+            self.react_loop.tool_verification_enabled = bool(
+                settings.get("tool_verification_enabled", True)
+            )
         if self.permission_manager is not None:
             self.permission_manager.configure(
                 mode=mode,

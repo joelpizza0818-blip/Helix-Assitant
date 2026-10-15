@@ -87,6 +87,7 @@ class ReActLoop:
         self.on_demand_screen_context_enabled = False
         self.continuous_screen_vision_enabled = False
         self.model_decides_screen_vision_enabled = False
+        self.tool_verification_enabled = True
 
     async def _ensure_confirmation_subscriptions(self):
         subscribe = getattr(self.event_bus, "subscribe", None)
@@ -344,7 +345,7 @@ class ReActLoop:
             image_bytes=image_bytes,
         )
 
-        if success:
+        if success and self.tool_verification_enabled:
             outcome = await self._verify_if_important(
                 task_description or tool_name,
                 SimpleNamespace(name=tool_name, arguments=arguments),
