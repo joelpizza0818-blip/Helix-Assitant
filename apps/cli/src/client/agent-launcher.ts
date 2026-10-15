@@ -81,6 +81,21 @@ export function findPythonExecutable(repoRoot: string): string {
     return process.env.PYTHON_PATH;
   }
 
+  // On Windows, prefer pythonw.exe so NO console terminal window is opened
+  if (process.platform === 'win32') {
+    const venvGuiCandidates = [
+      path.join(repoRoot, '.venv', 'Scripts', 'pythonw.exe'),
+      path.join(repoRoot, 'venv', 'Scripts', 'pythonw.exe'),
+      path.join(repoRoot, 'services', 'agent', '.venv', 'Scripts', 'pythonw.exe'),
+    ];
+
+    for (const venvGui of venvGuiCandidates) {
+      if (fs.existsSync(venvGui)) {
+        return venvGui;
+      }
+    }
+  }
+
   // Check virtual environment candidates relative to repository root
   const venvCandidates = [
     path.join(repoRoot, '.venv', 'Scripts', 'python.exe'),
@@ -98,7 +113,9 @@ export function findPythonExecutable(repoRoot: string): string {
   }
 
   // Fallback to system PATH executables
-  const systemCandidates = ['python', 'python3', 'py'];
+  const systemCandidates = process.platform === 'win32'
+    ? ['pythonw', 'python', 'py']
+    : ['python', 'python3', 'py'];
   return systemCandidates[0];
 }
 
@@ -321,7 +338,7 @@ export async function spawnAgentDaemon(port: number = 8765): Promise<{ success: 
   try {
     const child = spawn(
       pythonExec,
-      ['main.py', '--ws-port', String(port)],
+      ['main.py', '--ws-port', String(port), '--no-camera'],
       {
         cwd: agentDir,
         detached: true,
@@ -330,6 +347,8 @@ export async function spawnAgentDaemon(port: number = 8765): Promise<{ success: 
         env: {
           ...process.env,
           HELIX_WS_TOKEN: token,
+          HELIX_DISABLE_CAMERA: '1',
+          CAMERA_ENABLED: 'false',
           PYTHONUNBUFFERED: '1',
           PYTHONIOENCODING: 'utf-8',
           PYTHONPATH: repoRoot,

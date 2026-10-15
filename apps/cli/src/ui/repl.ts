@@ -74,6 +74,8 @@ export class HelixRepl {
   private async _syncSettings(): Promise<void> {
     if (!this.client.connected) return;
     try {
+      // CLI mode only utilizes microphone for voice commands; ensure camera/gesture engine is disabled
+      await this.client.saveSettings({ camera_enabled: false }).catch(() => {});
       const settings = await this.client.getSettings();
       if (typeof settings.voice_enabled === 'boolean') {
         this.voiceEnabled = settings.voice_enabled;

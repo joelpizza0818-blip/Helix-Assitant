@@ -110,6 +110,7 @@ async def main():
     parser.add_argument("--ws-port", type=int, default=8765)
     parser.add_argument("--log-level", type=str, default="INFO")
     parser.add_argument("--config", type=str)
+    parser.add_argument("--no-camera", action="store_true", help="Disable camera and gesture engine")
     args = parser.parse_args()
 
     load_dotenv(project_root / ".env")
@@ -632,7 +633,15 @@ async def main():
         # agent_ws_port
         logger.info("Note: agent_ws_port changes require a restart to take effect.")
         
-        camera_enabled = payload.get("camera_enabled", gesture_engine is not None)
+        camera_disabled = (
+            getattr(args, "no_camera", False)
+            or os.environ.get("HELIX_DISABLE_CAMERA", "").lower() in ("1", "true")
+            or os.environ.get("CAMERA_ENABLED", "").lower() in ("0", "false")
+        )
+        if camera_disabled:
+            camera_enabled = False
+        else:
+            camera_enabled = payload.get("camera_enabled", gesture_engine is not None)
         camera_index = payload.get(
             "camera_device_index",
             gesture_engine.camera_index if gesture_engine is not None else 0,
