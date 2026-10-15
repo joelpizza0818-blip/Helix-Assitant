@@ -97,14 +97,34 @@
   inset: 0;
   display: flex;
   align-items: flex-start;
-  padding: clamp(120px, 17vh, 190px) clamp(24px, 8vw, 120px) 50px;
+  padding: clamp(100px, 14vh, 160px) clamp(24px, 8vw, 120px) 60px;
   color: #f4f4f4;
   background: #111;
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
   transform: translateY(-10px);
   transition: opacity 220ms ease, visibility 220ms ease, transform 220ms ease;
+}
+
+.scrolly-menu::-webkit-scrollbar {
+  width: 8px;
+}
+
+.scrolly-menu::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.scrolly-menu::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+.scrolly-menu::-webkit-scrollbar-thumb:hover {
+  background: var(--scrolly-accent);
 }
 
 .scrolly-menu.is-open {
