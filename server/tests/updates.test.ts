@@ -32,7 +32,7 @@ test('POST /api/updates/subscribe adds a subscriber email', async () => {
       body: JSON.stringify({ email: 'developer@example.com' }),
     });
 
-    const data = await res.json();
+    const data = (await res.json()) as any;
     assert.equal(res.status, 200);
     assert.equal(data.success, true);
     assert.ok(data.totalSubscribers >= 1);
@@ -54,7 +54,7 @@ test('POST /api/updates/subscribe rejects invalid email format', async () => {
       body: JSON.stringify({ email: 'not-an-email' }),
     });
 
-    const data = await res.json();
+    const data = (await res.json()) as any;
     assert.equal(res.status, 400);
     assert.equal(data.success, false);
   } finally {

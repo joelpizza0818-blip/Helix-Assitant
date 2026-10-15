@@ -37,13 +37,13 @@ export const PrivacyModal: React.FC<PrivacyModalProps> = ({
         <div className="privacy-modal-header">
           <div className="privacy-modal-badge">
             <span className="privacy-modal-badge__dot" />
-            <span>HELIX {targetEdition} · VERIFICACIÓN DE SEGURIDAD</span>
+            <span>HELIX {targetEdition} · SECURITY VERIFICATION</span>
           </div>
           <h2 id="privacy-modal-title" className="privacy-modal-title">
-            Aprobación de Privacidad y Acceso al Sistema
+            Privacy and System Access Approval
           </h2>
           <p className="privacy-modal-subtitle">
-            Antes de descargar e instalar HELIX en Windows, revisa cómo opera el agente en tu máquina.
+            Before downloading and installing HELIX on Windows, review how the agent operates on your machine.
           </p>
         </div>
 
@@ -57,8 +57,8 @@ export const PrivacyModal: React.FC<PrivacyModalProps> = ({
                 </svg>
               </span>
               <div>
-                <h4>Captura de pantalla bajo demanda</h4>
-                <p>HELIX solo analiza tu pantalla cuando se lo pides explícitamente en el chat o por comando. Los fotogramas se procesan en memoria volátil y nunca se almacenan ni se venden.</p>
+                <h4>On-demand screen capture</h4>
+                <p>HELIX only analyzes your screen when you explicitly ask it to in the chat or by command. Frames are processed in volatile memory and are never stored or sold.</p>
               </div>
             </div>
 
@@ -71,8 +71,8 @@ export const PrivacyModal: React.FC<PrivacyModalProps> = ({
                 </svg>
               </span>
               <div>
-                <h4>Micrófono y voz transparente</h4>
-                <p>La escucha por micrófono solo está activa durante estados de conversación directa. No existe grabación de fondo continua ni almacenamiento encubierto.</p>
+                <h4>Transparent microphone and voice</h4>
+                <p>Microphone listening is only active during direct conversation states. There is no continuous background recording or covert storage.</p>
               </div>
             </div>
 
@@ -85,8 +85,8 @@ export const PrivacyModal: React.FC<PrivacyModalProps> = ({
                 </svg>
               </span>
               <div>
-                <h4>Tus claves de API se quedan contigo</h4>
-                <p>Tus API keys se guardan localmente en Windows Credential Manager o tu archivo <code>.env</code>. Se comunican directamente y de forma cifrada con tus proveedores (Google, OpenAI, Anthropic o modelos locales con Ollama).</p>
+                <h4>Your API keys stay with you</h4>
+                <p>Your API keys are stored locally in Windows Credential Manager or your <code>.env</code> file. They communicate directly and encrypted with your providers (Google, OpenAI, Anthropic, or local models with Ollama).</p>
               </div>
             </div>
 
@@ -97,8 +97,8 @@ export const PrivacyModal: React.FC<PrivacyModalProps> = ({
                 </svg>
               </span>
               <div>
-                <h4>Política Zero-Trust</h4>
-                <p>Cualquier operación que altere archivos, ejecute comandos en PowerShell o modifique el sistema requiere tu confirmación explícita antes de ejecutarse.</p>
+                <h4>Zero-Trust Policy</h4>
+                <p>Any operation that alters files, executes commands in PowerShell, or modifies the system requires your explicit confirmation before execution.</p>
               </div>
             </div>
           </div>
@@ -111,14 +111,14 @@ export const PrivacyModal: React.FC<PrivacyModalProps> = ({
               className="privacy-consent-checkbox"
             />
             <span className="privacy-consent-text">
-              He leído y apruebo la <Link to="/privacy" target="_blank" className="privacy-link">Política de Privacidad completa</Link> y las condiciones de ejecución local en Windows.
+              I have read and approve the <Link to="/privacy" target="_blank" className="privacy-link">full Privacy Policy</Link> and the local execution conditions on Windows.
             </span>
           </label>
         </div>
 
         <div className="privacy-modal-footer">
           <button type="button" className="privacy-btn-cancel" onClick={onClose}>
-            Cancelar
+            Cancel
           </button>
           <button
             type="button"
@@ -126,7 +126,7 @@ export const PrivacyModal: React.FC<PrivacyModalProps> = ({
             disabled={!accepted}
             onClick={handleProceed}
           >
-            Descargar HELIX {targetEdition} <span aria-hidden="true">↓</span>
+            Download HELIX {targetEdition} <span aria-hidden="true">↓</span>
           </button>
         </div>
       </div>

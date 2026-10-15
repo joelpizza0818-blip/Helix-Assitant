@@ -8,8 +8,60 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Geist:wght@400;500&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+
+    <!-- Google Translate auto-detect widget -->
+    <script type="text/javascript">
+      function googleTranslateElementInit() {
+        new google.translate.TranslateElement({
+          pageLanguage: 'en',
+          autoDisplay: true,
+          layout: google.translate.TranslateElement.InlineLayout.HORIZONTAL,
+          multilanguagePage: false
+        }, 'google_translate_element');
+      }
+    </script>
+    <script type="text/javascript" src="https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
+
+    <!-- Hide Google Translate bar and style the widget minimally -->
+    <style>
+      .goog-te-banner-frame { display: none !important; }
+      body { top: 0 !important; }
+      #google_translate_element {
+        position: fixed;
+        bottom: 16px;
+        right: 16px;
+        z-index: 9999;
+        background: rgba(20, 20, 20, 0.85);
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 10px;
+        padding: 6px 10px;
+        font-size: 12px;
+      }
+      #google_translate_element .goog-te-gadget {
+        font-size: 0;
+        color: transparent;
+      }
+      #google_translate_element .goog-te-gadget > span {
+        display: none !important;
+      }
+      #google_translate_element select.goog-te-combo {
+        background: transparent;
+        color: #ccc;
+        border: none;
+        font-size: 12px;
+        font-family: 'Inter', sans-serif;
+        outline: none;
+        cursor: pointer;
+        padding: 2px 4px;
+      }
+      .goog-te-gadget-icon { display: none !important; }
+      .goog-tooltip, .goog-tooltip:hover { display: none !important; }
+      .goog-text-highlight { background: none !important; box-shadow: none !important; }
+    </style>
   </head>
   <body>
+    <div id="google_translate_element"></div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

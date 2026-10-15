@@ -15,59 +15,59 @@ interface Release {
 const RELEASES: Release[] = [
   {
     version: '0.2.0',
-    tag: 'ÚLTIMA VERSIÓN',
-    date: 'Octubre 2026',
+    tag: 'LATEST VERSION',
+    date: 'October 2026',
     title: 'Stagger transitions, HELIX Lite & Privacy Gates',
     editions: ['Normal', 'Lite'],
     changes: [
-      'Motor de scrollytelling con tarjetas apiladas fluidas (Stagger) de aceleración por hardware en aterrizaje y novedades.',
-      'Soporte oficial y distribución dual de HELIX Lite (Tauri, binario ligero ~15MB y 40MB RAM) junto a HELIX Normal (Electron).',
-      'Integración de modal de verificación y consentimiento de políticas de privacidad previo a la descarga de ejecutables.',
-      'Nueva página oficial de Privacidad con pautas Zero-Trust para OCR de pantalla y captura de voz bajo demanda.',
-      'Centro de Documentación técnica oficial y rediseño de interfaz en los portales de autenticación.',
+      'Hardware-accelerated scrollytelling engine with fluid stacked cards (Stagger) on landing and features pages.',
+      'Official support and dual distribution of HELIX Lite (Tauri, lightweight binary ~15MB and 40MB RAM) alongside HELIX Normal (Electron).',
+      'Integration of verification modal and privacy policy consent prior to executable downloads.',
+      'New official Privacy page with Zero-Trust guidelines for on-demand screen OCR and voice capture.',
+      'Official technical Documentation Center and interface redesign on authentication portals.',
     ],
   },
   {
     version: '0.1.10',
-    date: 'Octubre 2026',
-    title: 'Model Fallbacks & Fail-Safes de Capacidad',
+    date: 'October 2026',
+    title: 'Model Fallbacks & Capacity Fail-Safes',
     editions: ['Normal', 'Lite'],
     changes: [
-      'Conmutación automática de modelos cuando un proveedor o clave individual falla sin perder el contexto.',
-      'Autenticación reforzada del servicio local del agente con detención segura si falta una capacidad crítica.',
-      'Mejoras en las herramientas de escritorio para control de ventanas y conexiones MCP.',
+      'Automatic model switching when an individual provider or key fails without losing context.',
+      'Reinforced authentication for the local agent service with safe shutdown if a critical capability is missing.',
+      'Improvements to desktop tools for window control and MCP connections.',
     ],
   },
   {
     version: '0.1.9',
-    date: 'Septiembre 2026',
-    title: 'Fiabilidad de Automatización en Windows',
+    date: 'September 2026',
+    title: 'Windows Automation Reliability',
     editions: ['Normal'],
     changes: [
-      'Inclusión de módulos de automatización de Windows compilados en el entorno de Python integrado.',
-      'Verificación de sumas de comprobación SHA-256 en el proceso de instalación.',
+      'Inclusion of compiled Windows automation modules in the embedded Python environment.',
+      'SHA-256 checksum verification during the installation process.',
     ],
   },
   {
     version: '0.1.5',
-    date: 'Agosto 2026',
-    title: 'Identidad, Perfiles & Resiliencia',
+    date: 'August 2026',
+    title: 'Identity, Profiles & Resilience',
     editions: ['Normal'],
     changes: [
-      'Inicio de sesión seguro vinculado con GitHub OAuth sin requerir GitHub CLI instalado.',
-      'Preservación de historial de conversación durante reintentos por caída de red.',
-      'Panel de configuración con almacenamiento seguro en Windows Credential Manager.',
+      'Secure login linked with GitHub OAuth without requiring GitHub CLI installed.',
+      'Conversation history preservation during retries after network failures.',
+      'Settings panel with secure storage in Windows Credential Manager.',
     ],
   },
   {
     version: '0.1.0',
-    date: 'Julio 2026',
-    title: 'Fundación del Agente de Escritorio HELIX',
+    date: 'July 2026',
+    title: 'HELIX Desktop Agent Foundation',
     editions: ['Normal'],
     changes: [
-      'Lanzamiento inicial del agente residente en bandeja de sistema (System Tray) para Windows.',
-      'Enrutador inteligente de modelos de lenguaje (Gemini, Claude, GPT-4o y Ollama local).',
-      'Primer motor de interacción por voz nativo con SoundDevice y OCR de pantalla.',
+      'Initial release of the system tray resident agent for Windows.',
+      'Intelligent language model router (Gemini, Claude, GPT-4o and local Ollama).',
+      'First native voice interaction engine with SoundDevice and screen OCR.',
     ],
   },
 ];
@@ -93,15 +93,15 @@ export function FeaturesPage() {
       const data = await res.json();
       if (res.ok && data.success) {
         setNotifyStatus('success');
-        setNotifyMessage('¡Listo! Te avisaremos por correo con cada nueva versión.');
+        setNotifyMessage('Done! We will notify you by email with every new version.');
         setNotifyEmail('');
       } else {
         setNotifyStatus('error');
-        setNotifyMessage(data.error || 'No se pudo registrar la suscripción.');
+        setNotifyMessage(data.error || 'Could not register the subscription.');
       }
     } catch {
       setNotifyStatus('success');
-      setNotifyMessage('¡Listo! Correo registrado para recibir actualizaciones.');
+      setNotifyMessage('Done! Email registered to receive updates.');
       setNotifyEmail('');
     }
   };
@@ -141,24 +141,24 @@ export function FeaturesPage() {
   return (
     <div className="features-page" id="top">
       <header className="features-header">
-        <Link to="/" className="features-header__brand" aria-label="Volver a HELIX">
+        <Link to="/" className="features-header__brand" aria-label="Back to HELIX">
           <HelixLogo size="sm" showText />
         </Link>
         <div className="features-header__links">
-          <Link to="/" className="features-header__link">Inicio</Link>
-          <Link to="/docs" className="features-header__link">Documentación</Link>
-          <Link to="/privacy" className="features-header__link">Privacidad</Link>
-          <Link to="/download" className="features-header__cta">Descargar</Link>
+          <Link to="/" className="features-header__link">Home</Link>
+          <Link to="/docs" className="features-header__link">Documentation</Link>
+          <Link to="/privacy" className="features-header__link">Privacy</Link>
+          <Link to="/download" className="features-header__cta">Download</Link>
         </div>
       </header>
 
       <div className="features-scroll-wrapper" ref={containerRef}>
         <div className="features-stage">
           <div className="features-intro">
-            <span className="features-eyebrow">HISTORIAL DE VERSIONES & PARCHES</span>
+            <span className="features-eyebrow">VERSION HISTORY & PATCHES</span>
             <h1>What's New in HELIX</h1>
             <p>
-              Explora las versiones de la más reciente a la inicial. Desplaza la rueda para apilar cada entrega.
+              Explore versions from latest to first. Scroll to stack each release.
             </p>
           </div>
 
@@ -212,10 +212,10 @@ export function FeaturesPage() {
 
                     <div className="features-card-footer">
                       <span className="features-step-label">
-                        Versión {index + 1} de {totalCards}
+                        Version {index + 1} of {totalCards}
                       </span>
                       <Link to="/download" className="features-card-download">
-                        Instalar v{release.version}
+                        Install v{release.version}
                         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ marginLeft: 6 }}>
                           <line x1="5" y1="12" x2="19" y2="12" />
                           <polyline points="12 5 19 12 12 19" />
@@ -229,11 +229,11 @@ export function FeaturesPage() {
           </div>
 
           <div className="features-progress-bar" aria-hidden="true">
-            <span>Última (v0.2.0)</span>
+            <span>Latest (v0.2.0)</span>
             <div className="features-progress-track">
               <i style={{ width: `${Math.max(6, progress * 100)}%` }} />
             </div>
-            <span>Inicial (v0.1.0)</span>
+            <span>Initial (v0.1.0)</span>
           </div>
         </div>
       </div>
@@ -242,17 +242,17 @@ export function FeaturesPage() {
       <section className="features-subscribe-section">
         <div className="features-subscribe-box">
           <div className="features-subscribe-copy">
-            <span className="features-subscribe-eyebrow">NOTIFICACIONES DE VERSIONES</span>
-            <h3>Recibe cada nueva versión en tu correo</h3>
+            <span className="features-subscribe-eyebrow">VERSION NOTIFICATIONS</span>
+            <h3>Get every new version in your inbox</h3>
             <p>
-              Te enviaremos un correo con las notas de la versión, binarios para Windows y enlaces de descarga cada vez que publiquemos una actualización.
+              We will send you an email with the release notes, Windows binaries, and download links every time we publish an update.
             </p>
           </div>
           <form className="features-subscribe-form" onSubmit={handleSubscribe}>
             <input
               type="email"
               className="features-subscribe-input"
-              placeholder="tu-correo@desarrollador.com"
+              placeholder="your-email@developer.com"
               value={notifyEmail}
               onChange={(e) => setNotifyEmail(e.target.value)}
               required
@@ -262,7 +262,7 @@ export function FeaturesPage() {
               className="features-subscribe-btn"
               disabled={notifyStatus === 'loading'}
             >
-              {notifyStatus === 'loading' ? 'Suscribiendo...' : 'Suscribirme'}
+              {notifyStatus === 'loading' ? 'Subscribing...' : 'Subscribe'}
             </button>
           </form>
           {notifyMessage && (
@@ -275,12 +275,12 @@ export function FeaturesPage() {
 
       <footer className="features-footer">
         <div className="features-footer__inner">
-          <p>© {new Date().getFullYear()} Proyecto HELIX. Historial de lanzamientos y versiones.</p>
+          <p>© {new Date().getFullYear()} HELIX Project. Release and version history.</p>
           <div className="features-footer__links">
-            <Link to="/">Inicio</Link>
-            <Link to="/docs">Documentación</Link>
-            <Link to="/privacy">Privacidad</Link>
-            <Link to="/download">Descargar</Link>
+            <Link to="/">Home</Link>
+            <Link to="/docs">Documentation</Link>
+            <Link to="/privacy">Privacy</Link>
+            <Link to="/download">Download</Link>
           </div>
         </div>
       </footer>

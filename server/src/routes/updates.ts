@@ -9,13 +9,13 @@ export const updatesRouter = Router();
 const subscribersSet = new Set<string>();
 
 const SubscribeSchema = z.object({
-  email: z.string().email('Email inválido'),
+  email: z.string().email('Invalid email'),
 });
 
 const BroadcastSchema = z.object({
-  version: z.string().min(1, 'Versión requerida'),
-  title: z.string().min(1, 'Título requerido'),
-  changes: z.array(z.string()).min(1, 'Lista de cambios requerida'),
+  version: z.string().min(1, 'Version is required'),
+  title: z.string().min(1, 'Title is required'),
+  changes: z.array(z.string()).min(1, 'Changes list is required'),
   recipients: z.array(z.string().email()).optional(),
   downloadUrl: z.string().url().optional(),
 });
@@ -30,19 +30,19 @@ updatesRouter.post('/subscribe', (req: Request, res: Response) => {
 
     return res.status(200).json({
       success: true,
-      message: 'Suscripción exitosa. Recibirás un correo cuando se publiquen nuevas versiones.',
+      message: 'Subscription successful. You will receive an email when new versions are released.',
       totalSubscribers: subscribersSet.size,
     });
   } catch (error: any) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({
         success: false,
-        error: error.errors[0]?.message || 'Datos de suscripción inválidos',
+        error: error.errors[0]?.message || 'Invalid subscription data',
       });
     }
     return res.status(500).json({
       success: false,
-      error: 'Error interno al registrar suscripción',
+      error: 'Internal error while registering subscription',
     });
   }
 });
@@ -58,7 +58,7 @@ updatesRouter.post('/broadcast', async (req: Request, res: Response) => {
     if (targetRecipients.length === 0) {
       return res.status(400).json({
         success: false,
-        error: 'No hay destinatarios suscritos ni especificados en la petición.',
+        error: 'No subscribed recipients or recipients specified in the request.',
       });
     }
 
@@ -74,13 +74,13 @@ updatesRouter.post('/broadcast', async (req: Request, res: Response) => {
     if (!result.success) {
       return res.status(500).json({
         success: false,
-        error: result.error || 'Error al enviar correos',
+        error: result.error || 'Error sending emails',
       });
     }
 
     return res.status(200).json({
       success: true,
-      message: `Actualización v${data.version} enviada a ${result.sentCount} usuarios.`,
+      message: `Update v${data.version} sent to ${result.sentCount} users.`,
       sentCount: result.sentCount,
       messageId: result.messageId,
     });
@@ -88,12 +88,12 @@ updatesRouter.post('/broadcast', async (req: Request, res: Response) => {
     if (error instanceof z.ZodError) {
       return res.status(400).json({
         success: false,
-        error: error.errors[0]?.message || 'Parámetros de broadcast inválidos',
+        error: error.errors[0]?.message || 'Invalid broadcast parameters',
       });
     }
     return res.status(500).json({
       success: false,
-      error: error.message || 'Error interno al procesar el envío de correos',
+      error: error.message || 'Internal error while processing the email broadcast',
     });
   }
 });
