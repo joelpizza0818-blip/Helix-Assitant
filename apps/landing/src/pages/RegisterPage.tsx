@@ -123,6 +123,9 @@ export const RegisterPage: React.FC = () => {
         <div className="auth-footer">
           <span className="text-muted">Already registered?</span>{' '}
           <Link to={`/login?redirectTo=${encodeURIComponent(redirectTo)}`} className="auth-link">Log In</Link>
+          <p className="auth-privacy-notice">
+            By registering, you agree to HELIX's <Link to="/privacy" className="auth-inline-link">Privacy Policy</Link>.
+          </p>
         </div>
       </div>
     </div>

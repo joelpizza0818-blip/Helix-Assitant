@@ -261,6 +261,11 @@ class GoogleProvider(BaseAIProvider):
                     code = "INVALID_REQUEST"
             elif status in (408, 504):
                 code, retryable = "TIMEOUT", True
+            elif status == 503 and any(
+                term in lowered
+                for term in ("high demand", "currently overloaded", "model overloaded")
+            ):
+                code, retryable = "MODEL_TEMPORARILY_UNAVAILABLE", True
             elif isinstance(status, int) and status >= 500:
                 code, retryable = "NETWORK_ERROR", True
         else:

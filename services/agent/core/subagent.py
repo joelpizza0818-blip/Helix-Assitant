@@ -55,7 +55,12 @@ class SubAgent:
         self._terminal_event_published = True
         await self.event_bus.publish(event_name, payload)
 
-    async def execute(self, task: str, context: dict = None) -> dict:
+    async def execute(
+        self,
+        task: str,
+        context: dict = None,
+        excluded_api_keys: Optional[list[str]] = None,
+    ) -> dict:
         self._status = "running"
         self.started_at = datetime.now(timezone.utc)
         await self.event_bus.publish("AGENT_STARTED", {
@@ -78,11 +83,14 @@ class SubAgent:
             
             messages = self.context_manager.get_messages(conversation_id)
             
-            response = await self.react_loop.execute(
-                messages=messages,
-                role=self.role,
-                task_id=self.agent_id
-            )
+            execute_options = {
+                "messages": messages,
+                "role": self.role,
+                "task_id": self.agent_id,
+            }
+            if excluded_api_keys:
+                execute_options["excluded_api_keys"] = excluded_api_keys
+            response = await self.react_loop.execute(**execute_options)
             
             self.context_manager.add_message(conversation_id, ChatMessage(role="assistant", content=response.content))
             self._result = response.content
@@ -119,9 +127,11 @@ class SubAgent:
             
         except Exception as e:
             self._status = "failed"
-            self._error = str(e)
+            key_manager = getattr(self.react_loop, "key_manager", None)
+            redact = getattr(key_manager, "redact_configured_credentials", None)
+            self._error = redact(e) if callable(redact) else str(e)
             self.completed_at = datetime.now(timezone.utc)
-            logger.error(f"Agent {self.agent_id} failed: {e}")
+            logger.error("Agent %s failed: %s", self.agent_id, self._error)
             result = {
                 "status": "failed",
                 "agent_id": self.agent_id,

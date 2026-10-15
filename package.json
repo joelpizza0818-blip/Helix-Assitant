@@ -7,8 +7,7 @@
     "apps/desktop",
     "apps/desktop-tauri",
     "apps/landing",
-    "server",
-    "shared"
+    "server"
   ],
   "scripts": {
     "dev": "npm run dev --workspaces",
@@ -25,7 +24,9 @@
     "build:windows": "npm run build:agent-runtime && npm run build:desktop && npm run stage:windows-installer && npm run build:landing",
     "build:landing": "npm run build --workspace=@helix/landing",
     "build:server": "npm run build --workspace=@helix/server",
-    "test": "npm run test --workspaces --if-present && npm run test:agent",
+    "models:generate": "node scripts/generate-model-catalog.mjs",
+    "models:check": "node scripts/generate-model-catalog.mjs --check",
+    "test": "npm run models:check && npm run test --workspaces --if-present && npm run test:agent",
     "test:agent": "python -m pytest services/agent/tests/ -v"
   }
 }

@@ -44,7 +44,11 @@ if ($LASTEXITCODE -gt 7) {
     throw "Could not stage filtered agent runtime data (robocopy exit code $LASTEXITCODE)."
 }
 $dataMapping = "$stagedDataSource;services/agent"
-$testModuleExclusions = @("--exclude-module", "services.agent.tests")
+$testModuleExclusions = @(
+    "--exclude-module", "services.agent.tests",
+    "--exclude-module", "services.agent.script",
+    "--exclude-module", "services.agent.get_quiz"
+)
 Get-ChildItem -LiteralPath (Join-Path $dataSource "tests") -Filter "*.py" -File |
     Where-Object { $_.BaseName -ne "__init__" } |
     ForEach-Object {
@@ -103,4 +107,25 @@ if (-not (Test-Path $agentExecutable)) {
     throw "PyInstaller completed without producing $agentExecutable"
 }
 
+$agentRuntimeRoot = Join-Path $runtimeRoot "helix-agent"
+$agentDataFiles = @(Get-ChildItem -LiteralPath $agentRuntimeRoot -Recurse -File -Force)
+$agentSourcePattern = "[\\/]+services[\\/]+agent[\\/]+"
+$mainSourceIncluded = @($agentDataFiles | Where-Object { $_.FullName -match ($agentSourcePattern + "main\.py$") }).Count -gt 0
+if (-not $mainSourceIncluded) {
+    throw "The packaged runtime is missing services/agent/main.py from its data files."
+}
+
+$forbiddenRuntimeFiles = @(
+    $agentDataFiles | Where-Object {
+        $_.FullName -match ($agentSourcePattern + "tests([\\/]|$)") -or
+        $_.FullName -match ($agentSourcePattern + "(script|get_quiz)\.py$")
+    }
+)
+if ($forbiddenRuntimeFiles.Count -gt 0) {
+    $examples = ($forbiddenRuntimeFiles | Select-Object -First 5 -ExpandProperty FullName) -join ", "
+    throw "The packaged runtime contains excluded source files: $examples"
+}
+
+$runtimeMeasurement = $agentDataFiles | Measure-Object -Property Length -Sum
 Write-Host "Bundled HELIX agent: $agentExecutable" -ForegroundColor Green
+Write-Host ("Verified filtered source data: {0} files, {1} bytes; no tests, script.py, or get_quiz.py." -f $agentDataFiles.Count, [int64]$runtimeMeasurement.Sum) -ForegroundColor Green

@@ -79,3 +79,9 @@ export function saveConversation(
   localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(nextHistory))
   return nextHistory
 }
+
+export function deleteConversation(history: StoredConversation[], id: string): StoredConversation[] {
+  const nextHistory = history.filter((conversation) => conversation.id !== id)
+  localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(nextHistory))
+  return nextHistory
+}

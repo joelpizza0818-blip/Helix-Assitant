@@ -35,6 +35,32 @@ async def test_missing_provider_key_reports_ai_settings_guidance(
 
 
 @pytest.mark.asyncio
+async def test_fallback_manager_excludes_parent_agent_credential(
+    all_providers_env, fallback_manager
+):
+    attempted_keys = []
+
+    async def record_attempt(candidate, _context):
+        attempted_keys.append(
+            fallback_manager.key_manager.get_key(candidate.provider_id, candidate.key_slot)
+        )
+        return "child response"
+
+    result = await fallback_manager.execute_with_fallback(
+        record_attempt,
+        TaskRequirements(text=True, preferred_provider="google"),
+        {"_excluded_api_keys": {"test-google-key-1"}},
+    )
+
+    assert result == "child response"
+    assert attempted_keys
+    assert "test-google-key-1" not in attempted_keys
+    assert "test-google-key-1" not in str(
+        fallback_manager.event_bus.publish.await_args_list
+    )
+
+
+@pytest.mark.asyncio
 async def test_fallback_stays_within_same_provider(all_providers_env, fallback_manager, monkeypatch):
     # Configure key 2 so key fallback or model fallback has available keys
     monkeypatch.setenv("GOOGLE_API_KEY_2", "test-google-key-2")
@@ -417,4 +443,42 @@ async def test_model_unavailable_is_disabled_for_future_routing(
             requirements,
             exclude=[],
         )
+    )
+
+
+@pytest.mark.asyncio
+async def test_temporary_model_unavailability_tries_another_model_with_same_key(
+    google_only_env, fallback_manager
+):
+    attempts = []
+    execution_context = {}
+
+    async def model_overloaded_then_succeed(candidate, _context):
+        attempts.append((candidate.model_id, candidate.key_slot))
+        if len(attempts) == 1:
+            raise AgentError(
+                code="MODEL_TEMPORARILY_UNAVAILABLE",
+                message="Model currently experiencing high demand.",
+                provider=candidate.provider_id,
+                model=candidate.model_id,
+                retryable=True,
+            )
+        return "SUCCESS"
+
+    result = await fallback_manager.execute_with_fallback(
+        model_overloaded_then_succeed,
+        TaskRequirements(text=True, tool_calling=True, preferred_provider="google"),
+        execution_context,
+    )
+
+    assert result == "SUCCESS"
+    assert attempts[0] == ("gemini-3.8-flash", 0)
+    assert attempts[1][1] == attempts[0][1]
+    assert attempts[1][0] != attempts[0][0]
+    assert fallback_manager.key_manager.key_states["google"][0]["health"] == KeyHealth.HEALTHY
+    assert execution_context["_execution_failed_models"] == {
+        ("google", "gemini-3.8-flash")
+    }
+    assert ("google", "gemini-3.8-flash") not in (
+        fallback_manager.model_router.unavailable_models
     )

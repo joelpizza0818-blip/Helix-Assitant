@@ -47,6 +47,7 @@ export interface HelixAPI {
   getMcpServers: () => Promise<MCPServerStatus[]>
 
   onAgentMessage: (fn: (msg: AgentMessage) => void) => () => void
+  onAgentUpdate: (fn: (event: AgentLifecycleEvent) => void) => () => void
   onVoiceCaptureStarted: (fn: () => void) => () => void
   onVoiceCaptureStopped: (fn: () => void) => () => void
   onTaskUpdate: (fn: (task: TaskDefinition) => void) => () => void
@@ -119,6 +120,8 @@ export interface CapabilityDownloadProgress {
   id: string
   receivedBytes: number
   totalBytes: number
+  status: 'downloading' | 'installed' | 'failed' | 'canceled'
+  error?: string
 }
 export interface AdminConfig {
   autoUpdate: boolean
@@ -234,6 +237,9 @@ export interface TaskDefinition {
   provider: ProviderID | null
   required_permissions: PermissionLevel[]
   error: string | null
+  parent_id?: string | null
+  role?: string | null
+  task_type?: string
   model_requests?: ModelRequestEvent[]
   progress: number
   execution_summary: TaskExecutionSummary
@@ -255,6 +261,19 @@ export interface AgentMessage {
   tool_name?: string
   streaming?: boolean
   attachments?: ChatAttachment[]
+  task_id?: string
+}
+
+export interface AgentLifecycleEvent {
+  agent_id: string
+  parent_id?: string | null
+  role?: string
+  status?: string
+  created_at?: string
+  started_at?: string | null
+  completed_at?: string | null
+  has_result?: boolean
+  failed?: boolean
 }
 
 export interface ChatAttachment {
@@ -439,6 +458,8 @@ export interface HelixSettings {
   continuous_screen_vision_enabled?: boolean
   continuous_screen_vision_interval_ms?: number
   complex_workflows_enabled?: boolean
+  subagents_enabled?: boolean
+  subagents_available?: boolean
   ocr_engine?: 'local' | 'windows_media_ocr'
   mouse_move_duration_ms?: number
   keystroke_delay_ms?: number

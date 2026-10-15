@@ -10,6 +10,26 @@ def test_no_keys_configured(clean_env):
     assert not km.is_provider_configured("openai")
     assert not km.is_provider_configured("anthropic")
     assert km.get_available_key("google") is None
+    assert km.get_distinct_configured_credential_count() == 0
+
+
+def test_distinct_configured_credential_count_does_not_count_duplicate_values(clean_env):
+    km = KeyManager()
+    km.keys["google"] = ["same-value", "same-value", None]
+    km.keys["openai"] = ["different-value"]
+
+    assert km.get_distinct_configured_credential_count() == 2
+
+
+def test_key_manager_redacts_configured_credentials_from_errors(clean_env):
+    km = KeyManager()
+    km.keys["google"] = ["configured-private-credential", None]
+
+    safe = km.redact_configured_credentials(
+        "Provider rejected credential=configured-private-credential"
+    )
+
+    assert safe == "Provider rejected credential=[REDACTED]"
 
 def test_empty_environment_keys_are_not_configured(clean_env, monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY_1", "")

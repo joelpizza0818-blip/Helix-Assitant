@@ -5,29 +5,7 @@ import { prisma } from '../lib/prisma';
 import { requireAuth } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { AuthenticatedRequest } from '../types';
-
-// Static registry of supported models by provider
-const PROVIDER_MODELS: Record<string, string[]> = {
-  openai: [
-    'gpt-4o',
-    'gpt-4o-mini',
-    'gpt-4-turbo',
-    'o1-preview',
-    'o1-mini',
-    'o3-mini',
-    'gpt-4o-realtime-preview',
-    'whisper-1',
-    'tts-1',
-    'tts-1-hd',
-  ],
-  anthropic: ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-haiku-4-5-20251001'],
-  google: [
-    'gemini-3.8-flash',
-    'gemini-3.6-flash',
-    'gemini-3.5-flash-lite',
-    'gemini-3.1-pro-preview',
-  ],
-};
+import { PROVIDER_MODELS } from './model-catalog.generated';
 
 const RegisterKeySchema = z.object({
   body: z.object({
@@ -70,7 +48,8 @@ export function createModelsRouter({
     const availableModels: Array<{ id: string; provider: string }> = [];
 
     for (const provider of configuredProviders) {
-      for (const modelId of PROVIDER_MODELS[provider] || []) {
+      const models = PROVIDER_MODELS[provider] || [];
+      for (const modelId of models) {
         availableModels.push({ id: modelId, provider });
       }
     }

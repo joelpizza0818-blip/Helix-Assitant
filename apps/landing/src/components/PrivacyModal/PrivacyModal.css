@@ -1,0 +1,223 @@
+.privacy-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(16px, 4vw, 32px);
+  animation: privacy-fade-in 180ms ease forwards;
+}
+
+.privacy-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(8px);
+}
+
+.privacy-modal-container {
+  position: relative;
+  width: min(100%, 620px);
+  max-height: 90vh;
+  overflow-y: auto;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 20px;
+  background: linear-gradient(135deg, #161616, #0e0e0e);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 159, 28, 0.12);
+  padding: clamp(24px, 4vw, 36px);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  color: #f5f5f5;
+  animation: privacy-slide-up 220ms ease forwards;
+}
+
+.privacy-modal-header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.privacy-modal-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #ff9f1c;
+  font-size: 0.65rem;
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.privacy-modal-badge__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ff9f1c;
+  box-shadow: 0 0 8px rgba(255, 159, 28, 0.7);
+}
+
+.privacy-modal-title {
+  margin: 0;
+  font-size: clamp(1.4rem, 2.5vw, 1.9rem);
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  line-height: 1.15;
+}
+
+.privacy-modal-subtitle {
+  margin: 0;
+  color: #a4a4a4;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.privacy-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.privacy-modal-card {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  background: #111;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.privacy-item {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.privacy-item__icon {
+  font-size: 1.1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: 2px;
+}
+
+.privacy-item h4 {
+  margin: 0 0 4px;
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: #f0f0f0;
+}
+
+.privacy-item p {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #999;
+  line-height: 1.5;
+}
+
+.privacy-item code {
+  background: rgba(255, 255, 255, 0.08);
+  padding: 2px 5px;
+  border-radius: 4px;
+  color: #ff9f1c;
+  font-size: 0.72rem;
+}
+
+.privacy-consent-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+  padding: 6px 4px;
+}
+
+.privacy-consent-checkbox {
+  margin-top: 3px;
+  width: 17px;
+  height: 17px;
+  accent-color: #ff9f1c;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.privacy-consent-text {
+  font-size: 0.8rem;
+  color: #ccc;
+  line-height: 1.45;
+}
+
+.privacy-link {
+  color: #ff9f1c;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.privacy-link:hover {
+  color: #ffb547;
+}
+
+.privacy-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.privacy-btn-cancel {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #bbb;
+  padding: 10px 18px;
+  border-radius: 999px;
+  font-size: 0.84rem;
+  font-weight: 550;
+  cursor: pointer;
+  transition: all 160ms ease;
+}
+
+.privacy-btn-cancel:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+
+.privacy-btn-confirm {
+  background: #ff9f1c;
+  border: none;
+  color: #121212;
+  padding: 10px 22px;
+  border-radius: 999px;
+  font-size: 0.84rem;
+  font-weight: 650;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 160ms ease;
+}
+
+.privacy-btn-confirm:hover:not(:disabled) {
+  background: #ffb547;
+  transform: translateY(-1px);
+}
+
+.privacy-btn-confirm:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+@keyframes privacy-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes privacy-slide-up {
+  from { transform: translateY(16px); opacity: 0.8; }
+  to { transform: translateY(0); opacity: 1; }
+}

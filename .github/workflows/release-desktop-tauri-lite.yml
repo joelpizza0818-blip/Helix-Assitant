@@ -60,6 +60,20 @@ jobs:
       - name: Install JavaScript dependencies
         run: npm ci
 
+      - name: Typecheck shared desktop renderer contracts
+        run: npm run typecheck --workspace=@helix/desktop
+
+      - name: Test shared desktop contracts
+        run: npm test --workspace=@helix/desktop
+
+      - name: Format-check and test the Tauri bridge
+        shell: pwsh
+        run: |
+          cargo fmt --check --manifest-path apps\desktop-tauri\src-tauri\Cargo.toml
+          if ($LASTEXITCODE -ne 0) { throw "Tauri bridge formatting check failed." }
+          cargo test --manifest-path apps\desktop-tauri\src-tauri\Cargo.toml
+          if ($LASTEXITCODE -ne 0) { throw "Tauri bridge tests failed." }
+
       - name: Prepare Python runtime environment
         shell: pwsh
         run: |

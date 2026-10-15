@@ -96,6 +96,9 @@ export const LoginPage: React.FC = () => {
         <div className="auth-footer">
           <span className="text-muted">Need an account?</span>{' '}
           <Link to={`/register?redirectTo=${encodeURIComponent(redirectTo)}`} className="auth-link">Create Account</Link>
+          <p className="auth-privacy-notice">
+            By signing in, you agree to HELIX's <Link to="/privacy" className="auth-inline-link">Privacy Policy</Link>.
+          </p>
         </div>
       </div>
     </div>

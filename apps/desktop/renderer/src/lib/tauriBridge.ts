@@ -17,6 +17,7 @@ type EventHandler = (payload: any) => void
 
 const rendererEvents: Record<string, string> = {
   onAgentMessage: 'helix:agent-message',
+  onAgentUpdate: 'helix:agent_update',
   onTaskUpdate: 'helix:task-update',
   onStatusUpdate: 'helix:status-update',
   onFallbackEvent: 'helix:fallback-event',

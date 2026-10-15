@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 export default defineConfig({
   plugins: [react()],
+  assetsInclude: ['**/*.glb'],
   envDir: fileURLToPath(new URL('../..', import.meta.url)),
   server: {
     port: 5174,

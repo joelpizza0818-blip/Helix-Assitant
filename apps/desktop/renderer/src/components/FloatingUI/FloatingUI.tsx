@@ -7,6 +7,7 @@ import ConfirmationPrompt from './ConfirmationPrompt'
 import TaskStatusBar from './TaskStatusBar'
 import ModelFallbackBar from './ModelFallbackBar'
 import { toggleSummaryExpanded } from './taskExecutionSummary'
+import { getFloatingInputKeyAction, getFloatingInputSize } from './floatingInputBehavior'
 import {
   filterMentionOptions,
   findActiveMention,
@@ -25,9 +26,9 @@ import './FloatingUI.css'
 
 export default function FloatingUI() {
   const {
-    messages, conversationHistory, isLoading, tasks, agentStatus, currentModel, currentProvider,
+    messages, conversationHistory, conversationHistoryError, conversationId, isLoading, tasks, agentUpdates, agentStatus, currentModel, currentProvider,
     taskCount, pendingConfirmation, fallbackEvent,
-    sendMessage, selectConversation, startNewConversation,
+    sendMessage, selectConversation, deleteConversation, startNewConversation,
     cancelTask, confirmAction, rejectAction, dismissFallback
   } = useAgent({ persistConversation: true })
   const {
@@ -51,7 +52,8 @@ export default function FloatingUI() {
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const [isReadingAttachments, setIsReadingAttachments] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const inputHighlightRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
 
@@ -76,6 +78,30 @@ export default function FloatingUI() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  useEffect(() => {
+    const input = inputRef.current
+    if (!input) return
+    input.style.height = 'auto'
+    const size = getFloatingInputSize(input.scrollHeight)
+    input.style.height = size.height
+    input.style.overflowY = size.overflowY
+  }, [inputText])
+
+  useEffect(() => {
+    const input = inputRef.current
+    const container = input?.parentElement
+    if (!input || !container) return
+    const resize = () => {
+      input.style.height = 'auto'
+      const size = getFloatingInputSize(input.scrollHeight)
+      input.style.height = size.height
+      input.style.overflowY = size.overflowY
+    }
+    const observer = new ResizeObserver(resize)
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [])
 
   // Listen for show-tasks event from main process
   useEffect(() => {
@@ -216,28 +242,32 @@ export default function FloatingUI() {
     })
   }
 
-  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (filteredMentionOptions.length > 0) {
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-        e.preventDefault()
-        setSelectedMentionIndex((current) => (
-          (current + (e.key === 'ArrowDown' ? 1 : -1) + filteredMentionOptions.length)
-          % filteredMentionOptions.length
-        ))
-        return
-      }
-      if (e.key === 'Tab' || (e.key === 'Enter' && activeMention)) {
-        e.preventDefault()
-        selectMention(filteredMentionOptions[selectedMentionIndex])
-        return
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        setActiveMention(null)
-        return
-      }
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    const action = getFloatingInputKeyAction(
+      e.key,
+      e.shiftKey,
+      filteredMentionOptions.length > 0,
+      Boolean(activeMention),
+    )
+    if (action === 'move-down' || action === 'move-up') {
+      e.preventDefault()
+      setSelectedMentionIndex((current) => (
+        (current + (action === 'move-down' ? 1 : -1) + filteredMentionOptions.length)
+        % filteredMentionOptions.length
+      ))
+      return
     }
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (action === 'select-mention') {
+      e.preventDefault()
+      selectMention(filteredMentionOptions[selectedMentionIndex])
+      return
+    }
+    if (action === 'dismiss-mentions') {
+      e.preventDefault()
+      setActiveMention(null)
+      return
+    }
+    if (action === 'send') {
       e.preventDefault()
       handleSend()
     }
@@ -331,28 +361,50 @@ export default function FloatingUI() {
               + New chat
             </button>
           </div>
+          {conversationHistoryError && (
+            <p className="conversation-history__error" role="alert">{conversationHistoryError}</p>
+          )}
           {conversationHistory.length === 0 ? (
             <p className="conversation-history__empty">Your conversations will appear here.</p>
           ) : (
             <div className="conversation-history__list">
               {conversationHistory.map((conversation) => (
-                <button
+                <article
                   className="conversation-history__item"
                   key={conversation.id}
-                  disabled={isLoading}
-                  onClick={() => {
-                    selectConversation(conversation.id)
-                    setShowConversationHistory(false)
-                  }}
                 >
-                  <span className="conversation-history__item-title">{conversation.title}</span>
-                  <span className="conversation-history__item-preview">
-                    {conversation.messages[conversation.messages.length - 1]?.content}
-                  </span>
-                  <time className="conversation-history__item-date" dateTime={conversation.updatedAt}>
-                    {new Date(conversation.updatedAt).toLocaleString()}
-                  </time>
-                </button>
+                  <button
+                    type="button"
+                    className="conversation-history__open"
+                    disabled={isLoading}
+                    onClick={() => {
+                      selectConversation(conversation.id)
+                      setShowConversationHistory(false)
+                    }}
+                  >
+                    <span className="conversation-history__item-title">{conversation.title}</span>
+                    <span className="conversation-history__item-preview">
+                      {conversation.messages[conversation.messages.length - 1]?.content}
+                    </span>
+                    <time className="conversation-history__item-date" dateTime={conversation.updatedAt}>
+                      {new Date(conversation.updatedAt).toLocaleString()}
+                    </time>
+                  </button>
+                  <button
+                    type="button"
+                    className="conversation-history__delete"
+                    disabled={isLoading}
+                    onClick={() => {
+                      const deletingCurrent = conversation.id === conversationId
+                      const deleted = deleteConversation(conversation.id)
+                      if (deleted && deletingCurrent) startNewConversation()
+                    }}
+                    aria-label={`Delete conversation: ${conversation.title}`}
+                    title="Delete conversation"
+                  >
+                    ×
+                  </button>
+                </article>
               ))}
             </div>
           )}
@@ -370,6 +422,7 @@ export default function FloatingUI() {
               key={`${msg.timestamp}-${idx}`}
               message={msg}
               skillNames={skills.map((skill) => skill.name)}
+              agentUpdates={agentUpdates}
             />
           ))}
           {isLoading && (
@@ -412,7 +465,7 @@ export default function FloatingUI() {
         {attachmentError && <div className="floating-ui__attachment-error" role="alert">{attachmentError}</div>}
         <div className="floating-ui__input-wrapper">
           {inputText.length > 0 && (
-            <div className="floating-ui__input-highlight" aria-hidden="true">
+            <div ref={inputHighlightRef} className="floating-ui__input-highlight" aria-hidden="true">
               {inputSegments.map((segment, index) => (
                 <span
                   key={`${index}-${segment.value}`}
@@ -423,10 +476,10 @@ export default function FloatingUI() {
               ))}
             </div>
           )}
-          <input
+          <textarea
             ref={inputRef}
             className={`floating-ui__input ${inputText.length > 0 ? 'floating-ui__input--highlighted' : ''}`}
-            type="text"
+            rows={1}
             placeholder={
               agentStatus === 'listening' ? 'Listening...' :
               agentStatus === 'executing' ? 'Task in progress...' :
@@ -434,6 +487,11 @@ export default function FloatingUI() {
             }
             value={inputText}
             onChange={(e) => updateInput(e.target.value, e.target.selectionStart ?? e.target.value.length)}
+            onScroll={(e) => {
+              if (inputHighlightRef.current) {
+                inputHighlightRef.current.scrollTop = e.currentTarget.scrollTop
+              }
+            }}
             onKeyDown={handleKeyDown}
             onClick={(e) => {
               const mention = findActiveMention(e.currentTarget.value, e.currentTarget.selectionStart ?? undefined)
@@ -442,6 +500,7 @@ export default function FloatingUI() {
             }}
             disabled={isLoading || agentStatus === 'listening'}
             aria-autocomplete="list"
+            aria-label="Message HELIX"
             aria-expanded={filteredMentionOptions.length > 0}
             aria-controls="floating-ui-mention-suggestions"
             autoFocus

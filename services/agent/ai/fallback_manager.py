@@ -94,9 +94,13 @@ class FallbackManager:
             "_execution_failed_candidates",
             set(),
         )
+        excluded_api_keys = set(context.get("_excluded_api_keys", ()))
 
         def is_blocked(option):
             return (
+                self.key_manager.get_key(option.provider_id, option.key_slot)
+                in excluded_api_keys
+                or
                 (option.provider_id, option.model_id) in execution_failed_models
                 or (option.provider_id, option.key_slot) in execution_failed_keys
                 or (
@@ -261,20 +265,31 @@ class FallbackManager:
                         candidate.provider_id,
                         candidate.key_slot + 1,
                     )
-                elif e.code == "MODEL_UNAVAILABLE":
+                elif e.code in {
+                    "MODEL_UNAVAILABLE",
+                    "MODEL_TEMPORARILY_UNAVAILABLE",
+                }:
                     execution_failed_models.add(
                         (candidate.provider_id, candidate.model_id)
                     )
-                    self.model_router.mark_model_unavailable(
-                        candidate.provider_id,
-                        candidate.model_id,
-                    )
-                    logger.warning(
-                        "Model disabled for this process after confirmed "
-                        "unavailability provider=%s model=%s",
-                        candidate.provider_id,
-                        candidate.model_id,
-                    )
+                    if e.code == "MODEL_UNAVAILABLE":
+                        self.model_router.mark_model_unavailable(
+                            candidate.provider_id,
+                            candidate.model_id,
+                        )
+                        logger.warning(
+                            "Model disabled for this process after confirmed "
+                            "unavailability provider=%s model=%s",
+                            candidate.provider_id,
+                            candidate.model_id,
+                        )
+                    else:
+                        logger.info(
+                            "Skipping temporarily unavailable model for this "
+                            "execution provider=%s model=%s",
+                            candidate.provider_id,
+                            candidate.model_id,
+                        )
 
                 candidates = self.model_router.get_fallback_candidates(
                     requirements,

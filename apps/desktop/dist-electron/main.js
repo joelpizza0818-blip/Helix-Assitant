@@ -15202,6 +15202,12 @@ class IPCBridge {
   sendCapabilityResolved(payload) {
     this._sendToPython({ type: "CAPABILITY_RESOLVED", payload, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
   }
+  async loadCapabilityPack(manifest) {
+    await this._request({
+      type: "LOAD_CAPABILITY_PACK",
+      payload: manifest
+    }, 3e4);
+  }
   sendEmergencyStop() {
     this._sendToPython({ type: "TASK_CANCEL_ALL", payload: {}, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
   }
@@ -15769,9 +15775,10 @@ class ClipboardHistory {
     return `${kind}:${hash}`;
   }
 }
-const MAX_PACK_BYTES = 2 * 1024 * 1024 * 1024;
+const MAX_PACK_BYTES = 16 * 1024 * 1024;
 const ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/i;
+const CATALOG_ASSET_BASE = "https://github.com/joelpizza0818-blip/Helix-Assitant/releases/download/capability-packs/";
 function parseSemver(value) {
   const match = value.trim().replace(/^v/, "").match(/^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
   return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
@@ -15806,35 +15813,59 @@ function satisfiesCoreVersion(version, range2) {
   });
 }
 function canonicalManifest(manifest) {
-  const { signature: _signature, ...unsigned } = manifest;
-  return JSON.stringify(unsigned, Object.keys(unsigned).sort());
+  const { signature: _signature, ...unsignedManifest } = manifest;
+  return canonicalJson(unsignedManifest);
+}
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
+    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
 }
 function safePackId(id) {
   return ID_PATTERN.test(id) && id !== "." && id !== "..";
 }
 function validatePackManifest(manifest) {
   if (!manifest || typeof manifest.id !== "string" || !safePackId(manifest.id)) throw new Error("Invalid capability pack id.");
-  if (typeof manifest.version !== "string" || typeof manifest.capability !== "string" || !manifest.version || !manifest.capability) {
+  if (typeof manifest.version !== "string" || !/^\d+\.\d+\.\d+$/.test(manifest.version)) {
+    throw new Error("Capability pack version is invalid.");
+  }
+  if (typeof manifest.capability !== "string" || !safePackId(manifest.capability)) {
     throw new Error("Capability pack metadata is incomplete.");
   }
+  if (typeof manifest.requiredForComplete !== "boolean" || typeof manifest.coreVersionRange !== "string") {
+    throw new Error("Capability pack compatibility metadata is invalid.");
+  }
+  if (manifest.format !== "python-plugin") throw new Error("Unsupported capability pack format.");
   if (manifest.platform !== "win32" || !["x64", "arm64"].includes(manifest.arch)) {
     throw new Error("Capability pack platform or architecture is not supported.");
   }
   if (!Number.isSafeInteger(manifest.sizeBytes) || manifest.sizeBytes <= 0 || manifest.sizeBytes > MAX_PACK_BYTES) {
     throw new Error("Capability pack size is outside the allowed limit.");
   }
-  if (!/^https:\/\//i.test(manifest.url)) throw new Error("Capability pack URL must use HTTPS.");
+  if (typeof manifest.url !== "string" || !manifest.url.startsWith(CATALOG_ASSET_BASE)) {
+    throw new Error("Capability pack URL must use the trusted capability release.");
+  }
   if (!SHA256_PATTERN.test(manifest.sha256)) throw new Error("Capability pack hash is invalid.");
   if (!manifest.signature) throw new Error("Capability pack signature is missing.");
 }
-function verifyPackManifest(manifest, publicKeyPem) {
+function verifyPackManifest(manifest, publicKey) {
   validatePackManifest(manifest);
-  if (!publicKeyPem.trim()) throw new Error("Capability pack public key is not configured.");
+  if (!publicKey.trim()) throw new Error("Capability pack public key is not configured.");
   try {
     return require$$0$4.verify(
       null,
       Buffer.from(canonicalManifest(manifest), "utf8"),
-      require$$0$4.createPublicKey(publicKeyPem),
+      require$$0$4.createPublicKey({
+        key: Buffer.concat([
+          Buffer.from("302a300506032b6570032100", "hex"),
+          Buffer.from(publicKey, "base64")
+        ]),
+        format: "der",
+        type: "spki"
+      }),
       Buffer.from(manifest.signature, "base64")
     );
   } catch (error2) {
@@ -15847,17 +15878,24 @@ class CapabilityManager {
     this.activeDownloads = /* @__PURE__ */ new Map();
     this.statePath = path$n.join(userDataPath, "capabilities", "state.json");
     this.packsRoot = path$n.join(userDataPath, "capabilities", "packs");
-    this.publicKeyPem = options.publicKeyPem ?? process.env.HELIX_CAPABILITY_PUBLIC_KEY ?? "";
+    this.publicKey = options.publicKey ?? process.env.HELIX_CAPABILITY_PUBLIC_KEY ?? "";
     this.manifestUrl = options.manifestUrl ?? process.env.HELIX_CAPABILITY_MANIFEST_URL ?? "";
     this.coreVersion = coreVersion;
     this.progressiveEnabled = options.progressiveEnabled ?? true;
+    this.onProgress = options.onProgress;
   }
   async load() {
     try {
       const parsed = JSON.parse(await fs$j.promises.readFile(this.statePath, "utf8"));
       this.state = {
         profile: this.progressiveEnabled && parsed.profile === "progressive" ? "progressive" : "complete",
-        manifests: Array.isArray(parsed.manifests) ? parsed.manifests : []
+        manifests: Array.isArray(parsed.manifests) ? parsed.manifests.filter((manifest) => {
+          try {
+            return verifyPackManifest(manifest, this.publicKey);
+          } catch {
+            return false;
+          }
+        }) : []
       };
     } catch {
       this.state = { profile: "complete", manifests: [] };
@@ -15881,13 +15919,15 @@ class CapabilityManager {
     return this.snapshot().packs.some((pack) => pack.id === id && pack.status === "installed");
   }
   registerManifest(manifest) {
-    validatePackManifest(manifest);
+    if (!verifyPackManifest(manifest, this.publicKey)) {
+      throw new Error(`Invalid signature for pack ${manifest.id}.`);
+    }
     const current = this.state.manifests.filter((item) => item.id !== manifest.id);
     this.state.manifests = [...current, manifest];
   }
   async saveManifestCatalog(manifests) {
     manifests.forEach((manifest) => {
-      if (!verifyPackManifest(manifest, this.publicKeyPem)) throw new Error(`Invalid signature for pack ${manifest.id}.`);
+      if (!verifyPackManifest(manifest, this.publicKey)) throw new Error(`Invalid signature for pack ${manifest.id}.`);
     });
     this.state.manifests = manifests;
     await this.persist();
@@ -15899,27 +15939,84 @@ class CapabilityManager {
     const response = await fetch(this.manifestUrl, { signal: AbortSignal.timeout(1e4) });
     if (!response.ok) throw new Error(`Capability catalog failed with HTTP ${response.status}.`);
     const payload = await response.json();
-    if (!Array.isArray(payload.packs)) throw new Error("Capability catalog has an invalid shape.");
+    if (payload.version !== 1 || !Array.isArray(payload.packs) || typeof payload.signature !== "string") {
+      throw new Error("Capability catalog has an invalid shape.");
+    }
+    const { signature, ...unsignedCatalog } = payload;
+    if (!this.verifySignature(canonicalJson(unsignedCatalog), signature)) {
+      throw new Error("Capability catalog signature verification failed.");
+    }
+    for (const manifest of payload.packs) {
+      if (!manifest.url.startsWith(CATALOG_ASSET_BASE)) {
+        throw new Error(`Pack ${manifest.id} is not hosted in the trusted capability release.`);
+      }
+    }
     return this.saveManifestCatalog(payload.packs);
   }
   snapshot() {
     const packs = this.state.manifests.map((manifest) => {
       const installedPath = this.packPath(manifest);
-      const status = this.isCompatible(manifest) ? this.fileExists(installedPath) ? "installed" : "missing" : "incompatible";
+      const status = this.isCompatible(manifest) ? this.isPackFileValid(installedPath, manifest) ? "installed" : "missing" : "incompatible";
       return { ...manifest, status, ...status === "installed" ? { installedPath } : {} };
     });
     const missingCount = packs.filter((pack) => pack.status !== "installed").length;
-    return { profile: this.state.profile, packs, missingCount, ready: missingCount === 0 };
+    const requiredMissingCount = packs.filter(
+      (pack) => pack.requiredForComplete && pack.status !== "installed"
+    ).length;
+    return {
+      profile: this.state.profile,
+      packs,
+      missingCount,
+      requiredMissingCount,
+      ready: requiredMissingCount === 0
+    };
   }
   async installPack(manifest) {
+    var _a;
     if (!this.progressiveEnabled) throw new Error("Capability pack installation is not enabled in this build.");
-    if (!verifyPackManifest(manifest, this.publicKeyPem)) throw new Error(`Invalid signature for pack ${manifest.id}.`);
+    if (this.state.profile !== "progressive") {
+      throw new Error("Capability pack installation requires a progressive installation profile.");
+    }
+    if (!verifyPackManifest(manifest, this.publicKey)) throw new Error(`Invalid signature for pack ${manifest.id}.`);
     if (!this.isCompatible(manifest)) throw new Error(`Pack ${manifest.id} is incompatible with this HELIX build.`);
-    if (this.activeDownloads.has(manifest.id)) throw new Error(`Pack ${manifest.id} is already downloading.`);
+    const existing = this.snapshot().packs.find(
+      (pack) => pack.id === manifest.id && pack.status === "installed" && pack.version === manifest.version && pack.sha256.toLowerCase() === manifest.sha256.toLowerCase()
+    );
+    if (existing) return existing;
+    const active = this.activeDownloads.get(manifest.id);
+    if (active) {
+      if (active.version !== manifest.version || active.sha256.toLowerCase() !== manifest.sha256.toLowerCase()) {
+        throw new Error(`A different version of capability pack ${manifest.id} is already downloading.`);
+      }
+      return active.promise;
+    }
     const controller = new AbortController();
-    this.activeDownloads.set(manifest.id, controller);
+    const promise = Promise.resolve().then(() => this.downloadPack(manifest, controller));
+    this.activeDownloads.set(manifest.id, {
+      controller,
+      promise,
+      version: manifest.version,
+      sha256: manifest.sha256
+    });
+    try {
+      return await promise;
+    } finally {
+      if (((_a = this.activeDownloads.get(manifest.id)) == null ? void 0 : _a.promise) === promise) {
+        this.activeDownloads.delete(manifest.id);
+      }
+    }
+  }
+  async downloadPack(manifest, controller) {
+    var _a, _b, _c, _d, _e;
     const stagingRoot = path$n.join(path$n.dirname(this.packsRoot), "staging");
     const temporaryPath = path$n.join(stagingRoot, `${manifest.id}-${manifest.version}.download`);
+    let received = 0;
+    (_a = this.onProgress) == null ? void 0 : _a.call(this, {
+      id: manifest.id,
+      receivedBytes: received,
+      totalBytes: manifest.sizeBytes,
+      status: "downloading"
+    });
     try {
       await fs$j.promises.mkdir(stagingRoot, { recursive: true });
       await fs$j.promises.rm(temporaryPath, { force: true });
@@ -15929,34 +16026,102 @@ class CapabilityManager {
       if (contentLength > MAX_PACK_BYTES || contentLength > 0 && contentLength !== manifest.sizeBytes) {
         throw new Error("Pack download size does not match its signed manifest.");
       }
-      let received = 0;
+      let lastProgressAt = 0;
       const hasher = require$$0$4.createHash("sha256");
       const source = require$$0$1.Readable.fromWeb(response.body);
-      source.on("data", (chunk) => {
-        received += chunk.length;
-        hasher.update(chunk);
-        if (received > manifest.sizeBytes || received > MAX_PACK_BYTES) controller.abort();
+      const meter = new require$$0$1.Transform({
+        transform: (chunk, _encoding, callback) => {
+          var _a2;
+          received += chunk.length;
+          if (received > manifest.sizeBytes || received > MAX_PACK_BYTES) {
+            callback(new Error("Pack download exceeded its signed size limit."));
+            return;
+          }
+          hasher.update(chunk);
+          const now = Date.now();
+          if (now - lastProgressAt >= 100) {
+            lastProgressAt = now;
+            (_a2 = this.onProgress) == null ? void 0 : _a2.call(this, {
+              id: manifest.id,
+              receivedBytes: received,
+              totalBytes: manifest.sizeBytes,
+              status: "downloading"
+            });
+          }
+          callback(null, chunk);
+        }
       });
-      await promises.pipeline(source, fs$j.createWriteStream(temporaryPath, { flags: "wx" }));
+      await promises.pipeline(source, meter, fs$j.createWriteStream(temporaryPath, { flags: "wx" }));
+      (_b = this.onProgress) == null ? void 0 : _b.call(this, {
+        id: manifest.id,
+        receivedBytes: received,
+        totalBytes: manifest.sizeBytes,
+        status: "downloading"
+      });
       if (received !== manifest.sizeBytes || hasher.digest("hex").toLowerCase() !== manifest.sha256.toLowerCase()) {
         throw new Error("Pack hash or size verification failed.");
       }
       const destination = this.packPath(manifest);
       await fs$j.promises.mkdir(path$n.dirname(destination), { recursive: true });
-      await fs$j.promises.rm(destination, { force: true });
-      await fs$j.promises.rename(temporaryPath, destination);
+      const backupPath = `${destination}.backup`;
+      await fs$j.promises.rm(backupPath, { force: true });
+      let backedUp = false;
+      try {
+        await fs$j.promises.rename(destination, backupPath);
+        backedUp = true;
+      } catch (error2) {
+        if (error2.code !== "ENOENT") throw error2;
+      }
+      try {
+        await fs$j.promises.rename(temporaryPath, destination);
+      } catch (error2) {
+        if (backedUp) {
+          try {
+            await fs$j.promises.rename(backupPath, destination);
+          } catch (restoreError) {
+            throw new Error(
+              `Could not activate capability pack ${manifest.id}: ${String(error2)}. Restoring the previous version also failed: ${String(restoreError)}`
+            );
+          }
+        }
+        throw error2;
+      }
+      if (backedUp) await fs$j.promises.rm(backupPath, { force: true });
       this.registerManifest(manifest);
       await this.persist();
+      (_c = this.onProgress) == null ? void 0 : _c.call(this, {
+        id: manifest.id,
+        receivedBytes: received,
+        totalBytes: manifest.sizeBytes,
+        status: "installed"
+      });
       return { ...manifest, status: "installed", installedPath: destination };
+    } catch (error2) {
+      if (controller.signal.aborted) {
+        (_d = this.onProgress) == null ? void 0 : _d.call(this, {
+          id: manifest.id,
+          receivedBytes: received,
+          totalBytes: manifest.sizeBytes,
+          status: "canceled"
+        });
+        throw new Error("Capability pack installation was canceled.");
+      }
+      (_e = this.onProgress) == null ? void 0 : _e.call(this, {
+        id: manifest.id,
+        receivedBytes: received,
+        totalBytes: manifest.sizeBytes,
+        status: "failed",
+        error: error2 instanceof Error ? error2.message : "Capability pack installation failed."
+      });
+      throw error2;
     } finally {
-      this.activeDownloads.delete(manifest.id);
       await fs$j.promises.rm(temporaryPath, { force: true }).catch(() => void 0);
     }
   }
   cancelPack(id) {
-    const controller = this.activeDownloads.get(id);
-    if (!controller) return false;
-    controller.abort();
+    const active = this.activeDownloads.get(id);
+    if (!active) return false;
+    active.controller.abort();
     return true;
   }
   async persist() {
@@ -15968,18 +16133,61 @@ class CapabilityManager {
   }
   packPath(manifest) {
     if (!safePackId(manifest.id)) throw new Error("Unsafe capability pack path.");
-    return path$n.join(this.packsRoot, manifest.id, `${manifest.version}.pack`);
+    if (!/^\d+\.\d+\.\d+$/.test(manifest.version)) throw new Error("Invalid capability pack version.");
+    return path$n.join(this.packsRoot, manifest.id, `${manifest.version}.py`);
   }
   isCompatible(manifest) {
     return manifest.platform === process.platform && manifest.arch === process.arch && satisfiesCoreVersion(this.coreVersion, manifest.coreVersionRange);
   }
-  fileExists(filePath) {
+  verifySignature(message, signature) {
+    if (!this.publicKey.trim()) throw new Error("Capability pack public key is not configured.");
     try {
-      return fs$j.statSync(filePath).isFile();
+      return require$$0$4.verify(
+        null,
+        Buffer.from(message, "utf8"),
+        require$$0$4.createPublicKey({
+          key: Buffer.concat([
+            Buffer.from("302a300506032b6570032100", "hex"),
+            Buffer.from(this.publicKey, "base64")
+          ]),
+          format: "der",
+          type: "spki"
+        }),
+        Buffer.from(signature, "base64")
+      );
+    } catch (error2) {
+      throw new Error(`Capability signature could not be verified: ${error2 instanceof Error ? error2.message : String(error2)}`);
+    }
+  }
+  isPackFileValid(filePath, manifest) {
+    try {
+      const stats = fs$j.statSync(filePath);
+      if (!stats.isFile() || stats.size !== manifest.sizeBytes) return false;
+      return require$$0$4.createHash("sha256").update(fs$j.readFileSync(filePath)).digest("hex").toLowerCase() === manifest.sha256.toLowerCase();
     } catch {
       return false;
     }
   }
+}
+const DEFAULT_CATALOG_URL = "https://github.com/joelpizza0818-blip/Helix-Assitant/releases/download/capability-packs/catalog.json";
+function readCapabilityConfig(isPackaged, resourcesPath) {
+  if (!isPackaged) {
+    return {
+      publicKey: process.env.HELIX_CAPABILITY_PUBLIC_KEY ?? "",
+      catalogUrl: process.env.HELIX_CAPABILITY_CATALOG_URL ?? DEFAULT_CATALOG_URL
+    };
+  }
+  const configPath = path$n.join(resourcesPath, "capability-config.json");
+  const parsed = JSON.parse(fs$j.readFileSync(configPath, "utf8"));
+  if (!parsed || typeof parsed !== "object") throw new Error("Packaged capability configuration is invalid.");
+  const candidate = parsed;
+  if (typeof candidate.publicKey !== "string" || candidate.catalogUrl !== void 0 && typeof candidate.catalogUrl !== "string") {
+    throw new Error("Packaged capability configuration is invalid.");
+  }
+  return {
+    publicKey: candidate.publicKey,
+    catalogUrl: candidate.catalogUrl ?? DEFAULT_CATALOG_URL
+  };
 }
 const isDev = process.env.NODE_ENV === "development" || !require$$1.app.isPackaged;
 const rendererPort = Number(process.env.HELIX_RENDERER_PORT || 5173);
@@ -16344,7 +16552,8 @@ function setupIPC() {
       return;
     }
     try {
-      await manager.installPack(manifest);
+      const installed = await manager.installPack(manifest);
+      await exports.ipcBridge.loadCapabilityPack(installed);
       (_d = exports.ipcBridge) == null ? void 0 : _d.sendCapabilityResolved({ request_id: requestId, capability: id, status: "installed" });
     } catch (error2) {
       (_e = exports.ipcBridge) == null ? void 0 : _e.sendCapabilityResolved({
@@ -16395,7 +16604,10 @@ function setupIPC() {
   });
   require$$1.ipcMain.handle("helix:install-capability", async (_event, manifest) => {
     if (!capabilityManager) throw new Error("Capability manager is not initialized.");
-    return capabilityManager.installPack(manifest);
+    const installed = await capabilityManager.installPack(manifest);
+    if (!exports.ipcBridge) throw new Error("Python agent bridge is not initialized.");
+    await exports.ipcBridge.loadCapabilityPack(installed);
+    return installed;
   });
   require$$1.ipcMain.handle("helix:cancel-capability", (_event, id) => {
     if (typeof id !== "string") throw new TypeError("Capability pack id must be a string.");
@@ -16645,10 +16857,19 @@ require$$1.app.whenReady().then(async () => {
   }
   require$$1.Menu.setApplicationMenu(null);
   setupAutoUpdater();
+  const capabilityConfig = readCapabilityConfig(require$$1.app.isPackaged, process.resourcesPath);
   capabilityManager = new CapabilityManager(require$$1.app.getPath("userData"), require$$1.app.getVersion(), {
-    progressiveEnabled: !require$$1.app.isPackaged
+    publicKey: capabilityConfig.publicKey,
+    manifestUrl: capabilityConfig.catalogUrl,
+    progressiveEnabled: true,
+    onProgress: (progress) => sendToDesktopWindows("helix:capability-download-progress", progress)
   });
   await capabilityManager.load();
+  try {
+    await capabilityManager.refreshCatalog();
+  } catch (error2) {
+    console.error("[Capabilities] Could not refresh the signed capability catalog:", error2);
+  }
   exports.floatingWindow = createFloatingWindow();
   exports.toolboxWindow = createToolboxWindow();
   confirmationWindow = createConfirmationWindow();

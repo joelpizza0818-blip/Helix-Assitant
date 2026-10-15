@@ -23,7 +23,7 @@ export function Navigation() {
           <Link to="/features" className="nav-link">What's New</Link>
           <a href={isHome ? '#router' : '/#router'} className="nav-link">Model Router</a>
           <a href={isHome ? '#security' : '/#security'} className="nav-link">Zero-Trust</a>
-          <Link to="/download" className="nav-link">Documentation</Link>
+          <Link to="/docs" className="nav-link">Docs</Link>
         </div>
         
         <div className="nav-right">

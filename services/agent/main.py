@@ -38,6 +38,11 @@ from core.role_config import RoleConfig
 from core.context_manager import ContextManager
 from core.react_loop import ReActLoop
 from core.agent_manager import AgentManager
+from core.subagent_delegation import (
+    configure_subagent_delegation,
+    safe_subagent_lifecycle_payload,
+)
+from services.agent.tools.delegate_task_tool import DelegateTaskTool
 
 from ai.key_manager import KeyManager
 from ai.capability_registry import CapabilityRegistry
@@ -52,7 +57,7 @@ from skills.skill_loader import SkillLoader
 from skills.skill_registry import SkillRegistry
 from skills.intent_matcher import IntentMatcher
 
-from mcp.client import MCPClientManager
+from mcp.client import MCPClientManager, safe_mcp_diagnostic
 from mcp.server import MCPServer
 from mcp.tool_provider import MCPToolBridge
 
@@ -216,6 +221,7 @@ async def main():
         task_manager=task_manager,
     )
     await agent_manager.attach_task_manager(task_manager)
+    delegate_task_tool = DelegateTaskTool(agent_manager, key_manager)
 
     planner = Planner(
         react_loop=react_loop,
@@ -259,7 +265,16 @@ async def main():
         skill_registry,
         plugin_manager,
     )
-    request_handler.get_settings()
+    def configure_from_saved_settings():
+        return configure_subagent_delegation(
+            request_handler.get_settings(),
+            key_manager,
+            tool_registry,
+            delegate_task_tool,
+        )
+
+    request_handler.credentials_updated_callback = configure_from_saved_settings
+    configure_from_saved_settings()
     clients = set()
 
     async def broadcast_event(event_name: str, payload: dict):
@@ -318,18 +333,7 @@ async def main():
             # Delegated-agent payloads can contain private model responses or
             # prompts. The desktop needs lifecycle metadata only; never send
             # those contents through the renderer event channel.
-            event_payload = {
-                key: payload.get(key)
-                for key in (
-                    "agent_id", "parent_id", "role", "status",
-                    "created_at", "started_at", "completed_at",
-                )
-                if key in payload
-            }
-            if payload.get("result") is not None:
-                event_payload["has_result"] = True
-            if payload.get("error") is not None:
-                event_payload["failed"] = True
+            event_payload = safe_subagent_lifecycle_payload(payload)
         else:
             event_payload = payload
 
@@ -393,11 +397,14 @@ async def main():
                     name,
                     type(error).__name__,
                 )
-                mcp_server_errors[name] = (
-                    f"Connection failed ({type(error).__name__}). Check the command and available logs."
+                mcp_server_errors[name] = safe_mcp_diagnostic(
+                    str(error) or f"Connection failed ({type(error).__name__})."
                 )
                 if name in mcp_client_manager.clients:
-                    await mcp_client_manager.remove_server(name)
+                    try:
+                        await mcp_client_manager.remove_server(name)
+                    except Exception:
+                        logger.exception("Failed to clean up MCP server %s", name)
             finally:
                 connecting_mcp_servers.discard(name)
 
@@ -416,6 +423,12 @@ async def main():
         nonlocal gesture_engine, voice_engine
         nonlocal screen_vision_sampler, screen_vision_interval_ms
 
+        configure_subagent_delegation(
+            payload,
+            key_manager,
+            tool_registry,
+            delegate_task_tool,
+        )
         await apply_mcp_servers(payload.get("mcp_servers", []))
         memory_manager.configure(payload)
         if voice_engine is not None:

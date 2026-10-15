@@ -139,6 +139,36 @@
   margin-left: auto;
 }
 
+.bubble__agents {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.bubble__agents summary {
+  cursor: pointer;
+}
+
+.bubble__agents ul {
+  display: grid;
+  gap: 4px;
+  margin: 6px 0 0;
+  padding-left: 16px;
+}
+
+.bubble__agents li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.bubble__agent-id {
+  color: var(--graphite);
+  font-family: var(--font-mono);
+}
+
 /* System messages */
 .bubble-system-text {
   font-size: var(--text-xs);

@@ -72,6 +72,7 @@ electron.contextBridge.exposeInMainWorld("helix", {
   installUpdate: () => electron.ipcRenderer.invoke("helix:updater-install"),
   // Event subscriptions (return cleanup function)
   onAgentMessage: (fn) => createEventListener("helix:agent-message", fn),
+  onAgentUpdate: (fn) => createEventListener("helix:agent_update", fn),
   onVoiceCaptureStarted: (fn) => createEventListener("helix:voice_capture_started", fn),
   onVoiceCaptureStopped: (fn) => createEventListener("helix:voice_capture_stopped", fn),
   onTaskUpdate: (fn) => createEventListener("helix:task-update", fn),
@@ -88,6 +89,7 @@ electron.contextBridge.exposeInMainWorld("helix", {
   onClipboardHistoryChanged: (fn) => createEventListener("helix:clipboard-history-changed", fn),
   onClipboardMonitoringChanged: (fn) => createEventListener("helix:clipboard-monitoring-changed", fn),
   onUpdaterStatus: (fn) => createEventListener("helix:updater-status", fn),
+  onCapabilityDownloadProgress: (fn) => createEventListener("helix:capability-download-progress", fn),
   onOAuthCallback: (fn) => createEventListener("helix:oauth-callback", fn),
   getAppVersion: () => electron.ipcRenderer.invoke("helix:app-version"),
   getAdminStatus: () => electron.ipcRenderer.invoke("helix:admin-status"),

@@ -210,6 +210,7 @@ class KeyManager:
             "INVALID_REQUEST",
             "CONTENT_POLICY",
             "MODEL_UNAVAILABLE",
+            "MODEL_TEMPORARILY_UNAVAILABLE",
             "UNKNOWN",
         }:
             return
@@ -263,3 +264,21 @@ class KeyManager:
 
     def get_configured_providers(self) -> List[str]:
         return [p for p in self.keys.keys() if self.is_provider_configured(p)]
+
+    def get_distinct_configured_credential_count(self) -> int:
+        """Count unique configured credential values without returning them."""
+        return len({
+            key
+            for provider_keys in self.keys.values()
+            for key in provider_keys
+            if isinstance(key, str) and key.strip()
+        })
+
+    def redact_configured_credentials(self, value: object) -> str:
+        """Redact configured credentials before an error reaches a log or event."""
+        message = str(value)
+        for provider_keys in self.keys.values():
+            for key in provider_keys:
+                if key:
+                    message = message.replace(key, "[REDACTED]")
+        return message

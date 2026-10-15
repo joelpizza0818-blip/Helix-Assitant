@@ -1,8 +1,0 @@
-{
-  "name": "@helix/shared",
-  "version": "1.0.0",
-  "description": "Shared types and constants for HELIX",
-  "main": "index.js",
-  "types": "index.d.ts",
-  "private": true
-}

@@ -23,19 +23,22 @@ class FakeContextManager:
 
 
 class FakeReactLoop:
-    def __init__(self, delay=0, fail=False):
+    def __init__(self, delay=0, fail=False, fail_message="provider failed"):
         self.delay = delay
         self.fail = fail
+        self.fail_message = fail_message
         self.active = 0
         self.max_active = 0
+        self.execute_kwargs = None
 
-    async def execute(self, **_kwargs):
+    async def execute(self, **kwargs):
+        self.execute_kwargs = kwargs
         self.active += 1
         self.max_active = max(self.max_active, self.active)
         try:
             await asyncio.sleep(self.delay)
             if self.fail:
-                raise RuntimeError("provider failed")
+                raise RuntimeError(self.fail_message)
             return SimpleNamespace(content="done")
         finally:
             self.active -= 1
@@ -114,3 +117,53 @@ async def test_agent_failure_is_retained_as_failed_task_result():
     assert "provider failed" in result["error"]
     assert task.status == TaskStatus.FAILED
     assert task.error == "provider failed"
+
+
+@pytest.mark.asyncio
+async def test_delegated_agent_excludes_parent_credential_without_persisting_or_logging_it(caplog):
+    secret = "configured-private-credential"
+    loop = FakeReactLoop(
+        fail=True,
+        fail_message=f"provider rejected credential={secret}",
+    )
+    loop.key_manager = SimpleNamespace(
+        redact_configured_credentials=lambda value: str(value).replace(secret, "[REDACTED]")
+    )
+    event_bus = EventBus()
+    events = []
+
+    async def capture_event(event_name, payload):
+        events.append((event_name, payload))
+
+    await event_bus.subscribe("*", capture_event)
+    task_manager = TaskManager(event_bus)
+    manager = AgentManager(
+        react_loop=loop,
+        context_manager=FakeContextManager(),
+        event_bus=event_bus,
+        role_config=None,
+        tool_registry=None,
+        task_manager=task_manager,
+    )
+    await manager.attach_task_manager(task_manager)
+
+    handle = await manager.delegate_task(
+        "Research safely",
+        role="research",
+        parent_id="parent-id",
+        context={"input_source": "subagent delegation"},
+        excluded_api_keys=[secret],
+    )
+    result = await handle
+    await asyncio.sleep(0.01)
+    child_id = result["agent_id"]
+    task = await task_manager.get_task(child_id)
+    task_context = await task_manager.get_task_context(child_id)
+
+    assert result["status"] == "failed"
+    assert "[REDACTED]" in result["error"]
+    assert loop.execute_kwargs["excluded_api_keys"] == [secret]
+    assert secret not in str(task_context)
+    assert secret not in str(task)
+    assert secret not in caplog.text
+    assert secret not in str(events)

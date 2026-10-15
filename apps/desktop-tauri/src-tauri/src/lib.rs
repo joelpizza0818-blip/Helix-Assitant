@@ -1,10 +1,14 @@
 use std::{
     collections::HashMap,
     fs,
+    future::Future,
     net::TcpListener,
     path::{Path, PathBuf},
     process::Stdio,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
     time::Duration,
 };
 
@@ -20,7 +24,7 @@ use tauri::{
 };
 use tokio::{
     process::{Child, Command},
-    sync::{mpsc, oneshot, Mutex},
+    sync::{mpsc, oneshot, watch, Mutex},
 };
 use tokio_tungstenite::{
     connect_async,
@@ -48,6 +52,7 @@ const CAPABILITY_CATALOG_URL: &str =
 const CAPABILITY_ASSET_BASE: &str =
     "https://github.com/joelpizza0818-blip/Helix-Assitant/releases/download/capability-packs/";
 const MAX_CAPABILITY_PACK_BYTES: usize = 16 * 1024 * 1024;
+static CAPABILITY_OPERATION_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Default)]
 struct AgentRuntime {
@@ -63,8 +68,14 @@ struct AgentBridge(Arc<Mutex<AgentRuntime>>);
 #[derive(Default)]
 struct UpdaterState(Mutex<Option<PathBuf>>);
 
-#[derive(Default)]
-struct CapabilityDownloads(Arc<Mutex<HashMap<String, tokio::task::AbortHandle>>>);
+#[derive(Clone, Default)]
+struct CapabilityDownloads(Arc<Mutex<HashMap<String, CapabilityDownloadOperation>>>);
+
+struct CapabilityDownloadOperation {
+    id: u64,
+    abort: tokio::task::AbortHandle,
+    result: watch::Sender<Option<Result<Value, String>>>,
+}
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -492,11 +503,20 @@ async fn run_websocket(
                     let bridge = bridge.clone();
                     tokio::spawn(async move {
                         let result = async {
-                            let catalog = verified_capability_catalog(&app).await?;
-                            let manifest = catalog.packs.iter()
-                                .find(|pack| pack.capability == capability)
-                                .ok_or_else(|| format!("No signed capability pack provides {capability}."))?;
-                            install_capability_inner(&app, &bridge, &manifest.id).await
+                            if request_id.is_empty() || capability.is_empty() {
+                                return Err("Capability request is missing its request id or capability.".to_string());
+                            }
+                            let pack_id = if let Some(pack_id) = cached_installed_capability_pack_id(&app, &capability) {
+                                pack_id
+                            } else {
+                                let catalog = verified_capability_catalog(&app).await?;
+                                catalog.packs.iter()
+                                    .find(|pack| pack.capability == capability)
+                                    .map(|manifest| manifest.id.clone())
+                                    .ok_or_else(|| format!("No signed capability pack provides {capability}."))?
+                            };
+                            let downloads = app.state::<CapabilityDownloads>().inner().clone();
+                            install_capability_managed(&app, &bridge, &downloads, &pack_id).await
                         }.await;
                         let resolved = match result {
                             Ok(_) => json!({
@@ -843,6 +863,20 @@ fn hash_file(path: &Path) -> Option<String> {
     Some(format!("{:x}", Sha256::digest(bytes)))
 }
 
+fn installed_pack_matches(path: &Path, manifest: &CapabilityPackManifest) -> bool {
+    hash_file(path).is_some_and(|hash| hash.eq_ignore_ascii_case(&manifest.sha256))
+}
+
+fn cached_installed_capability_pack_id(app: &AppHandle, capability: &str) -> Option<String> {
+    let catalog = read_cached_catalog(app).ok()?;
+    let manifest = catalog
+        .packs
+        .iter()
+        .find(|manifest| manifest.capability == capability && pack_is_compatible(manifest))?;
+    let path = installed_pack_path(app, manifest).ok()?;
+    installed_pack_matches(&path, manifest).then(|| manifest.id.clone())
+}
+
 fn pack_is_compatible(manifest: &CapabilityPackManifest) -> bool {
     let range = manifest.core_version_range.trim();
     if range == "*" || range.is_empty() {
@@ -906,9 +940,17 @@ fn parse_semver(value: &str) -> Option<[u64; 3]> {
 async fn get_capabilities(app: AppHandle) -> Result<Value, String> {
     let profile = installation_profile(&app)?;
     let catalog = verified_capability_catalog(&app).await?;
+    capability_snapshot(&app, profile, &catalog)
+}
+
+fn capability_snapshot(
+    app: &AppHandle,
+    profile: String,
+    catalog: &SignedCapabilityCatalog,
+) -> Result<Value, String> {
     let packs = catalog.packs.iter().map(|manifest| {
         let path = installed_pack_path(&app, manifest).ok();
-        let installed = path.as_deref().and_then(hash_file).is_some_and(|hash| hash.eq_ignore_ascii_case(&manifest.sha256));
+        let installed = path.as_deref().is_some_and(|path| installed_pack_matches(path, manifest));
         let compatible = pack_is_compatible(manifest);
         let status = if !compatible { "incompatible" } else if installed { "installed" } else { "missing" };
         json!({
@@ -936,9 +978,13 @@ async fn get_capabilities(app: AppHandle) -> Result<Value, String> {
         .iter()
         .filter(|pack| pack["requiredForComplete"] == true && pack["status"] != "installed")
         .count();
-    Ok(
-        json!({ "profile": profile, "packs": packs, "missingCount": missing_count, "requiredMissingCount": required_missing_count, "ready": required_missing_count == 0 }),
-    )
+    Ok(json!({
+        "profile": profile,
+        "packs": packs,
+        "missingCount": missing_count,
+        "requiredMissingCount": required_missing_count,
+        "ready": required_missing_count == 0
+    }))
 }
 
 #[tauri::command]
@@ -968,22 +1014,101 @@ async fn install_capability(
     downloads: State<'_, CapabilityDownloads>,
     pack_id: String,
 ) -> Result<Value, String> {
-    let app_for_task = app.clone();
-    let bridge_for_task = bridge.inner().clone();
-    let pack_for_task = pack_id.clone();
-    let handle = tokio::spawn(async move {
-        install_capability_inner(&app_for_task, &bridge_for_task, &pack_for_task).await
-    });
-    downloads
-        .0
-        .lock()
-        .await
-        .insert(pack_id.clone(), handle.abort_handle());
-    let result = handle
-        .await
-        .map_err(|error| format!("Capability installation task failed: {error}"));
-    downloads.0.lock().await.remove(&pack_id);
-    result?
+    install_capability_managed(&app, bridge.inner(), downloads.inner(), &pack_id).await
+}
+
+async fn install_capability_managed(
+    app: &AppHandle,
+    bridge: &AgentBridge,
+    downloads: &CapabilityDownloads,
+    pack_id: &str,
+) -> Result<Value, String> {
+    let app = app.clone();
+    let bridge = bridge.clone();
+    let operation_pack_id = pack_id.to_string();
+    let key = operation_pack_id.clone();
+    coalesce_capability_operation(downloads, key, move || async move {
+        install_capability_inner(&app, &bridge, &operation_pack_id).await
+    })
+    .await
+}
+
+async fn coalesce_capability_operation<F, Fut>(
+    downloads: &CapabilityDownloads,
+    pack_id: String,
+    operation: F,
+) -> Result<Value, String>
+where
+    F: FnOnce() -> Fut + Send + 'static,
+    Fut: Future<Output = Result<Value, String>> + Send + 'static,
+{
+    let receiver = {
+        let mut active = downloads.0.lock().await;
+        if let Some(existing) = active.get(&pack_id) {
+            existing.result.subscribe()
+        } else {
+            let operation_id = CAPABILITY_OPERATION_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+            let (result, receiver) = watch::channel(None);
+            let task_result = result.clone();
+            let active_downloads = downloads.clone();
+            let task_pack_id = pack_id.clone();
+            let task = tokio::spawn(async move {
+                let result_value = operation().await;
+                let mut active = active_downloads.0.lock().await;
+                if active.get(&task_pack_id).map(|item| item.id) == Some(operation_id) {
+                    let _ = task_result.send(Some(result_value));
+                    active.remove(&task_pack_id);
+                }
+            });
+            active.insert(
+                pack_id,
+                CapabilityDownloadOperation {
+                    id: operation_id,
+                    abort: task.abort_handle(),
+                    result,
+                },
+            );
+            receiver
+        }
+    };
+    await_capability_operation(receiver).await
+}
+
+async fn await_capability_operation(
+    mut receiver: watch::Receiver<Option<Result<Value, String>>>,
+) -> Result<Value, String> {
+    loop {
+        if let Some(result) = receiver.borrow().clone() {
+            return result;
+        }
+        receiver
+            .changed()
+            .await
+            .map_err(|_| "Capability installation ended without a result.".to_string())?;
+    }
+}
+
+async fn cancel_capability_operation(downloads: &CapabilityDownloads, pack_id: &str) -> bool {
+    let operation = {
+        let mut active = downloads.0.lock().await;
+        if active
+            .get(pack_id)
+            .is_some_and(|operation| operation.result.borrow().is_none())
+        {
+            active.remove(pack_id)
+        } else {
+            None
+        }
+    };
+    if let Some(operation) = operation {
+        let _ = operation.result.send(Some(Err(
+            "Capability installation was canceled.".to_string()
+        )));
+        operation.abort.abort();
+        true
+    } else {
+        false
+    }
 }
 
 async fn install_capability_inner(
@@ -994,11 +1119,35 @@ async fn install_capability_inner(
     if !is_safe_pack_id(&pack_id) {
         return Err("Capability pack id is invalid.".to_string());
     }
-    if installation_profile(app)? != "progressive" {
+    let profile = installation_profile(app)?;
+    if profile != "progressive" {
         return Err(
             "Capability packs can only be installed on demand in a progressive installation."
                 .to_string(),
         );
+    }
+    if let Ok(cached_catalog) = read_cached_catalog(app) {
+        if let Some(manifest) = cached_catalog
+            .packs
+            .iter()
+            .find(|manifest| manifest.id == pack_id && pack_is_compatible(manifest))
+        {
+            let destination = installed_pack_path(app, manifest)?;
+            if installed_pack_matches(&destination, manifest) {
+                request_agent_inner(
+                    bridge,
+                    "LOAD_CAPABILITY_PACK",
+                    json!({
+                        "id": manifest.id,
+                        "version": manifest.version,
+                        "sha256": manifest.sha256
+                    }),
+                    Some(30000),
+                )
+                .await?;
+                return capability_snapshot(app, profile.clone(), &cached_catalog);
+            }
+        }
     }
     let catalog = verified_capability_catalog(app).await?;
     let manifest = catalog
@@ -1011,6 +1160,21 @@ async fn install_capability_inner(
             "Capability pack {} is incompatible with this HELIX Lite version.",
             manifest.capability
         ));
+    }
+    let destination = installed_pack_path(app, manifest)?;
+    if installed_pack_matches(&destination, manifest) {
+        request_agent_inner(
+            bridge,
+            "LOAD_CAPABILITY_PACK",
+            json!({
+                "id": manifest.id,
+                "version": manifest.version,
+                "sha256": manifest.sha256
+            }),
+            Some(30000),
+        )
+        .await?;
+        return capability_snapshot(app, profile.clone(), &catalog);
     }
     let response = reqwest::Client::builder()
         .timeout(Duration::from_secs(300))
@@ -1059,7 +1223,6 @@ async fn install_capability_inner(
     if !hash.eq_ignore_ascii_case(&manifest.sha256) {
         return Err("Capability pack SHA-256 verification failed.".to_string());
     }
-    let destination = installed_pack_path(app, manifest)?;
     let parent = destination
         .parent()
         .ok_or_else(|| "Capability pack destination is invalid.".to_string())?;
@@ -1111,7 +1274,7 @@ async fn install_capability_inner(
         Some(30000),
     )
     .await?;
-    get_capabilities(app.clone()).await
+    capability_snapshot(app, profile, &catalog)
 }
 
 #[tauri::command]
@@ -1119,12 +1282,7 @@ async fn cancel_capability(
     downloads: State<'_, CapabilityDownloads>,
     pack_id: String,
 ) -> Result<bool, String> {
-    if let Some(handle) = downloads.0.lock().await.remove(&pack_id) {
-        handle.abort();
-        Ok(true)
-    } else {
-        Ok(false)
-    }
+    Ok(cancel_capability_operation(downloads.inner(), &pack_id).await)
 }
 
 #[tauri::command]
@@ -1449,6 +1607,37 @@ mod tests {
     }
 
     #[test]
+    fn offline_capability_reuse_requires_the_signed_sha256() {
+        let root = std::env::temp_dir().join(format!(
+            "helix-capability-cache-test-{}",
+            create_token().unwrap()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("1.0.0.py");
+        let bytes = b"verified capability plugin";
+        fs::write(&path, bytes).unwrap();
+        let manifest = CapabilityPackManifest {
+            id: "system-diagnostics".to_string(),
+            version: "1.0.0".to_string(),
+            capability: "system-diagnostics".to_string(),
+            format: "python-plugin".to_string(),
+            required_for_complete: false,
+            platform: "win32".to_string(),
+            arch: "x64".to_string(),
+            core_version_range: "*".to_string(),
+            size_bytes: bytes.len(),
+            url: format!("{CAPABILITY_ASSET_BASE}system-diagnostics-1.0.0.py"),
+            sha256: format!("{:x}", Sha256::digest(bytes)),
+            signature: "test-signature".to_string(),
+        };
+
+        assert!(installed_pack_matches(&path, &manifest));
+        fs::write(&path, b"modified capability plugin").unwrap();
+        assert!(!installed_pack_matches(&path, &manifest));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn canonical_signed_json_uses_stable_lexical_key_order() {
         let value = json!({ "zeta": 1, "alpha": { "last": true, "first": false } });
         assert_eq!(
@@ -1577,5 +1766,59 @@ mod tests {
             candidates.first(),
             Some(&root.join(".venv/Scripts/python.exe"))
         );
+    }
+
+    #[tokio::test]
+    async fn concurrent_capability_requests_share_one_install_operation() {
+        let downloads = CapabilityDownloads::default();
+        let executions = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let first_executions = executions.clone();
+        let second_executions = executions.clone();
+
+        let (first, second) = tokio::join!(
+            coalesce_capability_operation(&downloads, "vision".to_string(), move || async move {
+                first_executions.fetch_add(1, Ordering::SeqCst);
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                Ok(json!({ "status": "installed" }))
+            }),
+            coalesce_capability_operation(&downloads, "vision".to_string(), move || async move {
+                second_executions.fetch_add(1, Ordering::SeqCst);
+                Ok(json!({ "status": "installed" }))
+            }),
+        );
+
+        assert_eq!(first.unwrap(), second.unwrap());
+        assert_eq!(executions.load(Ordering::SeqCst), 1);
+        assert!(downloads.0.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn canceling_a_capability_operation_resolves_all_waiters() {
+        let downloads = CapabilityDownloads::default();
+        let operation_downloads = downloads.clone();
+        let waiter = tokio::spawn(async move {
+            coalesce_capability_operation(
+                &operation_downloads,
+                "vision".to_string(),
+                || async move {
+                    tokio::time::sleep(Duration::from_secs(30)).await;
+                    Ok(json!({ "status": "installed" }))
+                },
+            )
+            .await
+        });
+
+        for _ in 0..100 {
+            if !downloads.0.lock().await.is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        assert!(cancel_capability_operation(&downloads, "vision").await);
+        assert_eq!(
+            waiter.await.unwrap().unwrap_err(),
+            "Capability installation was canceled."
+        );
+        assert!(!cancel_capability_operation(&downloads, "vision").await);
     }
 }

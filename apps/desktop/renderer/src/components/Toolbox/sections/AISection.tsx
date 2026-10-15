@@ -212,6 +212,31 @@ export default function AISection({ providers, models, settings, onSave, onRefre
         </p>
       </div>
 
+      <div className="toolbox-card" style={{ marginBottom: 16 }}>
+        <div className="toolbox-card__header">
+          <span className="toolbox-card__title">App-level subagent delegation</span>
+          <label className={`toggle ${settings.subagents_available ? '' : 'toggle--disabled'}`}>
+            <input
+              type="checkbox"
+              checked={settings.subagents_enabled ?? false}
+              disabled={!settings.subagents_available}
+              onChange={(event) => onSave({
+                subagents_enabled: event.target.checked,
+              })}
+            />
+            <span className="toggle__slider" />
+          </label>
+        </div>
+        <p className="toolbox-section__desc">
+          When enabled, HELIX may use its built-in delegate_task tool for focused
+          research or coding subtasks. Child agents are separate queued tasks and
+          must use a different configured credential from the parent.
+          {!settings.subagents_available
+            ? ' Configure at least two distinct non-empty API credentials to enable this option.'
+            : ' Delegation is available only when HELIX chooses to call the tool.'}
+        </p>
+      </div>
+
       {/* ── Core Providers (3 Keys Each) ────────────────────────── */}
       {ALL_CORE_PROVIDERS.map((providerId) => {
         const status = getProviderStatus(providerId)

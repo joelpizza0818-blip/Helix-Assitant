@@ -468,6 +468,7 @@ class ReActLoop:
                       preferred_tool_names: List[str] = None,
                       allow_tool_calls: bool = True,
                       screen_request_active: bool = False,
+                      excluded_api_keys: Optional[List[str]] = None,
                       vision_model_to_exclude: tuple[str, str] | None = None) -> 'ChatResponse':
         await self._ensure_confirmation_subscriptions()
         assignment = self.role_config.get_assignment(role)
@@ -485,6 +486,7 @@ class ReActLoop:
             "_execution_failed_keys": set(),
             "_execution_failed_candidates": set(),
             "_helix_task_id": task_id,
+            "_excluded_api_keys": set(excluded_api_keys or []),
         }
         executed_tool_call_ids = set()
         
@@ -523,6 +525,7 @@ class ReActLoop:
                     raise RuntimeError(
                         f"No API key is available for {candidate.provider_id} slot {candidate.key_slot}."
                     )
+                context["_helix_current_credential"] = api_key
                 if allow_tool_calls and tools:
                     return await provider.tool_call(
                         context['messages'],
@@ -670,9 +673,13 @@ class ReActLoop:
                                     )
                                 if is_screen_capture_tool or is_screen_action_tool:
                                     with screen_observation_scope(True):
-                                        result = await tool.execute(tc.arguments)
+                                        result = await self._execute_tool(
+                                            tool, tc.arguments, task_id, provider_context
+                                        )
                                 else:
-                                    result = await tool.execute(tc.arguments)
+                                    result = await self._execute_tool(
+                                        tool, tc.arguments, task_id, provider_context
+                                    )
                                 tool_succeeded = getattr(result, "success", False)
                                 output = result.output if tool_succeeded else f"Error: {getattr(result, 'error', None)}"
                                 raw_output = getattr(result, "output", None)
@@ -736,7 +743,17 @@ class ReActLoop:
                         finish_reason="stop"
                     )
                 return response
-                
+
         raise RuntimeError(
             f"Model did not finish the tool-call cycle within {max_iterations} iterations."
         )
+
+    async def _execute_tool(self, tool, arguments, task_id, provider_context):
+        contextual_execute = getattr(tool, "execute_with_context", None)
+        if callable(contextual_execute):
+            return await contextual_execute(
+                arguments,
+                parent_id=task_id,
+                parent_credential=provider_context.get("_helix_current_credential"),
+            )
+        return await tool.execute(arguments)

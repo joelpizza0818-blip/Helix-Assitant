@@ -250,7 +250,7 @@ export default function Toolbox() {
                   models={models}
                   settings={settings}
                   onSave={saveOtherSettings}
-                  onRefresh={() => { loadProviders(); loadModels() }}
+                  onRefresh={() => { loadProviders(); loadModels(); void loadSettings() }}
                 />
               )}
               {activeSection === 'voice' && (

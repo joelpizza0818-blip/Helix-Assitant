@@ -96,7 +96,6 @@ and browser page snapshots are not persisted by these features.
 - `apps/desktop`: Electron/React desktop application
 - `apps/landing`: Web landing page
 - `server`: Backend API/Services
-- `shared`: Shared TypeScript types and constants
 - `docs`: Documentation
 - `scripts`: Utility and setup scripts
 - `services/agent`: Python core agent logic

@@ -25,6 +25,7 @@ export const Footer: React.FC = () => {
             <span className="footer-col-title">ARCHITECTURE</span>
             <a href={isHome ? '#features' : '/#features'}>Capabilities</a>
             <Link to="/features">Release History</Link>
+            <Link to="/docs">Documentation</Link>
             <a href={isHome ? '#router' : '/#router'}>Model Router</a>
             <a href={isHome ? '#security' : '/#security'}>Zero-Trust</a>
           </div>
@@ -32,6 +33,7 @@ export const Footer: React.FC = () => {
           <div className="footer-col">
             <span className="footer-col-title">PRODUCT</span>
             <Link to="/download">Download Builds</Link>
+            <Link to="/privacy">Privacy Policy</Link>
             <Link to="/login">Account Portal</Link>
             <Link to="/register">Create Account</Link>
           </div>

@@ -276,10 +276,11 @@
 .toolbox-skill-instructions {
   display: block;
   width: 100%;
-  min-height: 160px;
+  min-height: 280px;
   padding: 10px;
-  resize: none;
-  border-radius: 0;
+  line-height: 1.5;
+  resize: vertical;
+  border-radius: 4px;
 }
 
 .toolbox__admin-login-message {
@@ -446,6 +447,17 @@
 
 .form-input:focus { border-color: var(--graphite); }
 
+textarea.form-input {
+  display: block;
+  width: 100%;
+  min-height: 140px;
+  height: auto;
+  padding: 10px;
+  line-height: 1.5;
+  resize: vertical;
+  border-radius: 4px;
+}
+
 /* Toggle switch */
 .toggle {
   position: relative;
@@ -483,6 +495,7 @@
 
 .toggle input:checked + .toggle__slider { background: var(--orange); }
 .toggle input:checked + .toggle__slider::before { transform: translateX(16px); }
+.toggle input:disabled + .toggle__slider { opacity: 0.4; cursor: not-allowed; }
 
 /* Status badge */
 .status-badge {

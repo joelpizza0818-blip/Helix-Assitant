@@ -1,0 +1,233 @@
+{
+  "models": [
+    {
+      "id": "gpt-4o",
+      "provider": "openai",
+      "display_name": "GPT-4o",
+      "capabilities": {
+        "text": true,
+        "vision": true,
+        "tool_calling": true,
+        "function_calling": true,
+        "structured_output": true,
+        "coding": true,
+        "reasoning": true,
+        "streaming": true,
+        "context_window": 128000,
+        "cost_tier": "high"
+      }
+    },
+    {
+      "id": "gpt-4o-mini",
+      "provider": "openai",
+      "display_name": "GPT-4o Mini",
+      "capabilities": {
+        "text": true,
+        "vision": true,
+        "tool_calling": true,
+        "streaming": true,
+        "coding": true,
+        "context_window": 128000,
+        "cost_tier": "low"
+      }
+    },
+    {
+      "id": "gpt-4-turbo",
+      "provider": "openai",
+      "display_name": "GPT-4 Turbo",
+      "capabilities": {
+        "text": true,
+        "vision": true,
+        "tool_calling": true,
+        "coding": true,
+        "streaming": true,
+        "context_window": 128000,
+        "cost_tier": "high"
+      }
+    },
+    {
+      "id": "o1-preview",
+      "provider": "openai",
+      "display_name": "o1 Preview",
+      "capabilities": {
+        "text": true,
+        "reasoning": true,
+        "context_window": 128000,
+        "cost_tier": "premium"
+      }
+    },
+    {
+      "id": "o1-mini",
+      "provider": "openai",
+      "display_name": "o1 Mini",
+      "capabilities": {
+        "text": true,
+        "reasoning": true,
+        "coding": true,
+        "context_window": 128000,
+        "cost_tier": "medium"
+      }
+    },
+    {
+      "id": "o3-mini",
+      "provider": "openai",
+      "display_name": "o3 Mini",
+      "capabilities": {
+        "text": true,
+        "reasoning": true,
+        "coding": true,
+        "context_window": 200000,
+        "cost_tier": "medium"
+      }
+    },
+    {
+      "id": "gpt-4o-realtime-preview",
+      "provider": "openai",
+      "display_name": "GPT-4o Realtime",
+      "capabilities": {
+        "text": true,
+        "audio": true,
+        "realtime": true,
+        "low_latency": true,
+        "streaming": true,
+        "cost_tier": "premium"
+      }
+    },
+    {
+      "id": "whisper-1",
+      "provider": "openai",
+      "display_name": "Whisper 1",
+      "capabilities": {
+        "speech_to_text": true,
+        "cost_tier": "low"
+      }
+    },
+    {
+      "id": "tts-1",
+      "provider": "openai",
+      "display_name": "TTS 1",
+      "capabilities": {
+        "text_to_speech": true,
+        "low_latency": true,
+        "cost_tier": "low"
+      }
+    },
+    {
+      "id": "tts-1-hd",
+      "provider": "openai",
+      "display_name": "TTS 1 HD",
+      "capabilities": {
+        "text_to_speech": true,
+        "cost_tier": "medium"
+      }
+    },
+    {
+      "id": "claude-sonnet-5-5",
+      "provider": "anthropic",
+      "display_name": "Claude Sonnet 5.5",
+      "capabilities": {
+        "text": true,
+        "vision": true,
+        "tool_calling": true,
+        "computer_use": true,
+        "coding": true,
+        "reasoning": true,
+        "streaming": true,
+        "context_window": 200000,
+        "cost_tier": "high"
+      }
+    },
+    {
+      "id": "claude-opus-5-5",
+      "provider": "anthropic",
+      "display_name": "Claude Opus 5.5",
+      "capabilities": {
+        "text": true,
+        "vision": true,
+        "tool_calling": true,
+        "computer_use": true,
+        "coding": true,
+        "reasoning": true,
+        "streaming": true,
+        "context_window": 200000,
+        "cost_tier": "premium"
+      }
+    },
+    {
+      "id": "claude-haiku-4-5-20251001",
+      "provider": "anthropic",
+      "display_name": "Claude Haiku 4.5",
+      "capabilities": {
+        "text": true,
+        "vision": true,
+        "tool_calling": true,
+        "coding": true,
+        "streaming": true,
+        "context_window": 200000,
+        "cost_tier": "low"
+      }
+    },
+    {
+      "id": "gemini-3.8-flash",
+      "provider": "google",
+      "display_name": "Gemini 3.8 Flash",
+      "capabilities": {
+        "text": true,
+        "vision": true,
+        "tool_calling": true,
+        "coding": true,
+        "reasoning": true,
+        "streaming": true,
+        "long_context": true,
+        "context_window": 1048576,
+        "cost_tier": "medium"
+      },
+      "priority": 1
+    },
+    {
+      "id": "gemini-3.6-flash",
+      "provider": "google",
+      "display_name": "Gemini 3.6 Flash",
+      "capabilities": {
+        "text": true,
+        "vision": true,
+        "tool_calling": true,
+        "coding": true,
+        "reasoning": true,
+        "streaming": true,
+        "long_context": true,
+        "context_window": 1048576,
+        "cost_tier": "medium"
+      }
+    },
+    {
+      "id": "gemini-3.5-flash-lite",
+      "provider": "google",
+      "display_name": "Gemini 3.5 Flash-Lite",
+      "capabilities": {
+        "text": true,
+        "vision": true,
+        "tool_calling": true,
+        "streaming": true,
+        "context_window": 1048576,
+        "cost_tier": "low"
+      }
+    },
+    {
+      "id": "gemini-3.1-pro-preview",
+      "provider": "google",
+      "display_name": "Gemini 3.1 Pro Preview",
+      "capabilities": {
+        "text": true,
+        "vision": true,
+        "tool_calling": true,
+        "coding": true,
+        "reasoning": true,
+        "streaming": true,
+        "long_context": true,
+        "context_window": 1048576,
+        "cost_tier": "high"
+      }
+    }
+  ]
+}

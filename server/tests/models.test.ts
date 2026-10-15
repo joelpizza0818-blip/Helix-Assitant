@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
+import path from 'node:path';
 import express, { RequestHandler } from 'express';
 import { AddressInfo } from 'node:net';
 import { Server } from 'node:http';
 import { AuthenticatedRequest } from '../src/types';
+import { PROVIDER_MODELS } from '../src/routes/model-catalog.generated';
 
 const apiKey = 'test-key-never-use-a-real-secret';
 
@@ -13,6 +16,21 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-key';
 const { createModelsRouter } = require('../src/routes/models') as {
   createModelsRouter: (options?: any) => express.Router;
 };
+
+test('backend model IDs are generated from the canonical catalog', () => {
+  const catalogPath = path.resolve(__dirname, '../../config/model-catalog.json');
+  const { models } = JSON.parse(readFileSync(catalogPath, 'utf8')) as {
+    models: Array<{ id: string; provider: string }>;
+  };
+  const expected = Object.fromEntries(
+    [...new Set(models.map((model) => model.provider))].map((provider) => [
+      provider,
+      models.filter((model) => model.provider === provider).map((model) => model.id),
+    ])
+  );
+
+  assert.deepEqual(PROVIDER_MODELS, expected);
+});
 
 function createCredentialStore(
   upsert: (args: any) => Promise<any>,

@@ -1,7 +1,7 @@
 import { createHash, createPublicKey, verify } from 'crypto'
 import { createWriteStream, promises as fs, readFileSync, statSync } from 'fs'
 import path from 'path'
-import { Readable } from 'stream'
+import { Readable, Transform } from 'stream'
 import { pipeline } from 'stream/promises'
 
 export type InstallationProfile = 'progressive' | 'complete'
@@ -54,10 +54,19 @@ interface CapabilityManagerOptions {
   onProgress?: (progress: CapabilityDownloadProgress) => void
 }
 
+interface ActiveCapabilityDownload {
+  controller: AbortController
+  promise: Promise<CapabilityPackState>
+  version: string
+  sha256: string
+}
+
 export interface CapabilityDownloadProgress {
   id: string
   receivedBytes: number
   totalBytes: number
+  status: 'downloading' | 'installed' | 'failed' | 'canceled'
+  error?: string
 }
 
 const MAX_PACK_BYTES = 16 * 1024 * 1024
@@ -127,8 +136,14 @@ function safePackId(id: string): boolean {
 
 export function validatePackManifest(manifest: CapabilityPackManifest): void {
   if (!manifest || typeof manifest.id !== 'string' || !safePackId(manifest.id)) throw new Error('Invalid capability pack id.')
-  if (typeof manifest.version !== 'string' || typeof manifest.capability !== 'string' || !manifest.version || !manifest.capability) {
+  if (typeof manifest.version !== 'string' || !/^\d+\.\d+\.\d+$/.test(manifest.version)) {
+    throw new Error('Capability pack version is invalid.')
+  }
+  if (typeof manifest.capability !== 'string' || !safePackId(manifest.capability)) {
     throw new Error('Capability pack metadata is incomplete.')
+  }
+  if (typeof manifest.requiredForComplete !== 'boolean' || typeof manifest.coreVersionRange !== 'string') {
+    throw new Error('Capability pack compatibility metadata is invalid.')
   }
   if (manifest.format !== 'python-plugin') throw new Error('Unsupported capability pack format.')
   if (manifest.platform !== 'win32' || !['x64', 'arm64'].includes(manifest.arch)) {
@@ -137,7 +152,9 @@ export function validatePackManifest(manifest: CapabilityPackManifest): void {
   if (!Number.isSafeInteger(manifest.sizeBytes) || manifest.sizeBytes <= 0 || manifest.sizeBytes > MAX_PACK_BYTES) {
     throw new Error('Capability pack size is outside the allowed limit.')
   }
-  if (!/^https:\/\//i.test(manifest.url)) throw new Error('Capability pack URL must use HTTPS.')
+  if (typeof manifest.url !== 'string' || !manifest.url.startsWith(CATALOG_ASSET_BASE)) {
+    throw new Error('Capability pack URL must use the trusted capability release.')
+  }
   if (!SHA256_PATTERN.test(manifest.sha256)) throw new Error('Capability pack hash is invalid.')
   if (!manifest.signature) throw new Error('Capability pack signature is missing.')
 }
@@ -173,7 +190,7 @@ export class CapabilityManager {
   private readonly progressiveEnabled: boolean
   private readonly onProgress?: (progress: CapabilityDownloadProgress) => void
   private state: PersistedState = { profile: 'complete', manifests: [] }
-  private activeDownloads = new Map<string, AbortController>()
+  private activeDownloads = new Map<string, ActiveCapabilityDownload>()
 
   constructor(
     userDataPath: string,
@@ -194,7 +211,15 @@ export class CapabilityManager {
       const parsed = JSON.parse(await fs.readFile(this.statePath, 'utf8')) as Partial<PersistedState>
       this.state = {
         profile: this.progressiveEnabled && parsed.profile === 'progressive' ? 'progressive' : 'complete',
-        manifests: Array.isArray(parsed.manifests) ? parsed.manifests : [],
+        manifests: Array.isArray(parsed.manifests)
+          ? parsed.manifests.filter((manifest) => {
+            try {
+              return verifyPackManifest(manifest, this.publicKey)
+            } catch {
+              return false
+            }
+          })
+          : [],
       }
     } catch {
       this.state = { profile: 'complete', manifests: [] }
@@ -221,7 +246,9 @@ export class CapabilityManager {
   }
 
   registerManifest(manifest: CapabilityPackManifest): void {
-    validatePackManifest(manifest)
+    if (!verifyPackManifest(manifest, this.publicKey)) {
+      throw new Error(`Invalid signature for pack ${manifest.id}.`)
+    }
     const current = this.state.manifests.filter((item) => item.id !== manifest.id)
     this.state.manifests = [...current, manifest]
   }
@@ -279,16 +306,56 @@ export class CapabilityManager {
 
   async installPack(manifest: CapabilityPackManifest): Promise<CapabilityPackState> {
     if (!this.progressiveEnabled) throw new Error('Capability pack installation is not enabled in this build.')
+    if (this.state.profile !== 'progressive') {
+      throw new Error('Capability pack installation requires a progressive installation profile.')
+    }
     if (!verifyPackManifest(manifest, this.publicKey)) throw new Error(`Invalid signature for pack ${manifest.id}.`)
     if (!this.isCompatible(manifest)) throw new Error(`Pack ${manifest.id} is incompatible with this HELIX build.`)
-    const existing = this.snapshot().packs.find((pack) => pack.id === manifest.id && pack.status === 'installed')
-    if (existing?.version === manifest.version) return existing
-    if (this.activeDownloads.has(manifest.id)) throw new Error(`Pack ${manifest.id} is already downloading.`)
+    const existing = this.snapshot().packs.find((pack) =>
+      pack.id === manifest.id
+      && pack.status === 'installed'
+      && pack.version === manifest.version
+      && pack.sha256.toLowerCase() === manifest.sha256.toLowerCase(),
+    )
+    if (existing) return existing
+    const active = this.activeDownloads.get(manifest.id)
+    if (active) {
+      if (active.version !== manifest.version || active.sha256.toLowerCase() !== manifest.sha256.toLowerCase()) {
+        throw new Error(`A different version of capability pack ${manifest.id} is already downloading.`)
+      }
+      return active.promise
+    }
 
     const controller = new AbortController()
-    this.activeDownloads.set(manifest.id, controller)
+    const promise = Promise.resolve().then(() => this.downloadPack(manifest, controller))
+    this.activeDownloads.set(manifest.id, {
+      controller,
+      promise,
+      version: manifest.version,
+      sha256: manifest.sha256,
+    })
+    try {
+      return await promise
+    } finally {
+      if (this.activeDownloads.get(manifest.id)?.promise === promise) {
+        this.activeDownloads.delete(manifest.id)
+      }
+    }
+  }
+
+  private async downloadPack(
+    manifest: CapabilityPackManifest,
+    controller: AbortController,
+  ): Promise<CapabilityPackState> {
     const stagingRoot = path.join(path.dirname(this.packsRoot), 'staging')
     const temporaryPath = path.join(stagingRoot, `${manifest.id}-${manifest.version}.download`)
+    let received = 0
+    this.onProgress?.({
+      id: manifest.id,
+      receivedBytes: received,
+      totalBytes: manifest.sizeBytes,
+      status: 'downloading',
+    })
     try {
       await fs.mkdir(stagingRoot, { recursive: true })
       await fs.rm(temporaryPath, { force: true })
@@ -298,22 +365,37 @@ export class CapabilityManager {
       if (contentLength > MAX_PACK_BYTES || (contentLength > 0 && contentLength !== manifest.sizeBytes)) {
         throw new Error('Pack download size does not match its signed manifest.')
       }
-      let received = 0
       let lastProgressAt = 0
       const hasher = createHash('sha256')
       const source = Readable.fromWeb(response.body as never)
-      source.on('data', (chunk: Buffer) => {
-        received += chunk.length
-        hasher.update(chunk)
-        const now = Date.now()
-        if (now - lastProgressAt >= 100) {
-          lastProgressAt = now
-          this.onProgress?.({ id: manifest.id, receivedBytes: received, totalBytes: manifest.sizeBytes })
-        }
-        if (received > manifest.sizeBytes || received > MAX_PACK_BYTES) controller.abort()
+      const meter = new Transform({
+        transform: (chunk: Buffer, _encoding, callback) => {
+          received += chunk.length
+          if (received > manifest.sizeBytes || received > MAX_PACK_BYTES) {
+            callback(new Error('Pack download exceeded its signed size limit.'))
+            return
+          }
+          hasher.update(chunk)
+          const now = Date.now()
+          if (now - lastProgressAt >= 100) {
+            lastProgressAt = now
+            this.onProgress?.({
+              id: manifest.id,
+              receivedBytes: received,
+              totalBytes: manifest.sizeBytes,
+              status: 'downloading',
+            })
+          }
+          callback(null, chunk)
+        },
       })
-      await pipeline(source, createWriteStream(temporaryPath, { flags: 'wx' }))
-      this.onProgress?.({ id: manifest.id, receivedBytes: received, totalBytes: manifest.sizeBytes })
+      await pipeline(source, meter, createWriteStream(temporaryPath, { flags: 'wx' }))
+      this.onProgress?.({
+        id: manifest.id,
+        receivedBytes: received,
+        totalBytes: manifest.sizeBytes,
+        status: 'downloading',
+      })
       if (received !== manifest.sizeBytes || hasher.digest('hex').toLowerCase() !== manifest.sha256.toLowerCase()) {
         throw new Error('Pack hash or size verification failed.')
       }
@@ -346,17 +428,40 @@ export class CapabilityManager {
       if (backedUp) await fs.rm(backupPath, { force: true })
       this.registerManifest(manifest)
       await this.persist()
+      this.onProgress?.({
+        id: manifest.id,
+        receivedBytes: received,
+        totalBytes: manifest.sizeBytes,
+        status: 'installed',
+      })
       return { ...manifest, status: 'installed', installedPath: destination }
+    } catch (error) {
+      if (controller.signal.aborted) {
+        this.onProgress?.({
+          id: manifest.id,
+          receivedBytes: received,
+          totalBytes: manifest.sizeBytes,
+          status: 'canceled',
+        })
+        throw new Error('Capability pack installation was canceled.')
+      }
+      this.onProgress?.({
+        id: manifest.id,
+        receivedBytes: received,
+        totalBytes: manifest.sizeBytes,
+        status: 'failed',
+        error: error instanceof Error ? error.message : 'Capability pack installation failed.',
+      })
+      throw error
     } finally {
-      this.activeDownloads.delete(manifest.id)
       await fs.rm(temporaryPath, { force: true }).catch(() => undefined)
     }
   }
 
   cancelPack(id: string): boolean {
-    const controller = this.activeDownloads.get(id)
-    if (!controller) return false
-    controller.abort()
+    const active = this.activeDownloads.get(id)
+    if (!active) return false
+    active.controller.abort()
     return true
   }
 

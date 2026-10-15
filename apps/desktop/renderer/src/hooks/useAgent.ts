@@ -2,20 +2,24 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import type {
   AgentMessage, AgentStatus, AgentStatusUpdate, TaskDefinition,
   ConfirmationRequest, FallbackEvent, ProviderStatus, ModelDefinition,
-  ProviderID, ModelRequestEvent
+  ProviderID, ModelRequestEvent, AgentLifecycleEvent
 } from '../types/global'
 import type { ChatAttachment } from '../types/global'
 import {
   readConversationHistory,
   saveConversation,
+  deleteConversation as deleteStoredConversation,
   type StoredConversation,
 } from './conversationHistory'
 
 interface UseAgentReturn {
   messages: AgentMessage[]
   conversationHistory: StoredConversation[]
+  conversationHistoryError: string | null
+  conversationId: string
   isLoading: boolean
   tasks: TaskDefinition[]
+  agentUpdates: AgentLifecycleEvent[]
   agentStatus: AgentStatus
   currentModel: string | null
   currentProvider: ProviderID | null
@@ -26,6 +30,7 @@ interface UseAgentReturn {
   models: ModelDefinition[]
   sendMessage: (text: string, attachments?: ChatAttachment[]) => void
   selectConversation: (id: string) => void
+  deleteConversation: (id: string) => boolean
   startNewConversation: () => void
   cancelTask: (taskId: string) => void
   confirmAction: (requestId: string) => void
@@ -41,8 +46,10 @@ export function useAgent(options: { persistConversation?: boolean } = {}): UseAg
   const [messages, setMessages] = useState<AgentMessage[]>([])
   const [conversationId, setConversationId] = useState<string>(() => crypto.randomUUID())
   const [conversationHistory, setConversationHistory] = useState<StoredConversation[]>([])
+  const [conversationHistoryError, setConversationHistoryError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [tasks, setTasks] = useState<TaskDefinition[]>([])
+  const [agentUpdates, setAgentUpdates] = useState<AgentLifecycleEvent[]>([])
   const [agentStatus, setAgentStatus] = useState<AgentStatus>('idle')
   const [currentModel, setCurrentModel] = useState<string | null>(null)
   const [currentProvider, setCurrentProvider] = useState<ProviderID | null>(null)
@@ -97,6 +104,19 @@ export function useAgent(options: { persistConversation?: boolean } = {}): UseAg
     setIsLoading(false)
   }, [])
 
+  const deleteConversation = useCallback((id: string): boolean => {
+    try {
+      const persistedHistory = readConversationHistory()
+      const nextHistory = deleteStoredConversation(persistedHistory, id)
+      setConversationHistory(nextHistory)
+      setConversationHistoryError(null)
+      return true
+    } catch {
+      setConversationHistoryError('Could not delete this chat. Your saved history was left unchanged.')
+      return false
+    }
+  }, [])
+
   useEffect(() => {
     // Subscribe to all agent events
     const cleanups: Array<() => void> = []
@@ -148,6 +168,18 @@ export function useAgent(options: { persistConversation?: boolean } = {}): UseAg
           const updated = [...prev]
           updated[idx] = mergedTask
           return updated
+        })
+      })
+    )
+
+    cleanups.push(
+      window.helix.onAgentUpdate((event) => {
+        setAgentUpdates((current) => {
+          const index = current.findIndex((item) => item.agent_id === event.agent_id)
+          if (index === -1) return [...current, event]
+          const next = [...current]
+          next[index] = { ...next[index], ...event }
+          return next
         })
       })
     )
@@ -294,9 +326,9 @@ export function useAgent(options: { persistConversation?: boolean } = {}): UseAg
   }, [])
 
   return {
-    messages, conversationHistory, isLoading, tasks, agentStatus, currentModel, currentProvider,
+    messages, conversationHistory, conversationHistoryError, conversationId, isLoading, tasks, agentUpdates, agentStatus, currentModel, currentProvider,
     taskCount, pendingConfirmation, fallbackEvent, providers, models,
-    sendMessage, selectConversation, startNewConversation, cancelTask, confirmAction, rejectAction,
+    sendMessage, selectConversation, deleteConversation, startNewConversation, cancelTask, confirmAction, rejectAction,
     loadProviders, loadModels, loadTasks, dismissFallback
   }
 }

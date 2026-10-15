@@ -149,6 +149,9 @@ contextBridge.exposeInMainWorld('helix', {
   onAgentMessage: (fn: (msg: unknown) => void): (() => void) =>
     createEventListener('helix:agent-message', fn),
 
+  onAgentUpdate: (fn: (event: unknown) => void): (() => void) =>
+    createEventListener('helix:agent_update', fn),
+
   onVoiceCaptureStarted: (fn: () => void): (() => void) =>
     createEventListener('helix:voice_capture_started', fn),
 

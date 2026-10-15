@@ -1,7 +1,13 @@
+import asyncio
+import base64
+import shlex
+import sys
+
 import pytest
 from services.agent.mcp.protocol import MCPRequest, MCPResponse, MCPToolDefinition
 from services.agent.mcp.tool_provider import MCPToolWrapper, MCPToolBridge
-from services.agent.mcp.client import MCPClient, MCPClientManager
+from services.agent.mcp.client import MCPClient, MCPClientManager, safe_mcp_diagnostic
+import services.agent.mcp.client as mcp_client_module
 from services.agent.core.mcp_settings import (
     _desired_mcp_servers,
     _mcp_server_statuses,
@@ -61,6 +67,126 @@ async def test_mcp_manager_rejects_url_before_starting_or_network_access():
     assert manager.tools_cache == {}
 
 
+def _python_command(source):
+    encoded = base64.b64encode(source.encode()).decode()
+    code = f"import base64;exec(base64.b64decode('{encoded}'))"
+    return shlex.join([sys.executable, "-u", "-c", code])
+
+
+@pytest.mark.asyncio
+async def test_mcp_stdio_command_performs_initialize_and_tools_list():
+    source = """
+import json, sys
+for line in sys.stdin:
+    request = json.loads(line)
+    if request["method"] == "initialize":
+        result = {"protocolVersion": "2.0"}
+    elif request["method"] == "tools/list":
+        result = {"tools": [{"name": "echo", "inputSchema": {"type": "object"}}]}
+    else:
+        result = {}
+    print(json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": result}), flush=True)
+"""
+    manager = MCPClientManager(event_bus=None)
+
+    client = await manager.add_server("test", command=_python_command(source))
+
+    assert (await client.initialize()) == {"protocolVersion": "2.0"}
+    assert [tool.name for tool in manager.get_all_tools()] == ["echo"]
+    process = client.process
+    await manager.remove_server("test")
+    assert client.process is None
+    assert process.returncode is not None
+
+
+@pytest.mark.asyncio
+async def test_mcp_manager_closes_process_when_initialize_is_rejected(monkeypatch):
+    child_processes = []
+    real_client = mcp_client_module.MCPClient
+
+    class TrackedClient(real_client):
+        async def connect(self):
+            await super().connect()
+            child_processes.append(self.process)
+
+    monkeypatch.setattr(mcp_client_module, "MCPClient", TrackedClient)
+    source = """
+import json, sys
+for line in sys.stdin:
+    request = json.loads(line)
+    print(json.dumps({"jsonrpc":"2.0", "id":request["id"], "error":{"code":-1, "message":"token=private-value"}}), flush=True)
+"""
+    manager = MCPClientManager(event_bus=None)
+
+    with pytest.raises(RuntimeError) as error:
+        await manager.add_server("rejected", command=_python_command(source))
+
+    assert manager.clients == {}
+    assert manager.tools_cache == {}
+    assert child_processes[0].returncode is not None
+    assert "private-value" not in str(error.value)
+    assert "REDACTED" in str(error.value)
+
+
+@pytest.mark.asyncio
+async def test_mcp_timeout_terminates_stdio_process():
+    client = MCPClient(server_command=_python_command("import time;time.sleep(10)"))
+    client.request_timeout = 0.02
+    await client.connect()
+    process = client.process
+
+    with pytest.raises(TimeoutError, match="timed out"):
+        await client.initialize()
+
+    assert process.returncode is not None
+    assert client.process is None
+
+
+@pytest.mark.asyncio
+async def test_mcp_server_closing_stdout_while_still_running_fails_fast_and_terminates():
+    client = MCPClient(server_command=_python_command(
+        "import os,time;os.close(1);time.sleep(10)"
+    ))
+    client.request_timeout = 5
+    await client.connect()
+    process = client.process
+
+    with pytest.raises(ConnectionError, match="closed stdout before its process exited"):
+        await client.initialize()
+
+    await asyncio.wait_for(process.wait(), timeout=1)
+    async def cleanup_finished():
+        while client.process is not None:
+            await asyncio.sleep(0.01)
+
+    await asyncio.wait_for(cleanup_finished(), timeout=1)
+    assert client.process is None
+
+
+@pytest.mark.asyncio
+async def test_mcp_manager_cleans_up_process_on_protocol_failure(monkeypatch):
+    created_clients = []
+    real_client = mcp_client_module.MCPClient
+
+    class TrackedClient(real_client):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            created_clients.append(self)
+
+    monkeypatch.setattr(mcp_client_module, "MCPClient", TrackedClient)
+    source = "import sys;sys.stderr.write('token=private-value\\\\n');sys.stderr.flush();sys.exit(3)"
+    manager = MCPClientManager(event_bus=None)
+
+    with pytest.raises(ConnectionError) as error:
+        await manager.add_server("broken", command=_python_command(source))
+
+    assert manager.clients == {}
+    assert manager.tools_cache == {}
+    assert created_clients[0].process is None
+    assert "private-value" not in str(error.value)
+    assert "REDACTED" in str(error.value)
+
+
 @pytest.mark.parametrize("url_field", ["url", "server_url"])
 def test_legacy_url_only_mcp_server_reports_unsupported_without_echoing_secrets(url_field):
     secret_url = "https://mcp.example/private?token=url-secret"
@@ -90,3 +216,15 @@ def test_legacy_url_only_mcp_server_reports_unsupported_without_echoing_secrets(
     assert "server_url" not in status
     assert "headers" not in status
     assert "command" not in status
+
+
+def test_mcp_diagnostics_redact_named_credentials_and_urls():
+    safe = safe_mcp_diagnostic(
+        "startup failed authorization: bearer private-value "
+        "at https://example.test/path?token=private-url"
+    )
+
+    assert "private-value" not in safe
+    assert "private-url" not in safe
+    assert "[REDACTED]" in safe
+    assert "[URL REDACTED]" in safe

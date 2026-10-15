@@ -96,6 +96,7 @@ class AgentManager:
         role: str,
         parent_id: str = None,
         context: Optional[dict] = None,
+        excluded_api_keys: Optional[List[str]] = None,
     ) -> asyncio.Task:
         agent = await self.spawn_agent(role, task, parent_id)
         agent_id = agent.agent_id
@@ -115,7 +116,9 @@ class AgentManager:
                 metadata={"agent_id": agent_id, "task_type": "subagent"},
             )
 
-        handle = asyncio.create_task(self._run_agent(agent, task, context))
+        handle = asyncio.create_task(
+            self._run_agent(agent, task, context, excluded_api_keys)
+        )
         async with self._lock:
             self.tasks[agent_id] = handle
         if self.task_manager is not None:
@@ -132,7 +135,13 @@ class AgentManager:
         )
         return handle
 
-    async def _run_agent(self, agent: SubAgent, task: str, context: Optional[dict]) -> dict:
+    async def _run_agent(
+        self,
+        agent: SubAgent,
+        task: str,
+        context: Optional[dict],
+        excluded_api_keys: Optional[List[str]] = None,
+    ) -> dict:
         agent_id = agent.agent_id
         record = self.records[agent_id]
         record.status = "running"
@@ -142,7 +151,11 @@ class AgentManager:
         await self.event_bus.publish("SUBAGENT_STATUS_CHANGED", record.snapshot())
 
         try:
-            result = await agent.execute(task, context=context)
+            result = await agent.execute(
+                task,
+                context=context,
+                excluded_api_keys=excluded_api_keys,
+            )
         except asyncio.CancelledError:
             result = {
                 "status": "cancelled",

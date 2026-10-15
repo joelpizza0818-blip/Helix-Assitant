@@ -172,6 +172,14 @@
   overflow-y: auto;
 }
 
+.task-agent-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin: 0 0 10px;
+  color: var(--muted);
+}
+
 .task-logs-header {
   font-size: 10px;
   color: var(--muted);

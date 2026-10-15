@@ -15,6 +15,7 @@ from services.agent.ai.custom_provider import OpenAICompatibleProvider
 from services.agent.ai.provider_registry import ProviderRegistry
 from services.agent.ai.base_provider import KeyHealth
 from services.agent.core.desktop_bridge import DesktopRequestHandler
+from services.agent.core.desktop_bridge import _serialize_task_for_desktop
 from services.agent.core.event_bus import EventBus
 from services.agent.core.browser_page_context import clear_current_page, get_current_page
 from services.agent.core.mcp_settings import _mcp_server_statuses
@@ -81,6 +82,76 @@ async def test_complex_workflow_setting_is_opt_in_and_updates_runtime(request_ha
     assert json.loads(request_handler.settings_path.read_text(encoding="utf-8"))[
         "complex_workflows_enabled"
     ] is True
+
+
+@pytest.mark.asyncio
+async def test_subagent_setting_requires_two_distinct_credentials_and_is_derived(
+    request_handler,
+):
+    assert request_handler.get_settings()["subagents_available"] is False
+    with pytest.raises(ValueError, match="two distinct configured credentials"):
+        await request_handler._save_settings({"subagents_enabled": True})
+
+    request_handler.key_manager.keys["google"] = ["same", "same"]
+    assert request_handler.get_settings()["subagents_available"] is False
+    request_handler.key_manager.keys["openai"] = ["different"]
+
+    saved = await request_handler._save_settings({"subagents_enabled": True})
+
+    assert saved["subagents_enabled"] is True
+    assert saved["subagents_available"] is True
+    persisted = json.loads(request_handler.settings_path.read_text(encoding="utf-8"))
+    assert persisted["subagents_enabled"] is True
+    assert "subagents_available" not in persisted
+
+
+@pytest.mark.asyncio
+async def test_adding_second_valid_credential_refreshes_subagent_availability(
+    request_handler, monkeypatch,
+):
+    request_handler.key_manager.keys["google"] = ["first-configured-key"]
+    provider = request_handler.provider_registry.get_registered_provider("openai")
+    monkeypatch.setattr(
+        provider,
+        "validate_key",
+        AsyncMock(return_value=KeyHealth.HEALTHY),
+    )
+    availability = []
+    request_handler.credentials_updated_callback = lambda: availability.append(
+        request_handler.get_settings()["subagents_available"]
+    )
+
+    result = await request_handler._validate_key({
+        "provider": "openai",
+        "slot": 1,
+        "key": "second-configured-key",
+    })
+
+    assert result == "healthy"
+    assert availability == [True]
+    assert request_handler.key_manager.get_distinct_configured_credential_count() == 2
+
+
+@pytest.mark.asyncio
+async def test_subagent_task_serialization_exposes_only_allowlisted_metadata():
+    task_manager = TaskManager(EventBus())
+    task = await task_manager.create_task(
+        "child-id",
+        "Research task",
+        context={"api_key": "never expose"},
+        parent_id="parent-id",
+        role="research",
+        metadata={"task_type": "subagent", "private": "never expose"},
+    )
+
+    serialized = _serialize_task_for_desktop(task)
+
+    assert serialized["task_type"] == "subagent"
+    assert serialized["parent_id"] == "parent-id"
+    assert serialized["role"] == "research"
+    assert "metadata" not in serialized
+    assert "result" not in serialized
+    assert "never expose" not in str(serialized)
 
 
 @pytest.mark.asyncio
@@ -153,6 +224,7 @@ async def test_custom_skill_can_be_created_listed_and_deleted(request_handler):
         str(Path(__file__).parents[1] / "skills")
     )
 
+    instructions = "Review decisions and action items.\n\n" + "Detailed guidance. " * 40
     saved = await request_handler.dispatch({
         "type": "SAVE_SKILL",
         "request_id": "create-skill",
@@ -162,21 +234,20 @@ async def test_custom_skill_can_be_created_listed_and_deleted(request_handler):
                 "description": "Summarize meeting notes",
                 "triggers": ["minutes", "meeting notes"],
                 "tools": [],
-                "instructions": "Summarize decisions and action items.",
+                "instructions": instructions,
             },
         },
     })
     assert saved["payload"]["custom"] is True
-    assert request_handler.skill_registry.get_skill("meeting-notes").instructions == (
-        "Summarize decisions and action items."
-    )
+    assert request_handler.skill_registry.get_skill("meeting-notes").instructions == instructions.strip()
 
     listed = await request_handler.dispatch({
         "type": "GET_SKILLS",
         "request_id": "list-skills",
         "payload": {},
     })
-    assert any(skill["name"] == "meeting-notes" for skill in listed["payload"])
+    saved_skill = next(skill for skill in listed["payload"] if skill["name"] == "meeting-notes")
+    assert saved_skill["instructions"] == instructions.strip()
 
     await request_handler.dispatch({
         "type": "DELETE_SKILL",

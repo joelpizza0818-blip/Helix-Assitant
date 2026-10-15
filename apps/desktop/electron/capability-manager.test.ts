@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import { generateKeyPairSync, sign, type KeyObject } from 'node:crypto'
+import { createHash, generateKeyPairSync, sign, type KeyObject } from 'node:crypto'
 import {
   CapabilityManager,
   validatePackManifest,
@@ -55,6 +55,37 @@ test('rejects unsigned or unsafe capability manifests', () => {
     format: 'python-plugin', requiredForComplete: false, coreVersionRange: '*', sizeBytes: 1,
     url: 'http://example.test', sha256: 'a'.repeat(64), signature: 'x',
   }), /invalid capability pack id/i)
+})
+
+test('rejects capability packs outside the trusted signed release', () => {
+  const keys = generateKeyPairSync('ed25519')
+  assert.throws(() => validatePackManifest(makeManifest(keys.privateKey, {
+    url: 'https://downloads.example.test/vision.py',
+  })), /trusted capability release/i)
+})
+
+test('drops cached manifests whose signatures no longer verify', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'helix-capability-tampered-state-'))
+  try {
+    const keys = generateKeyPairSync('ed25519')
+    const publicKey = publicKeyBase64(keys.publicKey)
+    const manifest = makeManifest(keys.privateKey, { sha256: 'b'.repeat(64) })
+    manifest.sha256 = 'c'.repeat(64)
+    const stateDirectory = path.join(root, 'capabilities')
+    await mkdir(stateDirectory, { recursive: true })
+    await writeFile(path.join(stateDirectory, 'state.json'), JSON.stringify({
+      profile: 'progressive',
+      manifests: [manifest],
+    }))
+
+    const manager = new CapabilityManager(root, '0.1.9', { publicKey })
+    await manager.load()
+
+    assert.equal(manager.getProfile(), 'progressive')
+    assert.equal(manager.getManifest('vision'), null)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })
 
 test('persists progressive profile and reports signed catalog entries as missing', async () => {
@@ -124,6 +155,84 @@ test('complete release builds reject progressive selection and normalize saved p
       /not enabled in this build/i,
     )
   } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('coalesces simultaneous installs and reuses the verified installed pack', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'helix-capability-coalesced-'))
+  const originalFetch = globalThis.fetch
+  try {
+    const keys = generateKeyPairSync('ed25519')
+    const publicKey = publicKeyBase64(keys.publicKey)
+    const bytes = Buffer.from('signed plugin fixture')
+    const manifest = makeManifest(keys.privateKey, {
+      sizeBytes: bytes.length,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+    })
+    const manager = new CapabilityManager(root, '0.1.9', { publicKey })
+    await manager.load()
+    await manager.setProfile('progressive')
+    let downloadCount = 0
+    globalThis.fetch = async (_input, init) => {
+      downloadCount += 1
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      assert.equal(init?.signal?.aborted, false)
+      return new Response(bytes)
+    }
+
+    const [first, second] = await Promise.all([
+      manager.installPack(manifest),
+      manager.installPack(manifest),
+    ])
+
+    assert.equal(downloadCount, 1)
+    assert.equal(first.status, 'installed')
+    assert.equal(second.status, 'installed')
+    assert.equal(first.installedPath, second.installedPath)
+    assert.deepEqual(await readFile(first.installedPath!), bytes)
+
+    globalThis.fetch = async () => {
+      throw new Error('An already verified pack should not be downloaded again.')
+    }
+    const reused = await manager.installPack(manifest)
+    assert.equal(reused.status, 'installed')
+    assert.equal(downloadCount, 1)
+  } finally {
+    globalThis.fetch = originalFetch
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('cancels an in-flight install and removes its staged file', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'helix-capability-cancel-'))
+  const originalFetch = globalThis.fetch
+  try {
+    const keys = generateKeyPairSync('ed25519')
+    const publicKey = publicKeyBase64(keys.publicKey)
+    const bytes = Buffer.from('signed plugin fixture')
+    const manifest = makeManifest(keys.privateKey, {
+      sizeBytes: bytes.length,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+    })
+    const manager = new CapabilityManager(root, '0.1.9', { publicKey })
+    await manager.load()
+    await manager.setProfile('progressive')
+    let signal: AbortSignal | undefined
+    globalThis.fetch = async (_input, init) => new Promise((_resolve, reject) => {
+      signal = init?.signal as AbortSignal
+      signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
+    })
+
+    const install = manager.installPack(manifest)
+    while (!signal) await new Promise((resolve) => setTimeout(resolve, 1))
+    assert.equal(manager.cancelPack(manifest.id), true)
+    await assert.rejects(install, /installation was canceled/i)
+    assert.equal(manager.cancelPack(manifest.id), false)
+    await assert.rejects(readFile(path.join(root, 'capabilities', 'staging', `${manifest.id}-${manifest.version}.download`)))
+    assert.equal(manager.isPackInstalled(manifest.id), false)
+  } finally {
+    globalThis.fetch = originalFetch
     await rm(root, { recursive: true, force: true })
   }
 })

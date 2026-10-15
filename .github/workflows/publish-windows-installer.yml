@@ -79,6 +79,12 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
+      - name: Typecheck desktop release sources
+        run: npm run typecheck --workspace=@helix/desktop
+
+      - name: Test desktop release contracts
+        run: npm test --workspace=@helix/desktop
+
       - name: Install Windows agent build dependencies
         shell: pwsh
         run: |

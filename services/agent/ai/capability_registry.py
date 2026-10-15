@@ -1,29 +1,18 @@
 from typing import List, Dict, Optional
 from .base_provider import ModelDefinition, ModelCapabilities
+from .model_catalog_generated import MODEL_CATALOG
 
 _MODELS = [
-    # OpenAI
-    ModelDefinition("gpt-4o", "openai", "GPT-4o", ModelCapabilities(text=True, vision=True, tool_calling=True, function_calling=True, structured_output=True, coding=True, reasoning=True, streaming=True, context_window=128000, cost_tier="high")),
-    ModelDefinition("gpt-4o-mini", "openai", "GPT-4o Mini", ModelCapabilities(text=True, vision=True, tool_calling=True, streaming=True, coding=True, context_window=128000, cost_tier="low")),
-    ModelDefinition("gpt-4-turbo", "openai", "GPT-4 Turbo", ModelCapabilities(text=True, vision=True, tool_calling=True, coding=True, streaming=True, context_window=128000, cost_tier="high")),
-    ModelDefinition("o1-preview", "openai", "o1 Preview", ModelCapabilities(text=True, reasoning=True, context_window=128000, cost_tier="premium")),
-    ModelDefinition("o1-mini", "openai", "o1 Mini", ModelCapabilities(text=True, reasoning=True, coding=True, context_window=128000, cost_tier="medium")),
-    ModelDefinition("o3-mini", "openai", "o3 Mini", ModelCapabilities(text=True, reasoning=True, coding=True, context_window=200000, cost_tier="medium")),
-    ModelDefinition("gpt-4o-realtime-preview", "openai", "GPT-4o Realtime", ModelCapabilities(text=True, audio=True, realtime=True, low_latency=True, streaming=True, cost_tier="premium")),
-    ModelDefinition("whisper-1", "openai", "Whisper 1", ModelCapabilities(speech_to_text=True, cost_tier="low")),
-    ModelDefinition("tts-1", "openai", "TTS 1", ModelCapabilities(text_to_speech=True, low_latency=True, cost_tier="low")),
-    ModelDefinition("tts-1-hd", "openai", "TTS 1 HD", ModelCapabilities(text_to_speech=True, cost_tier="medium")),
-
-    # Anthropic
-    ModelDefinition("claude-sonnet-5-5", "anthropic", "Claude Sonnet 5.5", ModelCapabilities(text=True, vision=True, tool_calling=True, computer_use=True, coding=True, reasoning=True, streaming=True, context_window=200000, cost_tier="high")),
-    ModelDefinition("claude-opus-5-5", "anthropic", "Claude Opus 5.5", ModelCapabilities(text=True, vision=True, tool_calling=True, computer_use=True, coding=True, reasoning=True, streaming=True, context_window=200000, cost_tier="premium")),
-    ModelDefinition("claude-haiku-4-5-20251001", "anthropic", "Claude Haiku 4.5", ModelCapabilities(text=True, vision=True, tool_calling=True, coding=True, streaming=True, context_window=200000, cost_tier="low")),
-
-    # Google
-    ModelDefinition("gemini-3.8-flash", "google", "Gemini 3.8 Flash", ModelCapabilities(text=True, vision=True, tool_calling=True, coding=True, reasoning=True, streaming=True, long_context=True, context_window=1048576, cost_tier="medium"), priority=1),
-    ModelDefinition("gemini-3.6-flash", "google", "Gemini 3.6 Flash", ModelCapabilities(text=True, vision=True, tool_calling=True, coding=True, reasoning=True, streaming=True, long_context=True, context_window=1048576, cost_tier="medium")),
-    ModelDefinition("gemini-3.5-flash-lite", "google", "Gemini 3.5 Flash-Lite", ModelCapabilities(text=True, vision=True, tool_calling=True, streaming=True, context_window=1048576, cost_tier="low")),
-    ModelDefinition("gemini-3.1-pro-preview", "google", "Gemini 3.1 Pro Preview", ModelCapabilities(text=True, vision=True, tool_calling=True, coding=True, reasoning=True, streaming=True, long_context=True, context_window=1048576, cost_tier="high")),
+    ModelDefinition(
+        model["id"],
+        model["provider"],
+        model["display_name"],
+        ModelCapabilities(**model.get("capabilities", {})),
+        priority=model.get("priority", 0),
+        enabled=model.get("enabled", True),
+        fallback_group=model.get("fallback_group"),
+    )
+    for model in MODEL_CATALOG
 ]
 
 class CapabilityRegistry:

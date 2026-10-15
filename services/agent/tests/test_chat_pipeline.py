@@ -332,6 +332,23 @@ def test_google_provider_normalizes_request_and_quota_errors():
     assert provider.normalize_error(request_error).code == "CONTENT_POLICY"
 
 
+def test_google_temporary_model_overload_does_not_look_like_key_failure():
+    error = ClientError(503, {
+        "error": {
+            "message": (
+                "This model is currently experiencing high demand. "
+                "Please try again later."
+            ),
+            "status": "UNAVAILABLE",
+        }
+    })
+
+    normalized = GoogleProvider().normalize_error(error)
+
+    assert normalized.code == "MODEL_TEMPORARILY_UNAVAILABLE"
+    assert normalized.retryable
+
+
 def test_anthropic_credit_balance_error_is_normalized_for_fallback():
     error = AnthropicProvider().normalize_error(
         RuntimeError("Your credit balance is too low to access the API.")

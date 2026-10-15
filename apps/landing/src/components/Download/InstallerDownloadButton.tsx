@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { getInstallerDownloadUrl } from '../../lib/downloads'
 import { useAuth } from '../../hooks/useAuth'
 import { Link } from 'react-router-dom'
+import { PrivacyModal } from '../PrivacyModal/PrivacyModal'
 
 interface Props {
   className: string
@@ -12,8 +13,9 @@ export function InstallerDownloadButton({ className, children }: Props) {
   const { user, isLoading: isAuthLoading } = useAuth()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false)
 
-  const handleDownload = async () => {
+  const proceedWithDownload = async () => {
     setIsLoading(true)
     setError(null)
     try {
@@ -30,6 +32,15 @@ export function InstallerDownloadButton({ className, children }: Props) {
     }
   }
 
+  const handleDownload = () => {
+    const isAccepted = typeof window !== 'undefined' && localStorage.getItem('helix_privacy_accepted') === 'true'
+    if (!isAccepted) {
+      setShowPrivacyModal(true)
+      return
+    }
+    void proceedWithDownload()
+  }
+
   if (isAuthLoading) {
     return <button className={className} type="button" disabled>Checking account…</button>
   }
@@ -39,10 +50,16 @@ export function InstallerDownloadButton({ className, children }: Props) {
 
   return (
     <div>
-      <button className={className} type="button" onClick={() => void handleDownload()} disabled={isLoading}>
+      <button className={className} type="button" onClick={handleDownload} disabled={isLoading}>
         {isLoading ? 'Preparing download…' : children}
       </button>
       {error && <p className="auth-alert" role="alert">{error}</p>}
+      <PrivacyModal
+        isOpen={showPrivacyModal}
+        targetEdition="Normal"
+        onClose={() => setShowPrivacyModal(false)}
+        onConfirm={() => void proceedWithDownload()}
+      />
     </div>
   )
 }

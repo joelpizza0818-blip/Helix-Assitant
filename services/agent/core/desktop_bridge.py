@@ -69,6 +69,7 @@ DEFAULT_SETTINGS = {
     "continuous_screen_vision_enabled": False,
     "continuous_screen_vision_interval_ms": DEFAULT_SCREEN_VISION_INTERVAL_MS,
     "complex_workflows_enabled": False,
+    "subagents_enabled": False,
     "ocr_engine": "local",
     "mouse_move_duration_ms": 200,
     "keystroke_delay_ms": 30,
@@ -126,6 +127,12 @@ def _serialize_task_for_desktop(task: Any) -> dict:
     output.  The UI receives the explicitly redacted execution summary instead.
     """
     serialized = _serialize(task)
+    metadata = getattr(task, "metadata", {})
+    if (
+        isinstance(metadata, dict)
+        and metadata.get("task_type") == "subagent"
+    ):
+        serialized["task_type"] = "subagent"
     serialized.pop("result", None)
     serialized.pop("metadata", None)
     return serialized
@@ -159,6 +166,7 @@ class DesktopRequestHandler:
         self.memory_manager = memory_manager
         self.skill_registry = skill_registry
         self.plugin_manager = plugin_manager
+        self.credentials_updated_callback = None
         self.mcp_status_provider = None
 
     async def dispatch(self, message: dict) -> dict:
@@ -472,6 +480,11 @@ class DesktopRequestHandler:
             elif "permissions_mode" not in saved and "permission_mode" in saved:
                 settings["permissions_mode"] = saved["permission_mode"]
         self._apply_runtime_settings(settings)
+        settings["subagents_available"] = (
+            self.key_manager.get_distinct_configured_credential_count() >= 2
+        )
+        if not settings["subagents_available"]:
+            settings["subagents_enabled"] = False
         return settings
 
     def _apply_runtime_settings(self, settings: dict) -> None:
@@ -803,6 +816,16 @@ class DesktopRequestHandler:
     async def _save_settings(self, settings: dict) -> dict:
         if not isinstance(settings, dict):
             raise ValueError("SAVE_SETTINGS requires a settings object")
+        if "subagents_enabled" in settings:
+            if not isinstance(settings["subagents_enabled"], bool):
+                raise ValueError("subagents_enabled must be a boolean")
+            if (
+                settings["subagents_enabled"]
+                and self.key_manager.get_distinct_configured_credential_count() < 2
+            ):
+                raise ValueError(
+                    "Subagent delegation requires at least two distinct configured credentials."
+                )
         if "mcp_servers" in settings:
             servers = settings["mcp_servers"]
             if not isinstance(servers, list):
@@ -851,6 +874,7 @@ class DesktopRequestHandler:
             settings = dict(settings)
             settings["permission_mode"] = settings["permissions_mode"]
         incoming = deepcopy(settings)
+        incoming.pop("subagents_available", None)
         for endpoint in incoming.get("custom_endpoints", []):
             if not isinstance(endpoint, dict):
                 continue
@@ -860,6 +884,11 @@ class DesktopRequestHandler:
             endpoint.pop("api_key", None)
         merged = self.get_settings()
         merged.update(incoming)
+        merged["subagents_available"] = (
+            self.key_manager.get_distinct_configured_credential_count() >= 2
+        )
+        if not merged["subagents_available"]:
+            merged["subagents_enabled"] = False
         merged["custom_endpoints"] = self._redact_custom_endpoint_keys(
             merged.get("custom_endpoints", [])
         )
@@ -867,7 +896,9 @@ class DesktopRequestHandler:
         self.settings_path.parent.mkdir(parents=True, exist_ok=True)
         temporary_path = self.settings_path.with_suffix(f"{self.settings_path.suffix}.tmp")
         with temporary_path.open("w", encoding="utf-8") as settings_file:
-            json.dump(merged, settings_file, indent=2)
+            persisted_settings = dict(merged)
+            persisted_settings.pop("subagents_available", None)
+            json.dump(persisted_settings, settings_file, indent=2)
         temporary_path.replace(self.settings_path)
         
         await self.task_manager.event_bus.publish("SETTINGS_UPDATED", merged)
@@ -913,4 +944,6 @@ class DesktopRequestHandler:
         health = await provider.validate_key(api_key)
         if getattr(health, "value", health).casefold() == "healthy":
             self.key_manager.save_key(provider_id, slot - 1, api_key)
+            if callable(self.credentials_updated_callback):
+                self.credentials_updated_callback()
         return health.value.lower()

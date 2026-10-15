@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import './Download.css';
 import { InstallerDownloadButton } from './InstallerDownloadButton';
+import { PrivacyModal } from '../PrivacyModal/PrivacyModal';
 import { getLatestInstallerVersion, getLatestLiteRelease, type LiteReleaseDownload } from '../../lib/downloads';
 
 export const Download: React.FC<{ requireAuthenticatedDownload?: boolean }> = ({
@@ -11,6 +12,7 @@ export const Download: React.FC<{ requireAuthenticatedDownload?: boolean }> = ({
   const [versionError, setVersionError] = useState(false);
   const [liteRelease, setLiteRelease] = useState<LiteReleaseDownload | null>(null);
   const [liteReleaseError, setLiteReleaseError] = useState(false);
+  const [showLitePrivacyModal, setShowLitePrivacyModal] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -96,6 +98,13 @@ export const Download: React.FC<{ requireAuthenticatedDownload?: boolean }> = ({
                 <a
                   className="btn-primary"
                   href={liteRelease.installerUrl}
+                  onClick={(e) => {
+                    const isAccepted = typeof window !== 'undefined' && localStorage.getItem('helix_privacy_accepted') === 'true';
+                    if (!isAccepted) {
+                      e.preventDefault();
+                      setShowLitePrivacyModal(true);
+                    }
+                  }}
                   rel="noreferrer"
                 >
                   Download HELIX Lite v{liteRelease.version} (unsigned)
@@ -108,6 +117,14 @@ export const Download: React.FC<{ requireAuthenticatedDownload?: boolean }> = ({
                 >
                   View Lite release and SHA-256 checksum
                 </a>
+                <PrivacyModal
+                  isOpen={showLitePrivacyModal}
+                  targetEdition="Lite"
+                  onClose={() => setShowLitePrivacyModal(false)}
+                  onConfirm={() => {
+                    window.location.assign(liteRelease.installerUrl);
+                  }}
+                />
               </>
             ) : (
               <span className="release-checksum-link" role="status">
