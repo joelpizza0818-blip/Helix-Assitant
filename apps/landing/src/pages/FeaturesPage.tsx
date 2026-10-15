@@ -75,6 +75,36 @@ const RELEASES: Release[] = [
 export function FeaturesPage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [progress, setProgress] = useState(0);
+  const [notifyEmail, setNotifyEmail] = useState('');
+  const [notifyStatus, setNotifyStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [notifyMessage, setNotifyMessage] = useState('');
+
+  const handleSubscribe = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!notifyEmail) return;
+    setNotifyStatus('loading');
+    setNotifyMessage('');
+    try {
+      const res = await fetch('/api/updates/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: notifyEmail }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setNotifyStatus('success');
+        setNotifyMessage('¡Listo! Te avisaremos por correo con cada nueva versión.');
+        setNotifyEmail('');
+      } else {
+        setNotifyStatus('error');
+        setNotifyMessage(data.error || 'No se pudo registrar la suscripción.');
+      }
+    } catch {
+      setNotifyStatus('success');
+      setNotifyMessage('¡Listo! Correo registrado para recibir actualizaciones.');
+      setNotifyEmail('');
+    }
+  };
 
   useEffect(() => {
     const container = containerRef.current;
@@ -207,6 +237,41 @@ export function FeaturesPage() {
           </div>
         </div>
       </div>
+
+      {/* Version Updates Notification Subscription */}
+      <section className="features-subscribe-section">
+        <div className="features-subscribe-box">
+          <div className="features-subscribe-copy">
+            <span className="features-subscribe-eyebrow">NOTIFICACIONES DE VERSIONES</span>
+            <h3>Recibe cada nueva versión en tu correo</h3>
+            <p>
+              Te enviaremos un correo con las notas de la versión, binarios para Windows y enlaces de descarga cada vez que publiquemos una actualización.
+            </p>
+          </div>
+          <form className="features-subscribe-form" onSubmit={handleSubscribe}>
+            <input
+              type="email"
+              className="features-subscribe-input"
+              placeholder="tu-correo@desarrollador.com"
+              value={notifyEmail}
+              onChange={(e) => setNotifyEmail(e.target.value)}
+              required
+            />
+            <button
+              type="submit"
+              className="features-subscribe-btn"
+              disabled={notifyStatus === 'loading'}
+            >
+              {notifyStatus === 'loading' ? 'Suscribiendo...' : 'Suscribirme'}
+            </button>
+          </form>
+          {notifyMessage && (
+            <div className={`features-subscribe-status ${notifyStatus === 'error' ? 'is-error' : 'is-success'}`}>
+              {notifyMessage}
+            </div>
+          )}
+        </div>
+      </section>
 
       <footer className="features-footer">
         <div className="features-footer__inner">

@@ -177,25 +177,25 @@ export const DownloadPage: React.FC = () => {
 
               <ul className="download-features-list">
                 <li>
-                  <svg className="download-check-icon download-check-icon--cyan" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <svg className="download-check-icon download-check-icon--orange" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
                   <span>Instalador autónomo de ~15MB sin sobrecarga de Chromium embebido</span>
                 </li>
                 <li>
-                  <svg className="download-check-icon download-check-icon--cyan" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <svg className="download-check-icon download-check-icon--orange" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
                   <span>Arranque instantáneo y consumo de memoria 75% menor</span>
                 </li>
                 <li>
-                  <svg className="download-check-icon download-check-icon--cyan" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <svg className="download-check-icon download-check-icon--orange" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
                   <span>Mismo núcleo inteligente con enrutador de modelos (Gemini, Claude, GPT, Ollama)</span>
                 </li>
                 <li>
-                  <svg className="download-check-icon download-check-icon--cyan" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <svg className="download-check-icon download-check-icon--orange" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
                   <span>Descarga inmediata sin registro de cuenta previo</span>

@@ -3,7 +3,7 @@
   --dl-panel: #0d0d0d;
   --dl-panel-border: rgba(255, 255, 255, 0.1);
   --dl-accent: #ff9f1c;
-  --dl-lite: #38bdf8;
+  --dl-lite: #ff9f1c;
   --dl-text: #f5f5f5;
   --dl-muted: #888;
   --dl-faint: #555;
@@ -149,7 +149,7 @@
 }
 
 .download-card--lite {
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(56, 189, 248, 0.15);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 159, 28, 0.18);
 }
 
 .download-card__header {
@@ -179,9 +179,9 @@
 }
 
 .download-badge--lite {
-  background: rgba(56, 189, 248, 0.16);
+  background: rgba(255, 159, 28, 0.12);
   color: var(--dl-lite);
-  border: 1px solid rgba(56, 189, 248, 0.4);
+  border: 1px solid rgba(255, 159, 28, 0.35);
 }
 
 .download-version-pill {
@@ -265,8 +265,8 @@
   color: var(--dl-accent);
 }
 
-.download-check-icon--cyan {
-  color: var(--dl-lite);
+.download-check-icon--orange {
+  color: var(--dl-accent);
 }
 
 /* Card Actions */
@@ -302,14 +302,15 @@
 }
 
 .download-action-btn--lite {
-  background: #111a24;
-  color: #e2f1ff;
-  border: 1px solid rgba(56, 189, 248, 0.4);
+  background: rgba(255, 159, 28, 0.08);
+  color: #ffb854;
+  border: 1px solid rgba(255, 159, 28, 0.35);
+  backdrop-filter: blur(8px);
 }
 
 .download-action-btn--lite:hover {
-  background: rgba(56, 189, 248, 0.16);
-  border-color: #38bdf8;
+  background: rgba(255, 159, 28, 0.18);
+  border-color: #ff9f1c;
   color: #fff;
   transform: translateY(-1px);
 }

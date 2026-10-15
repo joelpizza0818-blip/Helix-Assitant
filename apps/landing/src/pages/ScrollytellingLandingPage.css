@@ -285,14 +285,15 @@
 }
 
 .scrolly-button--lite {
-  background: #10151c;
-  color: #e2f1ff;
-  border: 1px solid rgba(56, 189, 248, 0.35);
+  background: rgba(255, 159, 28, 0.08);
+  color: #ffb854;
+  border: 1px solid rgba(255, 159, 28, 0.35);
+  backdrop-filter: blur(8px);
 }
 
 .scrolly-button--lite:hover {
-  background: rgba(56, 189, 248, 0.12);
-  border-color: #38bdf8;
+  background: rgba(255, 159, 28, 0.18);
+  border-color: #ff9f1c;
   color: #fff;
 }
 
@@ -335,9 +336,9 @@
 }
 
 .scrolly-edition-chip__badge--lite {
-  background: rgba(56, 189, 248, 0.15);
-  color: #38bdf8;
-  border-color: rgba(56, 189, 248, 0.35);
+  background: rgba(255, 159, 28, 0.14);
+  color: #ff9f1c;
+  border-color: rgba(255, 159, 28, 0.35);
 }
 
 .scrolly-button:focus-visible,

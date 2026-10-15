@@ -6,10 +6,8 @@ import { getPostAuthRedirect } from '../lib/authRedirect';
 import './AuthPage.css';
 
 export const LoginPage: React.FC = () => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
-  const { user, signIn, signInWithGitHub, isLoading, error: hookError } = useAuth();
+  const { user, signInWithGitHub, isLoading, error: hookError } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const redirectTo = getPostAuthRedirect(location.search);
@@ -18,18 +16,12 @@ export const LoginPage: React.FC = () => {
     if (!isLoading && user) navigate(redirectTo, { replace: true });
   }, [isLoading, navigate, redirectTo, user]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleGitHubSignIn = async () => {
     setAuthError(null);
     try {
-      const { error } = await signIn(email, password);
-      if (error) {
-        setAuthError(error.message);
-      } else {
-        navigate(redirectTo, { replace: true });
-      }
+      await signInWithGitHub(redirectTo);
     } catch (err: any) {
-      setAuthError(err.message || 'Authentication failed');
+      setAuthError(err.message || 'Error al autenticar con GitHub');
     }
   };
 
@@ -37,67 +29,39 @@ export const LoginPage: React.FC = () => {
     <div className="auth-page">
       <div className="auth-box">
         <div className="auth-header">
-          <Link to="/" className="auth-logo-link">
+          <Link to="/" className="auth-logo-link" aria-label="Volver a HELIX">
             <HelixLogo size="md" showText={true} />
           </Link>
-          <h2 className="auth-title">Account Login</h2>
-          <p className="auth-subtitle">Manage devices, telemetry & cloud sync settings</p>
+          <h2 className="auth-title">Acceso con GitHub</h2>
+          <p className="auth-subtitle">
+            Autenticación segura y sincronización de dispositivos mediante tu identidad verificada de GitHub.
+          </p>
         </div>
 
         {authError && <div className="auth-alert">{authError}</div>}
         {hookError && <div className="auth-alert">{hookError}</div>}
 
-        <button 
-          className="btn-github" 
-          onClick={() => void signInWithGitHub(redirectTo)}
-          type="button"
-          disabled={isLoading}
-        >
-          <svg height="24" width="24" viewBox="0 0 16 16" fill="currentColor" style={{ marginRight: '8px' }}>
-            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path>
-          </svg>
-          Continue with GitHub
-        </button>
+        <div className="auth-github-exclusive">
+          <button
+            className="btn-github btn-github--large"
+            onClick={handleGitHubSignIn}
+            type="button"
+            disabled={isLoading}
+          >
+            <svg height="22" width="22" viewBox="0 0 16 16" fill="currentColor" style={{ marginRight: '10px' }}>
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+            </svg>
+            {isLoading ? 'Conectando con GitHub...' : 'Continuar con GitHub'}
+          </button>
 
-        <div style={{ textAlign: 'center', margin: '20px 0', color: 'var(--muted)', fontSize: '12px' }}>
-          — OR —
+          <p className="auth-gh-note">
+            Acceso exclusivo mediante OAuth 2.0 sin contraseñas ni almacenamiento de credenciales externas.
+          </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="auth-form">
-          <div className="auth-field">
-            <label className="auth-label">EMAIL ADDRESS</label>
-            <input
-              type="email"
-              className="auth-input"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="user@domain.com"
-              required
-            />
-          </div>
-
-          <div className="auth-field">
-            <label className="auth-label">PASSWORD</label>
-            <input
-              type="password"
-              className="auth-input"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••••••"
-              required
-            />
-          </div>
-
-          <button type="submit" className="btn-primary auth-submit" disabled={isLoading}>
-            {isLoading ? 'Authenticating...' : 'Sign In'}
-          </button>
-        </form>
-
         <div className="auth-footer">
-          <span className="text-muted">Need an account?</span>{' '}
-          <Link to={`/register?redirectTo=${encodeURIComponent(redirectTo)}`} className="auth-link">Create Account</Link>
           <p className="auth-privacy-notice">
-            By signing in, you agree to HELIX's <Link to="/privacy" className="auth-inline-link">Privacy Policy</Link>.
+            Al continuar, aceptas la <Link to="/privacy" className="auth-inline-link">Política de Privacidad</Link> y las condiciones locales de HELIX.
           </p>
         </div>
       </div>

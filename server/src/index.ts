@@ -8,6 +8,7 @@ import { authRouter } from './routes/auth';
 import { settingsRouter } from './routes/settings';
 import { tasksRouter } from './routes/tasks';
 import { modelsRouter } from './routes/models';
+import { updatesRouter } from './routes/updates';
 
 const PORT = process.env.PORT || 3001;
 const app = createApp({
@@ -16,6 +17,7 @@ const app = createApp({
     { path: '/api/settings', router: settingsRouter },
     { path: '/api/tasks', router: tasksRouter },
     { path: '/api/models', router: modelsRouter },
+    { path: '/api/updates', router: updatesRouter },
   ],
 });
 
