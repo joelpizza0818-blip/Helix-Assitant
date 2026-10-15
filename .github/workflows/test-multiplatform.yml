@@ -1,0 +1,53 @@
+name: Test Multiplataforma
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - 'services/agent/**'
+      - '.github/workflows/test-multiplatform.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'services/agent/**'
+
+jobs:
+  test-agent:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            requirements: services/agent/requirements.txt
+            extras: ""
+          - os: ubuntu-latest
+            requirements: services/agent/requirements-linux.txt
+            extras: "sudo apt-get update && sudo apt-get install -y xdotool xclip xsel wmctrl libnotify-bin"
+          - os: macos-latest
+            requirements: services/agent/requirements-linux.txt
+            extras: ""
+
+    runs-on: ${{ matrix.os }}
+    name: Tests — ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Instalar herramientas de sistema (Linux)
+        if: matrix.extras != ''
+        run: ${{ matrix.extras }}
+
+      - name: Instalar dependencias Python
+        run: pip install -r ${{ matrix.requirements }}
+
+      - name: Ejecutar tests del agente
+        run: python -m pytest services/agent/tests/ -v --tb=short
+
+      - name: Resumen de resultados
+        if: always()
+        run: python -m pytest services/agent/tests/ --tb=no -q || true

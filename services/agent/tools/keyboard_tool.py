@@ -22,9 +22,11 @@ class _KeyboardController:
     default_fail_safe = True
 
     def __init__(self):
-        import pyautogui
-
-        pyautogui.FAILSAFE = self.default_fail_safe
+        try:
+            import pyautogui
+            pyautogui.FAILSAFE = self.default_fail_safe
+        except (ImportError, Exception):
+            pass
 
     async def type_text(self, text: str, interval: float | None = None) -> None:
         import pyautogui
@@ -50,8 +52,25 @@ class _KeyboardController:
             pass
 
     async def paste_text(self, text: str) -> None:
-        import win32clipboard
-        import win32con
+        try:
+            import win32clipboard
+            import win32con
+            has_win32 = True
+        except ImportError:
+            has_win32 = False
+
+        if not has_win32:
+            from ..os.factory import get_os_adapter
+            adapter = get_os_adapter()
+            prev = adapter.get_clipboard()
+            adapter.set_clipboard(text)
+            try:
+                await self.hotkey("ctrl", "v")
+                await asyncio.sleep(0.2)
+            finally:
+                if prev:
+                    adapter.set_clipboard(prev)
+            return
 
         previous_text = None
         clipboard_open = False

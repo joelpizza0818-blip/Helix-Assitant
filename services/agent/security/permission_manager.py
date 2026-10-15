@@ -183,6 +183,17 @@ class PermissionManager:
         return allowed
 
     def is_path_protected(self, path: str) -> bool:
+        if not path or not isinstance(path, str):
+            return True
+        clean_path = path.strip()
+        # Fast cross-platform check for Windows-style paths (e.g. C:\Windows on Linux)
+        if "\\" in clean_path or (len(clean_path) > 1 and clean_path[1] == ":"):
+            norm_target = clean_path.replace("\\", "/").casefold().rstrip("/")
+            for protected in self.protected_paths:
+                norm_prot = protected.replace("\\", "/").casefold().rstrip("/")
+                if norm_target == norm_prot or norm_target.startswith(norm_prot + "/"):
+                    return True
+
         try:
             resolved_path = Path(path).expanduser().resolve(strict=False)
             protected_paths = [
@@ -202,9 +213,9 @@ class PermissionManager:
         return False
 
     def is_app_protected(self, app_name: str) -> bool:
-        normalized_app = os.path.basename(app_name.replace("/", "\\")).casefold()
+        normalized_app = app_name.replace("\\", "/").rstrip("/").split("/")[-1].casefold()
         return normalized_app in {
-            os.path.basename(app.replace("/", "\\")).casefold()
+            app.replace("\\", "/").rstrip("/").split("/")[-1].casefold()
             for app in self.protected_apps
         }
 

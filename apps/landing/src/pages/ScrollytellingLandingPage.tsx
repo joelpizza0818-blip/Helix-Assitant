@@ -431,11 +431,12 @@ export const ScrollytellingLandingPage: React.FC = () => {
       <nav ref={menuRef} id="scrolly-menu" className={`scrolly-menu${menuOpen ? ' is-open' : ''}`} aria-label="Main navigation" aria-hidden={!menuOpen}>
         <div className="scrolly-menu__inner">
           <p className="scrolly-eyebrow">Navigate HELIX</p>
-          <a href="#story" onClick={closeMenu}>The experience <span>01</span></a>
-          <a href="#showcase" onClick={closeMenu}>See HELIX at work <span>02</span></a>
-          <Link to="/features" onClick={closeMenu}>What's New (v0.2.0) <span>03</span></Link>
-          <Link to="/docs" onClick={closeMenu}>Documentation <span>04</span></Link>
-          <Link to="/privacy" onClick={closeMenu}>Privacy Policy <span>05</span></Link>
+          <Link to="/download" onClick={closeMenu}>Download <span>01</span></Link>
+          <a href="#story" onClick={closeMenu}>The experience <span>02</span></a>
+          <a href="#showcase" onClick={closeMenu}>See HELIX at work <span>03</span></a>
+          <Link to="/features" onClick={closeMenu}>What's New (v0.2.0) <span>04</span></Link>
+          <Link to="/docs" onClick={closeMenu}>Documentation <span>05</span></Link>
+          <Link to="/privacy" onClick={closeMenu}>Privacy Policy <span>06</span></Link>
           <div className="scrolly-menu__account">
             <Link to="/login" onClick={closeMenu}>Log in</Link>
             <Link to="/register" onClick={closeMenu}>Create an account</Link>

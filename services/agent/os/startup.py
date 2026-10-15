@@ -1,4 +1,7 @@
-import winreg
+try:
+    import winreg
+except ImportError:
+    winreg = None
 import logging
 import os
 

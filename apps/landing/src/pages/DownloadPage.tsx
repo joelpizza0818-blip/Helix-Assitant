@@ -14,6 +14,7 @@ export const DownloadPage: React.FC = () => {
   const [liteRelease, setLiteRelease] = useState<LiteReleaseDownload | null>(null);
   const [liteReleaseError, setLiteReleaseError] = useState(false);
   const [litePrivacyOpen, setLitePrivacyOpen] = useState(false);
+  const [selectedOS, setSelectedOS] = useState<'windows' | 'macos' | 'linux'>('windows');
 
   useEffect(() => {
     const controller = new AbortController();
@@ -69,11 +70,62 @@ export const DownloadPage: React.FC = () => {
         <div className="download-container">
           {/* Hero */}
           <div className="download-hero">
-            <span className="download-eyebrow">OFFICIAL DISTRIBUTION · WINDOWS 10 / 11 (64-BIT)</span>
+            <span className="download-eyebrow">OFFICIAL DISTRIBUTION · WINDOWS · MACOS · LINUX</span>
             <h1 className="download-title">Download HELIX for your Desktop</h1>
             <p className="download-lead">
               Choose between the full desktop version with Electron or the ultra-lightweight version with Tauri. Both share the same local agent core, AI model router, and Zero-Trust architecture.
             </p>
+          </div>
+
+          {/* OS Selector Tabs (Windows / macOS / Linux) */}
+          <div className="download-os-bar">
+            <span className="download-os-label">Select your Operating System:</span>
+            <div className="download-os-tabs" role="tablist">
+              <button
+                type="button"
+                className={`download-os-tab ${selectedOS === 'windows' ? 'download-os-tab--active' : ''}`}
+                onClick={() => setSelectedOS('windows')}
+                role="tab"
+                aria-selected={selectedOS === 'windows'}
+              >
+                {/* Windows Icon */}
+                <svg viewBox="0 0 88 88" width="16" height="16" fill="currentColor">
+                  <path d="M0 12.402l35.687-4.86.016 34.423-35.67.203zm35.67 33.529l.028 34.453L.028 75.48.016 46.134zM40.977 45.93l46.994.275-.016 41.795-46.99-6.608zm47.023-4.133L40.977 42.06V6.155L88 0z" />
+                </svg>
+                <span>Windows</span>
+                <span className="download-os-tag">Ready</span>
+              </button>
+
+              <button
+                type="button"
+                className={`download-os-tab ${selectedOS === 'macos' ? 'download-os-tab--active' : ''}`}
+                onClick={() => setSelectedOS('macos')}
+                role="tab"
+                aria-selected={selectedOS === 'macos'}
+              >
+                {/* Apple Icon */}
+                <svg viewBox="0 0 170 170" width="16" height="16" fill="currentColor">
+                  <path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.19-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.26 2.13-9.5 3.24-12.74 3.35-4.35.13-9.16-1.9-14.42-6.08-3.7-3.04-7.58-7.71-11.65-14.01-6.74-10.43-11.85-22.39-15.34-35.88-3.48-13.48-5.22-25.96-5.22-37.43 0-14.13 3.69-25.86 11.07-35.18 7.39-9.32 16.52-14.11 27.41-14.36 4.35 0 9.4 1.11 15.16 3.35 5.76 2.23 9.49 3.4 11.21 3.49 2.07-.1 5.92-1.3 11.53-3.6 5.61-2.3 10.45-3.32 14.52-3.07 14.13.75 25.04 6.13 32.74 16.14-12.63 7.64-18.73 17.9-18.3 30.79.33 10.15 4.3 18.59 11.9 25.32 7.61 6.74 16.52 10.55 26.74 11.43-2.18 6.53-4.79 13.06-7.83 19.59zM119.22 31.84c0-7.39 2.66-14.34 7.98-20.85 5.33-6.52 11.96-10.55 19.9-12.1-1.09 7.82-3.97 14.88-8.66 21.19-4.69 6.3-10.87 10.36-18.54 12.17-.11-.13-.35-.22-.68-.41z" />
+                </svg>
+                <span>macOS</span>
+                <span className="download-os-tag">Ready</span>
+              </button>
+
+              <button
+                type="button"
+                className={`download-os-tab ${selectedOS === 'linux' ? 'download-os-tab--active' : ''}`}
+                onClick={() => setSelectedOS('linux')}
+                role="tab"
+                aria-selected={selectedOS === 'linux'}
+              >
+                {/* Linux Tux Icon */}
+                <svg viewBox="0 0 341.333 341.333" width="16" height="16" fill="currentColor">
+                  <path d="M285.5 174.6c-4.4-4.8-13.2-12.6-26.6-8.9-8.4-19.3-21.7-34.9-39.7-46.7 1.6-11.2 2.2-22.3 1.8-33.1-.9-25.2-12.6-47.5-31.3-59.8-11.8-7.7-25-11.9-37.5-12.1-1.4 0-2.8 0-4.2.1-12.5.3-25.7 4.5-37.5 12.2-18.7 12.3-30.4 34.6-31.3 59.8-.4 10.8.2 21.9 1.8 33.1-18 11.8-31.3 27.4-39.7 46.7-13.4-3.7-22.2 4.1-26.6 8.9-6.3 6.9-8.3 16.7-5.5 26.2 3.8 12.9 14.5 26.8 28.5 37.1 2.2 22.8 11.3 43.8 26.1 60.9 2 2.3 4.2 4.6 6.5 6.7 5.7 5.1 11.8 9.5 18.2 13.1-10.2 4.1-19.4 9.4-27.1 15.6-5 4-8.8 8.6-11.3 13.6-2.5 5.1-2.9 10.6-1.1 16.4 1.8 5.8 5.6 11.1 11.1 15.8 9.8 8.3 24.3 14.6 42 18.3 18 3.7 39.5 5.3 62.1 4.7 22.7.6 44.2-1 62.1-4.7 17.7-3.7 32.2-10 42-18.3 5.5-4.7 9.3-10 11.1-15.8 1.8-5.8 1.4-11.3-1.1-16.4-2.5-5-6.3-9.6-11.3-13.6-7.7-6.2-16.9-11.5-27.1-15.6 6.4-3.6 12.5-8 18.2-13.1 2.3-2.1 4.5-4.4 6.5-6.7 14.8-17.1 23.9-38.1 26.1-60.9 14-10.3 24.7-24.2 28.5-37.1 2.9-9.5.9-19.3-5.4-26.2z"/>
+                </svg>
+                <span>Linux</span>
+                <span className="download-os-tag">Ready</span>
+              </button>
+            </div>
           </div>
 
           {/* Dual Edition Cards */}
@@ -136,12 +188,44 @@ export const DownloadPage: React.FC = () => {
               </ul>
 
               <div className="download-card__actions">
-                <InstallerDownloadButton className="download-action-btn download-action-btn--primary">
-                  Download HELIX Normal for Windows
-                </InstallerDownloadButton>
-                <span className="download-note">
-                  Requires login to verify license and link credentials.
-                </span>
+                {selectedOS === 'windows' ? (
+                  <>
+                    <InstallerDownloadButton className="download-action-btn download-action-btn--primary">
+                      Download HELIX Normal (.exe)
+                    </InstallerDownloadButton>
+                    <span className="download-note">
+                      Windows 10 / 11 (64-bit) · Requires login to verify license.
+                    </span>
+                  </>
+                ) : selectedOS === 'macos' ? (
+                  <>
+                    <a
+                      className="download-action-btn download-action-btn--primary"
+                      href="https://github.com/joelpizza0818-blip/Helix-Assitant/releases/latest"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Download HELIX for macOS (.dmg)
+                    </a>
+                    <span className="download-note">
+                      macOS Sonoma & Sequoia (Universal: Apple Silicon & Intel)
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <a
+                      className="download-action-btn download-action-btn--primary"
+                      href="https://github.com/joelpizza0818-blip/Helix-Assitant/releases/latest"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Download HELIX for Linux (.deb / AppImage)
+                    </a>
+                    <span className="download-note">
+                      Ubuntu / Debian / Arch / Fedora (x86_64)
+                    </span>
+                  </>
+                )}
               </div>
             </article>
 
@@ -203,45 +287,106 @@ export const DownloadPage: React.FC = () => {
               </ul>
 
               <div className="download-card__actions">
-                {liteRelease ? (
+                {selectedOS === 'windows' ? (
+                  liteRelease ? (
+                    <>
+                      <a
+                        className="download-action-btn download-action-btn--lite"
+                        href={liteRelease.installerUrl}
+                        onClick={handleLiteDownloadClick}
+                        rel="noreferrer"
+                      >
+                        Download HELIX Lite (.exe) v{liteRelease.version}
+                      </a>
+                      <a
+                        className="download-checksum-link"
+                        href={liteRelease.releaseUrl}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        View release and SHA-256 checksum on GitHub
+                        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: 6 }}>
+                          <line x1="7" y1="17" x2="17" y2="7" />
+                          <polyline points="7 7 17 7 17 17" />
+                        </svg>
+                      </a>
+                      <PrivacyModal
+                        isOpen={litePrivacyOpen}
+                        targetEdition="Lite"
+                        onClose={() => setLitePrivacyOpen(false)}
+                        onConfirm={() => {
+                          window.location.assign(liteRelease.installerUrl);
+                        }}
+                      />
+                    </>
+                  ) : (
+                    <span className="download-note">
+                      {liteReleaseError ? 'Lite download temporarily unavailable.' : 'Fetching latest HELIX Lite version…'}
+                    </span>
+                  )
+                ) : selectedOS === 'macos' ? (
                   <>
                     <a
                       className="download-action-btn download-action-btn--lite"
-                      href={liteRelease.installerUrl}
-                      onClick={handleLiteDownloadClick}
-                      rel="noreferrer"
-                    >
-                      Download HELIX Lite v{liteRelease.version}
-                    </a>
-                    <a
-                      className="download-checksum-link"
-                      href={liteRelease.releaseUrl}
-                      rel="noreferrer"
+                      href={liteRelease?.releaseUrl || "https://github.com/joelpizza0818-blip/Helix-Assitant/releases"}
                       target="_blank"
+                      rel="noreferrer"
                     >
-                      View release and SHA-256 checksum on GitHub
-                      <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: 6 }}>
-                        <line x1="7" y1="17" x2="17" y2="7" />
-                        <polyline points="7 7 17 7 17 17" />
-                      </svg>
+                      Download HELIX Lite for macOS (.dmg)
                     </a>
-                    <PrivacyModal
-                      isOpen={litePrivacyOpen}
-                      targetEdition="Lite"
-                      onClose={() => setLitePrivacyOpen(false)}
-                      onConfirm={() => {
-                        window.location.assign(liteRelease.installerUrl);
-                      }}
-                    />
+                    <span className="download-note">
+                      macOS Apple Silicon & Intel · Native Rust Binary
+                    </span>
                   </>
                 ) : (
-                  <span className="download-note">
-                    {liteReleaseError ? 'Lite download temporarily unavailable.' : 'Fetching latest HELIX Lite version…'}
-                  </span>
+                  <>
+                    <a
+                      className="download-action-btn download-action-btn--lite"
+                      href={liteRelease?.releaseUrl || "https://github.com/joelpizza0818-blip/Helix-Assitant/releases"}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Download HELIX Lite for Linux (.AppImage / .deb)
+                    </a>
+                    <span className="download-note">
+                      Linux x86_64 · Native Rust + WebKitGTK Binary
+                    </span>
+                  </>
                 )}
               </div>
             </article>
           </div>
+
+          {/* HELIX CLI Quickstart */}
+          <section className="download-source-section" style={{ marginTop: '3rem' }}>
+            <div className="download-source-header">
+              <span className="download-section-eyebrow">DEVELOPER CLI · LIGHTWEIGHT & HEADLESS</span>
+              <h3>HELIX CLI (Terminal REPL & Headless Agent)</h3>
+              <p>Run HELIX directly from your terminal with ASCII UI, real-time autocomplete, and Zero-Trust execution:</p>
+            </div>
+
+            <div className="download-terminal-card">
+              <div className="download-terminal-bar">
+                <span className="download-terminal-dots">
+                  <i /><i /><i />
+                </span>
+                <span className="download-terminal-title">Terminal / Command Prompt / Bash</span>
+              </div>
+              <pre className="download-code-block">
+                <code>{`# Global install via npm
+npm install -g @helix/cli
+
+# Start interactive chat REPL with ASCII header
+helix chat
+
+# Or run a single headless prompt
+helix run "Explain the architecture of this project"
+
+# Check connected providers and models
+helix status`}</code>
+              </pre>
+            </div>
+          </section>
 
           {/* Quickstart from Source Terminal */}
           <section className="download-source-section">

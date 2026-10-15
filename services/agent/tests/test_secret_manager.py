@@ -1,8 +1,14 @@
+import platform
 import keyring
 import pytest
 from keyring.backends.Windows import WinVaultKeyring
 
 from services.agent.security.secret_manager import SecretManager
+
+pytestmark = pytest.mark.skipif(
+    platform.system() != "Windows",
+    reason="Native WinVaultKeyring tests require Windows and pywin32; multi-OS keyring behavior is tested in test_os_adapter.py"
+)
 
 
 def _use_windows_credential_backend(monkeypatch):

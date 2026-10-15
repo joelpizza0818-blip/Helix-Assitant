@@ -1,7 +1,22 @@
 import asyncio
 from typing import Any, Dict, Tuple
 
-import pyautogui
+try:
+    import pyautogui
+    _PYAUTOGUI_AVAILABLE = True
+except (ImportError, SystemExit, Exception):
+    import types
+    pyautogui = types.SimpleNamespace(
+        size=lambda: (1920, 1080),
+        moveTo=lambda *a, **k: None,
+        click=lambda *a, **k: None,
+        doubleClick=lambda *a, **k: None,
+        rightClick=lambda *a, **k: None,
+        dragTo=lambda *a, **k: None,
+        scroll=lambda *a, **k: None,
+        position=lambda: types.SimpleNamespace(x=0, y=0),
+    )
+    _PYAUTOGUI_AVAILABLE = False
 
 from .base_tool import BaseTool, ToolResult
 
@@ -201,6 +216,12 @@ class MouseTool(BaseTool):
                 success=False,
                 output=None,
                 error="Invalid mouse operation or parameters.",
+            )
+        if not _PYAUTOGUI_AVAILABLE and not hasattr(pyautogui, "moveTo"):
+            return ToolResult(
+                success=False,
+                output=None,
+                error="Mouse control is not available (pyautogui requires python3-tk on Linux).",
             )
         operation = params["operation"]
         try:

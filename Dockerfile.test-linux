@@ -1,0 +1,30 @@
+FROM python:3.12-slim
+
+# Herramientas de Linux para probar el LinuxAdapter
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    xvfb \
+    xdotool \
+    xclip \
+    xsel \
+    wmctrl \
+    libnotify-bin \
+    wl-clipboard \
+    dbus \
+    gnome-keyring \
+    libsecret-1-dev \
+    libgirepository1.0-dev \
+    gcc \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copiar e instalar dependencias
+COPY services/agent/requirements-linux.txt /app/requirements-linux.txt
+RUN pip install --no-cache-dir -r requirements-linux.txt
+
+# Copiar el código del agente
+COPY services/agent/ /app/services/agent/
+
+# Ejecutar tests con servidor virtual X11 (xvfb)
+CMD ["xvfb-run", "-a", "python", "-m", "pytest", "services/agent/tests/", "-v", "--tb=short"]

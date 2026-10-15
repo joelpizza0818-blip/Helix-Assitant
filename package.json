@@ -4,6 +4,7 @@
   "description": "HELIX - Persistent Windows AI desktop agent",
   "private": true,
   "workspaces": [
+    "apps/cli",
     "apps/desktop",
     "apps/desktop-tauri",
     "apps/landing",
@@ -17,6 +18,7 @@
     "dev:landing": "npm run dev --workspace=@helix/landing",
     "dev:server": "npm run dev --workspace=@helix/server",
     "build": "npm run build --workspaces",
+    "build:cli": "npm run build --workspace=@helix/cli",
     "build:desktop": "npm run build --workspace=@helix/desktop",
     "build:desktop-tauri": "npm run build:agent-runtime && npm run tauri --workspace=@helix/desktop-tauri -- build",
     "build:agent-runtime": "powershell -ExecutionPolicy Bypass -File scripts/build-agent-runtime.ps1",
@@ -27,6 +29,7 @@
     "models:generate": "node scripts/generate-model-catalog.mjs",
     "models:check": "node scripts/generate-model-catalog.mjs --check",
     "test": "npm run models:check && npm run test --workspaces --if-present && npm run test:agent",
-    "test:agent": "python -m pytest services/agent/tests/ -v"
+    "test:agent": "python -m pytest services/agent/tests/ -v",
+    "test:docker": "docker run --rm -v \"%cd%/services/agent:/app/services/agent\" -v \"%cd%/config:/app/config\" -e DISPLAY=:99 helix-test-linux sh -c \"Xvfb :99 -screen 0 1024x768x24 -ac & sleep 1 && python -m pytest services/agent/tests/ -v --tb=short\""
   }
 }

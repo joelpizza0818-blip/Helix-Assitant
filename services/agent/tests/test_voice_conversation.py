@@ -533,6 +533,7 @@ def test_edge_tts_synthesizes_with_multilingual_voice(monkeypatch):
 
 
 def test_edge_tts_decodes_audio_and_plays_with_sounddevice(monkeypatch):
+    pytest.importorskip("av")
     wav_buffer = io.BytesIO()
     with wave.open(wav_buffer, "wb") as audio:
         audio.setnchannels(1)

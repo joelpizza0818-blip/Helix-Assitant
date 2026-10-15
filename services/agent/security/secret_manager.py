@@ -1,9 +1,36 @@
 import logging
-from typing import Optional, List
+import platform
+from typing import List, Optional
+
 import keyring
-from keyring.backends.Windows import WinVaultKeyring
+
+try:
+    from keyring.backends.Windows import WinVaultKeyring
+except (ImportError, AttributeError):
+    WinVaultKeyring = None
+
+try:
+    from keyring.backends.macOS import Keyring as MacOSKeyring
+except (ImportError, AttributeError):
+    MacOSKeyring = None
+
+try:
+    from keyring.backends.SecretService import Keyring as SecretServiceKeyring
+except (ImportError, AttributeError):
+    SecretServiceKeyring = None
+
+try:
+    from keyring.backends.kwallet import DBusKeyring as KWalletDBusKeyring
+except (ImportError, AttributeError):
+    KWalletDBusKeyring = None
+
+try:
+    from keyring.backends.kwallet import DBusKeyringKWallet4 as KWallet4DBusKeyring
+except (ImportError, AttributeError):
+    KWallet4DBusKeyring = None
 
 logger = logging.getLogger(__name__)
+
 
 class SecretManager:
     SERVICE_NAME = "helix_agent"
@@ -40,7 +67,42 @@ class SecretManager:
     def is_available(self) -> bool:
         try:
             backend = keyring.get_keyring()
-            return type(backend) is WinVaultKeyring and backend.priority > 0
+            if backend is None:
+                return False
+            priority = getattr(backend, "priority", 0)
+            if priority <= 0:
+                return False
+
+            system = platform.system()
+            if system == "Windows":
+                return WinVaultKeyring is not None and type(backend) is WinVaultKeyring
+            elif system == "Darwin":
+                if MacOSKeyring is not None and (type(backend) is MacOSKeyring or isinstance(backend, MacOSKeyring)):
+                    return True
+                backend_module = getattr(type(backend), "__module__", "")
+                backend_name = getattr(type(backend), "__name__", "")
+                full_name = f"{backend_module}.{backend_name}"
+                return "macOS" in full_name or "macOS" in backend_module
+            elif system == "Linux":
+                approved_types = tuple(
+                    cls
+                    for cls in (
+                        SecretServiceKeyring,
+                        KWalletDBusKeyring,
+                        KWallet4DBusKeyring,
+                    )
+                    if cls is not None
+                )
+                if approved_types and isinstance(backend, approved_types):
+                    return True
+                backend_module = getattr(type(backend), "__module__", "")
+                backend_name = getattr(type(backend), "__name__", "")
+                full_name = f"{backend_module}.{backend_name}"
+                return any(
+                    approved in full_name
+                    for approved in ("SecretService", "kwallet", "KWallet")
+                )
+            return False
         except Exception:
             return False
 

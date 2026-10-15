@@ -7,9 +7,16 @@ from .base_tool import BaseTool, ToolResult
 from ..perception.screen_observation_policy import screen_observation_is_allowed
 import logging
 
-logger = logging.getLogger(__name__)
-import win32gui
-import win32con
+try:
+    import win32gui
+    import win32con
+    _WIN32_AVAILABLE = True
+except ImportError:
+    win32gui = None
+    win32con = None
+    _WIN32_AVAILABLE = False
+
+from ..os.factory import get_os_adapter
 
 class ScreenshotTool(BaseTool):
     @property
@@ -69,31 +76,45 @@ class ScreenshotTool(BaseTool):
             return img_byte_arr.getvalue()
 
     async def list_windows(self) -> List[str]:
-        windows = []
-        def callback(hwnd, extra):
-            if win32gui.IsWindowVisible(hwnd) and win32gui.GetWindowText(hwnd):
-                windows.append(win32gui.GetWindowText(hwnd))
-            return True
-        win32gui.EnumWindows(callback, None)
-        return windows
+        if _WIN32_AVAILABLE and win32gui is not None:
+            windows = []
+            def callback(hwnd, extra):
+                if win32gui.IsWindowVisible(hwnd) and win32gui.GetWindowText(hwnd):
+                    windows.append(win32gui.GetWindowText(hwnd))
+                return True
+            win32gui.EnumWindows(callback, None)
+            return windows
+        
+        adapter = get_os_adapter()
+        win_list = adapter.list_windows(visible_only=True)
+        return [w.get("title", "") for w in win_list if w.get("title")]
 
     async def capture_window(self, window_title: str) -> bytes:
-        hwnd = win32gui.FindWindow(None, window_title)
-        if not hwnd:
-            raise RuntimeError(f"Window not found: {window_title}")
-        
-        if win32gui.IsIconic(hwnd):
-            raise RuntimeError(f"Window is minimized: {window_title}")
+        if _WIN32_AVAILABLE and win32gui is not None:
+            hwnd = win32gui.FindWindow(None, window_title)
+            if not hwnd:
+                raise RuntimeError(f"Window not found: {window_title}")
             
-        rect = win32gui.GetWindowRect(hwnd)
-        left, top, right, bottom = rect
-        width = right - left
-        height = bottom - top
+            if win32gui.IsIconic(hwnd):
+                raise RuntimeError(f"Window is minimized: {window_title}")
+                
+            rect = win32gui.GetWindowRect(hwnd)
+            left, top, right, bottom = rect
+            width = right - left
+            height = bottom - top
+            
+            if width <= 0 or height <= 0:
+                raise RuntimeError(f"Window has zero-size dimensions: {width}x{height}")
+                
+            return await self.capture_region(left, top, width, height)
         
+        adapter = get_os_adapter()
+        rect = adapter.get_window_rect(window_title)
+        width = rect.get("width", 0)
+        height = rect.get("height", 0)
         if width <= 0 or height <= 0:
-            raise RuntimeError(f"Window has zero-size dimensions: {width}x{height}")
-            
-        return await self.capture_region(left, top, width, height)
+            raise RuntimeError(f"Window has zero-size dimensions or was not found: {window_title}")
+        return await self.capture_region(rect.get("x", 0), rect.get("y", 0), width, height)
 
     def save_to_file(self, image_bytes: bytes, path: str) -> str:
         with open(path, 'wb') as f:
