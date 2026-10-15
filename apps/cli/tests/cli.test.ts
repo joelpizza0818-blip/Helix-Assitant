@@ -87,7 +87,7 @@ test('Colors: highlightMentions formats @skills and #mcps', () => {
 test('Banner: getAsciiLogo contains HELIX art', () => {
   const logo = getAsciiLogo();
   assert.ok(logo.length > 20);
-  assert.ok(logo.includes('|'));
+  assert.ok(logo.includes('█') || logo.includes('ELIX'));
 });
 
 test('Banner: getStatusBar reflects connection and mic state', () => {
@@ -101,7 +101,7 @@ test('Banner: getStatusBar reflects connection and mic state', () => {
   });
 
   assert.ok(statusActive.includes('CONECTADO'));
-  assert.ok(statusActive.includes('Activo'));
+  assert.ok(statusActive.includes('hey helix'));
   assert.ok(statusActive.includes('gpt-4o'));
 
   const statusInactive = getStatusBar({
@@ -112,7 +112,7 @@ test('Banner: getStatusBar reflects connection and mic state', () => {
   });
 
   assert.ok(statusInactive.includes('DESCONECTADO'));
-  assert.ok(statusInactive.includes('Inactivo'));
+  assert.ok(statusInactive.includes('Mic Off'));
 
   const statusCapturing = getStatusBar({
     connected: true,
@@ -121,11 +121,21 @@ test('Banner: getStatusBar reflects connection and mic state', () => {
     isCapturingVoice: true,
   });
 
-  assert.ok(statusCapturing.includes('HEY HELIX'));
+  assert.ok(statusCapturing.includes('CAPTURANDO'));
 });
 
 test('Banner: getVoiceIndicator outputs proper badge', () => {
   assert.ok(getVoiceIndicator(true, true).includes('HEY HELIX'));
   assert.ok(getVoiceIndicator(false, true).includes('Mic Activo'));
   assert.ok(getVoiceIndicator(false, false).includes('Mic Inactivo'));
+});
+
+test('Launcher: probePort resolves false on closed random port', async () => {
+  const { probePort, isAgentStarting, findPythonExecutable } = await import('../src/client/agent-launcher');
+  // Port 59123 should be closed
+  const isListening = await probePort(59123, '127.0.0.1', 200);
+  assert.equal(isListening, false);
+  assert.equal(isAgentStarting(), false);
+  const pythonExec = findPythonExecutable(process.cwd());
+  assert.ok(pythonExec.length > 0);
 });

@@ -66,7 +66,7 @@ export class HelixRepl {
     await this.autocompleter.refreshSuggestions();
 
     // Render persistent initial banner
-    this.refreshBanner();
+    this.refreshBanner(true);
 
     this._startReadline();
   }
@@ -86,7 +86,7 @@ export class HelixRepl {
     }
   }
 
-  public refreshBanner(): void {
+  public refreshBanner(clearScreen: boolean = false): void {
     const status: BannerStatusOptions = {
       connected: this.client.connected,
       wsUrl: this.client.url,
@@ -95,26 +95,48 @@ export class HelixRepl {
       currentModel: this.currentModel,
       activeTasksCount: this.activeTasksCount,
     };
-    renderHeader(status);
+    renderHeader(status, clearScreen);
   }
+
+  private waitingLogged: boolean = false;
 
   private _setupClientEvents(): void {
     this.client.on('connected', async () => {
+      this.waitingLogged = false;
       await this._syncSettings();
       await this.autocompleter.refreshSuggestions();
-      process.stdout.write(`\r${chalk.green('●')} ${chalk.greenBright.bold('Conectado al agente HELIX')}  \n`);
+      process.stdout.write(`\r\x1b[K${chalk.green('●')} ${chalk.greenBright.bold('Conectado al agente HELIX')}  \n`);
       this._promptUser();
     });
 
     this.client.on('disconnected', () => {
-      this.refreshBanner();
-      console.log(`\n${RED('●')} ${chalk.yellowBright('Esperando al servicio del agente HELIX en ws://127.0.0.1:8765...')}`);
-      console.log(`${GRAY('  (Si no responde tras 3 reintentos, el CLI intentará iniciarlo automáticamente en segundo plano)')}\n`);
+      if (this.client.isStarting) {
+        return; // Do not interrupt or print disconnect loops while agent is booting
+      }
+      if (!this.waitingLogged) {
+        this.waitingLogged = true;
+        console.log(`\n${RED('●')} ${chalk.yellowBright('Esperando al servicio del agente HELIX en ws://127.0.0.1:8765...')}`);
+        console.log(`${GRAY('  (Si no responde tras 3 reintentos, el CLI lo iniciará automáticamente en segundo plano)')}\n`);
+      }
       this._promptUser();
     });
 
     this.client.on('auto_spawning_agent', () => {
-      process.stdout.write(`\r${CYAN_BOLD('⚙️')} ${chalk.hex('#FF9F1C').bold('[AUTO-START]:')} Iniciando el servicio del agente HELIX en segundo plano... \n`);
+      process.stdout.write(`\n${CYAN_BOLD('⚙️')} ${chalk.hex('#FF9F1C').bold('[AUTO-START]:')} Iniciando el servicio del agente HELIX en segundo plano...\n`);
+      process.stdout.write(`${GRAY('  Por favor espere mientras termina de inicializarse (no se realizarán reintentos hasta que esté listo).')}\n`);
+    });
+
+    this.client.on('agent_starting_progress', (data: { elapsedSec: number }) => {
+      process.stdout.write(`\r  ${chalk.hex('#FF9F1C')('⏳')} ${chalk.gray(`Inicializando subsistemas de HELIX en segundo plano... (${data.elapsedSec}s)`)}`);
+    });
+
+    this.client.on('agent_ready', () => {
+      process.stdout.write(`\r\x1b[K  ${chalk.green('✔')} ${chalk.greenBright('Servicio de HELIX listo. Conectando...')}\n\n`);
+    });
+
+    this.client.on('agent_start_failed', (data: { error?: string }) => {
+      process.stdout.write(`\r\x1b[K\n  ${chalk.red('✖')} ${chalk.redBright('No se pudo iniciar el servicio automáticamente:')} ${chalk.gray(data?.error || 'Tiempo agotado')}\n`);
+      this._promptUser();
     });
 
     // Voice Capture indicator
@@ -258,6 +280,12 @@ export class HelixRepl {
       return;
     }
 
+    if (this.client.isStarting) {
+      console.log(`\n  ${chalk.yellow('⚠️')}  ${chalk.yellowBright('El servicio de HELIX se está iniciando en segundo plano. Espera a que termine antes de enviar comandos o reintentar.')}\n`);
+      this._promptUser();
+      return;
+    }
+
     // --- Slash commands handling ---
     if (line.startsWith('/')) {
       const parts = line.split(/\s+/);
@@ -270,7 +298,7 @@ export class HelixRepl {
           break;
 
         case '/clear':
-          this.refreshBanner();
+          this.refreshBanner(true);
           break;
 
         case '/config-apikey':

@@ -123,11 +123,13 @@ export function getStatusBar(options: BannerStatusOptions): string {
 }
 
 /**
- * Clears the terminal and renders the full persistent header.
+ * Renders the persistent header. Clears screen only if clearScreen is explicitly true.
  */
-export function renderHeader(options: BannerStatusOptions): void {
-  // Clear screen + move cursor to top-left
-  process.stdout.write('\x1bc');
+export function renderHeader(options: BannerStatusOptions, clearScreen: boolean = false): void {
+  if (clearScreen) {
+    // Clear screen + move cursor to top-left
+    process.stdout.write('\x1bc');
+  }
 
   const width = process.stdout.columns || 80;
 

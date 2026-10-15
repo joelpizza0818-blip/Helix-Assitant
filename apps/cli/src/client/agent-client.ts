@@ -49,6 +49,14 @@ export class AgentClient extends EventEmitter {
     return this.wsUrl;
   }
 
+  private failedAttempts: number = 0;
+  private autoSpawnAttempted: boolean = false;
+  private _isAgentStarting: boolean = false;
+
+  public get isStarting(): boolean {
+    return this._isAgentStarting;
+  }
+
   public connect(): Promise<void> {
     this.isExplicitlyClosed = false;
     return new Promise((resolve, reject) => {
@@ -94,9 +102,11 @@ export class AgentClient extends EventEmitter {
           if (this.ws === ws) {
             this.ws = null;
           }
-          this.emit('disconnected', { code, reason: reason.toString() });
+          if (!this._isAgentStarting) {
+            this.emit('disconnected', { code, reason: reason.toString() });
+          }
 
-          if (!this.isExplicitlyClosed && this.autoReconnect) {
+          if (!this.isExplicitlyClosed && this.autoReconnect && !this._isAgentStarting) {
             this._scheduleReconnect();
           }
 
@@ -114,28 +124,75 @@ export class AgentClient extends EventEmitter {
     });
   }
 
-  private failedAttempts: number = 0;
-  private autoSpawnAttempted: boolean = false;
-
   private _scheduleReconnect(): void {
-    if (this.reconnecting || this.isExplicitlyClosed) return;
+    if (this.reconnecting || this.isExplicitlyClosed || this._isAgentStarting) return;
     this.reconnecting = true;
     this.failedAttempts++;
 
     // If 3 consecutive failures occur, try to auto-launch the local Python agent
     if (this.failedAttempts >= 3 && !this.autoSpawnAttempted) {
       this.autoSpawnAttempted = true;
+      this._isAgentStarting = true;
       this.emit('auto_spawning_agent');
-      try {
-        const { spawnAgentDaemon, getOrGenerateWsToken } = require('./agent-launcher');
-        const token = getOrGenerateWsToken();
-        if (!this.wsToken) {
-          this.wsToken = token;
+
+      (async () => {
+        try {
+          const { spawnAgentDaemon, waitForAgentReady, getOrGenerateWsToken } = require('./agent-launcher');
+          const token = getOrGenerateWsToken();
+          if (!this.wsToken) {
+            this.wsToken = token;
+          }
+
+          const spawnResult = spawnAgentDaemon();
+          if (!spawnResult.success) {
+            this._isAgentStarting = false;
+            this.reconnecting = false;
+            this.emit('agent_start_failed', { error: spawnResult.error });
+            return;
+          }
+
+          // Lock retries: poll quietly until background service finishes starting up
+          const ready = await waitForAgentReady(
+            8765,
+            45000,
+            1000,
+            (elapsedSec: number) => {
+              this.emit('agent_starting_progress', { elapsedSec });
+            }
+          );
+
+          this._isAgentStarting = false;
+
+          if (ready) {
+            this.failedAttempts = 0;
+            this.autoSpawnAttempted = false;
+            this.reconnecting = false;
+            this.emit('agent_ready');
+            try {
+              await this.connect();
+            } catch {
+              this._scheduleReconnect();
+            }
+          } else {
+            this.reconnecting = false;
+            this.emit('agent_start_failed', {
+              error: 'El servicio del agente no respondió en el puerto 8765 dentro de 45s.',
+            });
+            if (!this.isExplicitlyClosed && this.autoReconnect) {
+              this._scheduleReconnect();
+            }
+          }
+        } catch (e) {
+          this._isAgentStarting = false;
+          this.reconnecting = false;
+          this.emit('agent_start_failed', { error: (e as Error).message });
+          if (!this.isExplicitlyClosed && this.autoReconnect) {
+            this._scheduleReconnect();
+          }
         }
-        spawnAgentDaemon();
-      } catch (e) {
-        // Continue reconnect loop
-      }
+      })();
+
+      return;
     }
 
     this.emit('reconnecting', {
@@ -144,11 +201,15 @@ export class AgentClient extends EventEmitter {
     });
 
     setTimeout(async () => {
-      if (this.isExplicitlyClosed) return;
+      if (this.isExplicitlyClosed || this._isAgentStarting) {
+        this.reconnecting = false;
+        return;
+      }
       try {
         await this.connect();
         this.failedAttempts = 0;
         this.autoSpawnAttempted = false;
+        this.reconnecting = false;
       } catch {
         this.reconnecting = false;
         this._scheduleReconnect();
