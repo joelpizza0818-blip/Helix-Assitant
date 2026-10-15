@@ -35,8 +35,9 @@ export class AgentClient extends EventEmitter {
 
   constructor(options: AgentClientOptions = {}) {
     super();
+    const { getOrGenerateWsToken } = require('./agent-launcher');
     this.wsUrl = options.wsUrl || 'ws://127.0.0.1:8765';
-    this.wsToken = options.wsToken;
+    this.wsToken = options.wsToken || getOrGenerateWsToken();
     this.autoReconnect = options.autoReconnect ?? true;
     this.reconnectIntervalMs = options.reconnectIntervalMs ?? 3000;
   }
@@ -143,7 +144,7 @@ export class AgentClient extends EventEmitter {
             this.wsToken = token;
           }
 
-          const spawnResult = spawnAgentDaemon();
+          const spawnResult = await spawnAgentDaemon();
           if (!spawnResult.success) {
             this._isAgentStarting = false;
             this.reconnecting = false;
@@ -151,9 +152,10 @@ export class AgentClient extends EventEmitter {
             return;
           }
 
-          // Lock retries: poll quietly until background service finishes starting up
+          // Lock retries: poll quietly until background service finishes starting up AND auth succeeds
           const ready = await waitForAgentReady(
             8765,
+            this.wsToken,
             45000,
             1000,
             (elapsedSec: number) => {

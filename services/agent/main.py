@@ -114,8 +114,26 @@ async def main():
 
     load_dotenv(project_root / ".env")
     ws_token = os.environ.pop("HELIX_WS_TOKEN", None)
+    token_dir = Path(os.environ.get("APPDATA", Path.home() / ".config")) / "HELIX"
+    token_file = token_dir / ".ws_token"
+
+    if not ws_token and token_file.is_file():
+        try:
+            saved = token_file.read_text(encoding="utf-8").strip()
+            if len(saved) >= 16:
+                ws_token = saved
+        except Exception:
+            pass
+
     if not ws_token:
-        raise RuntimeError("HELIX_WS_TOKEN is required to start the local WebSocket server")
+        import secrets
+        ws_token = secrets.token_hex(32)
+
+    try:
+        token_dir.mkdir(parents=True, exist_ok=True)
+        token_file.write_text(ws_token, encoding="utf-8")
+    except Exception:
+        pass
 
     # Core Infrastructure
     event_bus = EventBus()

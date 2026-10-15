@@ -36,9 +36,25 @@ export function getWsUrl(override?: string): string {
   return `ws://127.0.0.1:${getWsPort()}`;
 }
 
+export function getTokenFilePath(): string {
+  const appData = process.env.APPDATA || (process.platform === 'darwin' ? path.join(process.env.HOME || '', 'Library/Application Support') : path.join(process.env.HOME || '', '.config'));
+  return path.join(appData, 'HELIX', '.ws_token');
+}
+
 export function getWsToken(override?: string): string | undefined {
   if (override) return override;
-  return process.env.HELIX_WS_TOKEN;
+  if (process.env.HELIX_WS_TOKEN) return process.env.HELIX_WS_TOKEN;
+  const tokenFile = getTokenFilePath();
+  if (fs.existsSync(tokenFile)) {
+    try {
+      const saved = fs.readFileSync(tokenFile, 'utf-8').trim();
+      if (saved.length >= 16) {
+        process.env.HELIX_WS_TOKEN = saved;
+        return saved;
+      }
+    } catch {}
+  }
+  return undefined;
 }
 
 export function getSettingsFilePath(): string {

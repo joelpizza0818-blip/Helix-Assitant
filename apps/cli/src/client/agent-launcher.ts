@@ -1,12 +1,28 @@
-import { spawn, ChildProcess } from 'child_process';
+import { spawn, ChildProcess, execSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import net from 'net';
+import WebSocket from 'ws';
 
 let spawnedAgentProcess: ChildProcess | null = null;
 let activeSpawnToken: string | null = null;
 let startupPromise: Promise<boolean> | null = null;
+
+export function getTokenFilePath(): string {
+  const appData =
+    process.env.APPDATA ||
+    (process.platform === 'darwin'
+      ? path.join(process.env.HOME || '', 'Library/Application Support')
+      : path.join(process.env.HOME || '', '.config'));
+  const helixDir = path.join(appData, 'HELIX');
+  if (!fs.existsSync(helixDir)) {
+    try {
+      fs.mkdirSync(helixDir, { recursive: true });
+    } catch {}
+  }
+  return path.join(helixDir, '.ws_token');
+}
 
 export function getOrGenerateWsToken(): string {
   if (activeSpawnToken) return activeSpawnToken;
@@ -14,8 +30,24 @@ export function getOrGenerateWsToken(): string {
     activeSpawnToken = process.env.HELIX_WS_TOKEN;
     return activeSpawnToken;
   }
+
+  const tokenFile = getTokenFilePath();
+  if (fs.existsSync(tokenFile)) {
+    try {
+      const saved = fs.readFileSync(tokenFile, 'utf-8').trim();
+      if (saved.length >= 16) {
+        activeSpawnToken = saved;
+        process.env.HELIX_WS_TOKEN = activeSpawnToken;
+        return activeSpawnToken;
+      }
+    } catch {}
+  }
+
   activeSpawnToken = crypto.randomBytes(32).toString('hex');
   process.env.HELIX_WS_TOKEN = activeSpawnToken;
+  try {
+    fs.writeFileSync(tokenFile, activeSpawnToken, { encoding: 'utf-8', mode: 0o600 });
+  } catch {}
   return activeSpawnToken;
 }
 
@@ -72,7 +104,6 @@ export function findPythonExecutable(repoRoot: string): string {
 
 /**
  * Probes a TCP port quietly without initiating a WebSocket handshake.
- * Returns true if the port is actively listening and accepts connections.
  */
 export function probePort(port: number, host: string = '127.0.0.1', timeoutMs: number = 800): Promise<boolean> {
   return new Promise((resolve) => {
@@ -117,11 +148,107 @@ export function probePort(port: number, host: string = '127.0.0.1', timeoutMs: n
 }
 
 /**
- * Waits until the agent service has completed startup and is listening on the port.
- * During this time, callers should block retries until this promise resolves.
+ * Probes the WebSocket endpoint with Authorization header.
+ * Returns:
+ *   'ready': 101 Switching Protocols (authenticated and connected)
+ *   'unauthorized': 401 Unauthorized (wrong token / rogue process on port)
+ *   'closed': Connection refused / port closed
+ */
+export function probeWebSocketAuth(
+  port: number = 8765,
+  token?: string,
+  host: string = '127.0.0.1',
+  timeoutMs: number = 1000
+): Promise<'ready' | 'unauthorized' | 'closed'> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer: NodeJS.Timeout | null = null;
+
+    const headers: Record<string, string> = {};
+    const effectiveToken = token || getOrGenerateWsToken();
+    if (effectiveToken) {
+      headers['Authorization'] = `Bearer ${effectiveToken}`;
+    }
+
+    let ws: WebSocket | null = null;
+    try {
+      ws = new WebSocket(`ws://${host}:${port}`, { headers });
+    } catch {
+      return resolve('closed');
+    }
+
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+      if (ws) {
+        ws.removeAllListeners();
+        ws.on('error', () => {});
+        try {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.close();
+          } else {
+            ws.terminate();
+          }
+        } catch {}
+      }
+    };
+
+    timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        cleanup();
+        resolve('closed');
+      }
+    }, timeoutMs);
+
+    ws.once('open', () => {
+      if (!settled) {
+        settled = true;
+        cleanup();
+        resolve('ready');
+      }
+    });
+
+    ws.once('error', (err: Error) => {
+      if (!settled) {
+        settled = true;
+        const msg = err.message || '';
+        cleanup();
+        if (msg.includes('401') || msg.includes('Unexpected server response: 401')) {
+          resolve('unauthorized');
+        } else {
+          resolve('closed');
+        }
+      }
+    });
+  });
+}
+
+/**
+ * Terminates any rogue or orphaned process occupying the specified port.
+ */
+export function killProcessOnPort(port: number = 8765): void {
+  try {
+    if (process.platform === 'win32') {
+      execSync(
+        `powershell -NoProfile -Command "$conn = Get-NetTCPConnection -LocalPort ${port} -State Listen -ErrorAction SilentlyContinue; if ($conn) { Stop-Process -Id $conn.OwningProcess -Force -ErrorAction SilentlyContinue }"`,
+        { stdio: 'ignore', windowsHide: true }
+      );
+    } else {
+      execSync(`fuser -k ${port}/tcp || lsof -ti tcp:${port} | xargs kill -9`, {
+        stdio: 'ignore',
+      });
+    }
+  } catch {
+    // Ignore errors
+  }
+}
+
+/**
+ * Waits until the agent service has completed startup and successfully accepts WebSocket authentication.
  */
 export async function waitForAgentReady(
   port: number = 8765,
+  token?: string,
   maxWaitMs: number = 45000,
   pollIntervalMs: number = 1000,
   onProgress?: (elapsedSec: number) => void
@@ -139,8 +266,8 @@ export async function waitForAgentReady(
           return false;
         }
 
-        const ready = await probePort(port);
-        if (ready) {
+        const authState = await probeWebSocketAuth(port, token);
+        if (authState === 'ready') {
           return true;
         }
 
@@ -160,7 +287,21 @@ export async function waitForAgentReady(
   return startupPromise;
 }
 
-export function spawnAgentDaemon(port: number = 8765): { success: boolean; error?: string } {
+export async function spawnAgentDaemon(port: number = 8765): Promise<{ success: boolean; error?: string }> {
+  const token = getOrGenerateWsToken();
+
+  // 1. Check if the agent is already up and authenticated
+  const currentStatus = await probeWebSocketAuth(port, token, '127.0.0.1', 500);
+  if (currentStatus === 'ready') {
+    return { success: true };
+  }
+
+  // 2. If port is occupied by an unauthorized process, clean it up
+  if (currentStatus === 'unauthorized') {
+    killProcessOnPort(port);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
   if (isAgentProcessRunning() || isAgentStarting()) {
     return { success: true };
   }
@@ -173,7 +314,6 @@ export function spawnAgentDaemon(port: number = 8765): { success: boolean; error
     };
   }
 
-  const token = getOrGenerateWsToken();
   const agentDir = path.dirname(scriptPath);
   const repoRoot = path.resolve(agentDir, '../..');
   const pythonExec = findPythonExecutable(repoRoot);
