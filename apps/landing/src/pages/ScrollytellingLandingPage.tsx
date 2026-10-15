@@ -9,12 +9,19 @@ const HERO_VIDEO = new URL('../Multimedia/video 1 - helix.mp4', import.meta.url)
 const VOICE_VIDEO = new URL('../Multimedia/video 2 - helix.mp4', import.meta.url).href;
 const SKILLS_VIDEO = new URL('../Multimedia/video 3 -helix.mp4', import.meta.url).href;
 const CHAT_VIDEO = new URL('../Multimedia/video 4 - helix.mp4', import.meta.url).href;
+const CLI_VIDEO_1 = new URL('../Multimedia/helix cli 1.mp4', import.meta.url).href;
+const CLI_VIDEO_2 = new URL('../Multimedia/helix cli 2.mp4', import.meta.url).href;
+const CLI_VIDEO_3 = new URL('../Multimedia/helix cli 3.mp4', import.meta.url).href;
 
 const HERO_POSTER = new URL('../Multimedia/poster-1.jpg', import.meta.url).href;
 const VOICE_POSTER = new URL('../Multimedia/poster-2.jpg', import.meta.url).href;
 const SKILLS_POSTER = new URL('../Multimedia/poster-3.jpg', import.meta.url).href;
 const CHAT_POSTER = new URL('../Multimedia/poster-4.jpg', import.meta.url).href;
+const CLI_POSTER_1 = new URL('../Multimedia/poster-cli-1.jpg', import.meta.url).href;
+const CLI_POSTER_2 = new URL('../Multimedia/poster-cli-2.jpg', import.meta.url).href;
+const CLI_POSTER_3 = new URL('../Multimedia/poster-cli-3.jpg', import.meta.url).href;
 const CARD_1_IMAGE = new URL('../Multimedia/card-1-chat.png', import.meta.url).href;
+const CARD_CLI_IMAGE = new URL('../Multimedia/helix-cli-card.png', import.meta.url).href;
 
 type DemoVideoProps = {
   src: string;
@@ -168,13 +175,61 @@ function VideoGallery({ sectionRef }: GalleryTrackProps) {
               <p>Bring voice, skills, and desktop tools into one continuous flow.</p>
             </div>
           </article>
+
+          <article className="scrolly-gallery-card">
+            <div className="scrolly-browser-frame">
+              <div className="scrolly-browser-frame__bar">
+                <span className="scrolly-window-dots" aria-hidden="true"><i /><i /><i /></span>
+                <span>HELIX CLI / AUTO-LAUNCH</span>
+                <span className="scrolly-browser-frame__status">CLI PREVIEW</span>
+              </div>
+              <DemoVideo src={CLI_VIDEO_1} poster={CLI_POSTER_1} label="HELIX CLI startup and connection flow" />
+            </div>
+            <div className="scrolly-gallery-card__caption">
+              <span>05 / CLI INSTANT START</span>
+              <h3>Zero friction startup.</h3>
+              <p>The CLI daemon boots silently in the background and connects via WebSocket in seconds.</p>
+            </div>
+          </article>
+
+          <article className="scrolly-gallery-card">
+            <div className="scrolly-browser-frame">
+              <div className="scrolly-browser-frame__bar">
+                <span className="scrolly-window-dots" aria-hidden="true"><i /><i /><i /></span>
+                <span>HELIX CLI / REASONING</span>
+                <span className="scrolly-browser-frame__status">CLI PREVIEW</span>
+              </div>
+              <DemoVideo src={CLI_VIDEO_2} poster={CLI_POSTER_2} label="HELIX CLI reasoning and prompt flow" />
+            </div>
+            <div className="scrolly-gallery-card__caption">
+              <span>06 / CLI WORKFLOWS</span>
+              <h3>Fast reasoning directly in your shell.</h3>
+              <p>Direct terminal REPL with autocompletion for @skills, #mcp tools, and slash commands.</p>
+            </div>
+          </article>
+
+          <article className="scrolly-gallery-card">
+            <div className="scrolly-browser-frame">
+              <div className="scrolly-browser-frame__bar">
+                <span className="scrolly-window-dots" aria-hidden="true"><i /><i /><i /></span>
+                <span>HELIX CLI / TASK EXECUTION</span>
+                <span className="scrolly-browser-frame__status">CLI PREVIEW</span>
+              </div>
+              <DemoVideo src={CLI_VIDEO_3} poster={CLI_POSTER_3} label="HELIX CLI autonomous task execution" />
+            </div>
+            <div className="scrolly-gallery-card__caption">
+              <span>07 / CLI AUTONOMOUS TOOLS</span>
+              <h3>Execute tasks at native speed.</h3>
+              <p>Run complex desktop tasks and code analysis from your terminal without opening a GUI.</p>
+            </div>
+          </article>
         </div>
       </div>
 
       <div className="scrolly-gallery__progress" aria-hidden="true">
         <span>02</span>
         <span className="scrolly-gallery__progress-track"><i style={{ width: `${Math.max(4, progress * 100)}%` }} /></span>
-        <span>04</span>
+        <span>07</span>
       </div>
     </div>
   );
@@ -213,13 +268,15 @@ function StoriesStack({ sectionRef }: StoriesStackProps) {
     };
   }, [sectionRef]);
 
-  // Card 2 moves up between progress 0.04 and 0.44 to completely cover Card 1
-  const t2 = Math.min(1, Math.max(0, (progress - 0.04) / 0.40));
+  // 4 cards stack: Card 2 covers Card 1, Card 3 covers Card 2, Card 4 covers Card 3
+  const t2 = Math.min(1, Math.max(0, (progress - 0.03) / 0.28));
   const card2Y = (1 - t2) * 105;
 
-  // Card 3 moves up between progress 0.50 and 0.90 to completely cover Card 2
-  const t3 = Math.min(1, Math.max(0, (progress - 0.50) / 0.40));
+  const t3 = Math.min(1, Math.max(0, (progress - 0.35) / 0.28));
   const card3Y = (1 - t3) * 105;
+
+  const t4 = Math.min(1, Math.max(0, (progress - 0.67) / 0.28));
+  const card4Y = (1 - t4) * 105;
 
   return (
     <div className="scrolly-stories__stage">
@@ -257,9 +314,35 @@ function StoriesStack({ sectionRef }: StoriesStackProps) {
             transform: `translate3d(0, ${card2Y}%, 0)`,
           }}
         >
+          <article className="scrolly-stack-card scrolly-stack-card--cli">
+            <div className="scrolly-stack-card__copy">
+              <span className="scrolly-stack-card__number">02 / CLI &amp; TERMINAL</span>
+              <h3>Terminal-native. Ultra lightweight.</h3>
+              <p>Connect directly to your local ReAct agent from any command prompt. Fast startup, no GPU overhead, microphone voice input, and complete tool access.</p>
+              <span className="scrolly-pill">Persistent Agent · Instant CLI · Pure ReAct</span>
+            </div>
+            <div className="scrolly-illustration scrolly-illustration--cli" aria-hidden="true">
+              <div className="scrolly-card-image-wrap">
+                <img
+                  src={CARD_CLI_IMAGE}
+                  alt="HELIX interactive CLI terminal interface"
+                  className="scrolly-card-image"
+                />
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <div
+          className="scrolly-stack-layer"
+          style={{
+            zIndex: 3,
+            transform: `translate3d(0, ${card3Y}%, 0)`,
+          }}
+        >
           <article className="scrolly-stack-card scrolly-stack-card--voice">
             <div className="scrolly-stack-card__copy">
-              <span className="scrolly-stack-card__number">02 / VOICE &amp; TASKS</span>
+              <span className="scrolly-stack-card__number">03 / VOICE &amp; TASKS</span>
               <h3>Talk naturally. Keep the work moving.</h3>
               <p>Start with voice, then follow a task as it runs. HELIX brings the conversation and task manager into your desktop workflow.</p>
               <span className="scrolly-pill">Voice · Tasks · Control</span>
@@ -278,13 +361,13 @@ function StoriesStack({ sectionRef }: StoriesStackProps) {
         <div
           className="scrolly-stack-layer"
           style={{
-            zIndex: 3,
-            transform: `translate3d(0, ${card3Y}%, 0)`,
+            zIndex: 4,
+            transform: `translate3d(0, ${card4Y}%, 0)`,
           }}
         >
           <article className="scrolly-stack-card scrolly-stack-card--control">
             <div className="scrolly-stack-card__copy">
-              <span className="scrolly-stack-card__number">03 / YOUR BOUNDARIES</span>
+              <span className="scrolly-stack-card__number">04 / YOUR BOUNDARIES</span>
               <h3>Keep your tools in your hands.</h3>
               <p>HELIX works with providers you configure, and potentially destructive actions ask for your confirmation before they run.</p>
               <span className="scrolly-pill">Configured by you · Confirmed by you</span>

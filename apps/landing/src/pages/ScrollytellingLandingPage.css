@@ -470,8 +470,8 @@
 }
 
 .scrolly-stories {
-  height: 260vh;
-  min-height: 1900px;
+  height: 340vh;
+  min-height: 2500px;
   position: relative;
   padding: 0;
 }
@@ -569,9 +569,12 @@
   background: linear-gradient(130deg, #141414, #0c0c0c 68%);
 }
 .scrolly-stack-layer:nth-child(2) .scrolly-stack-card {
-  background: linear-gradient(130deg, #171411, #0d0c0b 68%);
+  background: linear-gradient(130deg, #0e1117, #080a0e 68%);
 }
 .scrolly-stack-layer:nth-child(3) .scrolly-stack-card {
+  background: linear-gradient(130deg, #171411, #0d0c0b 68%);
+}
+.scrolly-stack-layer:nth-child(4) .scrolly-stack-card {
   background: linear-gradient(130deg, #151515, #090909 68%);
 }
 
@@ -869,8 +872,8 @@
 }
 
 .scrolly-gallery {
-  height: 320vh;
-  min-height: 2200px;
+  height: 480vh;
+  min-height: 3200px;
   position: relative;
 }
 
