@@ -465,7 +465,7 @@ class GestureEngine:
         now = time.time()
         last_time = self._last_gesture_time.get(gesture, 0)
         
-        if now - last_time > self.cooldown_seconds:
+        if self.cooldown_seconds <= 0 or now - last_time >= self.cooldown_seconds:
             self._last_gesture_time[gesture] = now
             logger.info(f"Gesture detected: {gesture.name}")
             
