@@ -53,5 +53,6 @@ tests/*
 !tests/promptfoo/*.mjs
 !tests/promptfoo/*.py
 !tests/promptfoo/*.yaml
+tests/promptfoo/eval-results*.json
 tools/
 AGENTS.md

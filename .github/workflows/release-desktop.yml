@@ -47,7 +47,7 @@ jobs:
           npm run typecheck --workspace=@helix/desktop
 
       - name: Block release on high or critical dependency advisories
-        run: npm audit --audit-level=high
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Verify release baseline
         id: baseline

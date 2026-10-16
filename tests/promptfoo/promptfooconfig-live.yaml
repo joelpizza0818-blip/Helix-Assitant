@@ -1,0 +1,14 @@
+description: "HELIX live provider validation — Google Gemini"
+sharing: false
+
+prompts:
+  - "Responde solo con la frase exacta: HELIX OK"
+
+providers:
+  - google:gemini-3.8-flash
+
+tests:
+  - description: "Gemini responde a instrucción directa"
+    assert:
+      - type: icontains
+        value: "HELIX"
