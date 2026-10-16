@@ -120,12 +120,20 @@ class VoiceEngine:
             self._subscribe_events()
         await asyncio.gather(*self._subscriptions)
         self._is_active = True
-        await self.wake_detector.start()
-        if not self.wake_detector.is_running():
-            logger.error(
-                "VoiceEngine could not start wake-word microphone input; "
-                "automatic recovery will retry."
-            )
+        try:
+            await self.wake_detector.start()
+            if not self.wake_detector.is_running():
+                raise RuntimeError(
+                    "The wake-word microphone input did not start. "
+                    "Check microphone privacy permissions and the selected input device."
+                )
+        except Exception:
+            self._is_active = False
+            try:
+                await self.wake_detector.stop()
+            except Exception:
+                logger.exception("Could not clean up a failed wake-word microphone startup.")
+            raise
         self._audio_device = getattr(self.wake_detector, "input_device", None)
         logger.info("VoiceEngine started.")
         self._wake_monitor_task = asyncio.create_task(

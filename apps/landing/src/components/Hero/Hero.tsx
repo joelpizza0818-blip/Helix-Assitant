@@ -12,7 +12,7 @@ export const Hero: React.FC = () => {
             <HelixLogo size="xl" showText={true} />
           </div>
 
-          <div className="hero-badge">WINDOWS-RESIDENT AUTONOMOUS AGENT</div>
+          <div className="hero-badge">WINDOWS DESKTOP AGENT</div>
           
           <h1 className="hero-title">See. Hear. Act. Remember.</h1>
 
@@ -34,11 +34,11 @@ export const Hero: React.FC = () => {
             </div>
             <div className="spec-item">
               <span className="spec-label">FAILOVER</span>
-              <span className="spec-val">3 Keys per Provider</span>
+              <span className="spec-val">Configurable provider fallback</span>
             </div>
             <div className="spec-item">
               <span className="spec-label">SECURITY</span>
-              <span className="spec-val">Local DPAPI / Zero-Trust</span>
+              <span className="spec-val">Local agent · configured providers</span>
             </div>
           </div>
         </div>

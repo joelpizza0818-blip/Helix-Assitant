@@ -10,7 +10,9 @@ import {
   Notification,
   dialog,
   globalShortcut,
-  clipboard
+  clipboard,
+  session,
+  systemPreferences
 } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import path from 'path'
@@ -27,6 +29,11 @@ import {
   type InstallationProfile,
 } from './capability-manager'
 import { readCapabilityConfig } from './capability-config'
+import {
+  isSupportedMediaRequest,
+  isSupportedMediaType,
+  isTrustedRendererRequest,
+} from './media-permissions'
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 const rendererPort = Number(process.env.HELIX_RENDERER_PORT || 5173)
@@ -787,6 +794,70 @@ app.whenReady().then(async () => {
   // Disable default menu
   Menu.setApplicationMenu(null)
   setupAutoUpdater()
+
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    const trusted = isTrustedRendererRequest(
+      webContents.getURL(),
+      details.securityOrigin,
+      RENDERER_URL,
+    )
+    if (!trusted) {
+      callback(false)
+      return
+    }
+
+    if (permission === 'media') {
+      if (!isSupportedMediaRequest(details.mediaTypes)) {
+        callback(false)
+        return
+      }
+      void (async () => {
+        if (process.platform !== 'darwin') return true
+        for (const mediaType of details.mediaTypes ?? []) {
+          const systemMediaType = mediaType === 'audio' ? 'microphone' : 'camera'
+          const status = systemPreferences.getMediaAccessStatus(systemMediaType)
+          if (status === 'granted') continue
+          if (
+            status !== 'not-determined'
+            || !await systemPreferences.askForMediaAccess(systemMediaType)
+          ) {
+            return false
+          }
+        }
+        return true
+      })().then(callback, (error: unknown) => {
+        console.error('[Main] Could not request system media access:', error)
+        callback(false)
+      })
+      return
+    }
+
+    callback(['notifications', 'clipboard-read', 'clipboard-sanitized-write'].includes(permission))
+  })
+  session.defaultSession.setPermissionCheckHandler(
+    (webContents, permission, requestingOrigin, details) => {
+      if (
+        !webContents
+        || !isTrustedRendererRequest(
+          webContents.getURL(),
+          details.securityOrigin || requestingOrigin,
+          RENDERER_URL,
+        )
+      ) {
+        return false
+      }
+      if (permission === 'media') {
+        return isSupportedMediaType(details.mediaType)
+          && (
+            process.platform !== 'darwin'
+            || systemPreferences.getMediaAccessStatus(
+              details.mediaType === 'audio' ? 'microphone' : 'camera',
+            ) === 'granted'
+          )
+      }
+      return ['notifications', 'clipboard-read', 'clipboard-sanitized-write'].includes(permission)
+    },
+  )
 
   const capabilityConfig = readCapabilityConfig(app.isPackaged, process.resourcesPath)
   capabilityManager = new CapabilityManager(app.getPath('userData'), app.getVersion(), {

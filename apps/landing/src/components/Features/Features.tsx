@@ -13,58 +13,58 @@ const FEATURES: FeatureItem[] = [
   {
     number: '01',
     title: 'Persistent Computer Agent',
-    subtitle: 'Lives on Windows. Not a browser tab.',
-    description: 'Runs silently in the Windows system tray and launches with Windows when enabled. Summonable as a lightweight, non-intrusive floating control surface that never breaks your workflow.',
-    tags: ['Electron', 'Windows Tray', 'Floating UI', 'Zero-Latency']
+    subtitle: 'A desktop app, not a browser tab.',
+    description: 'Runs in the Windows system tray and can launch with Windows when enabled. The desktop shell also provides a floating control surface.',
+    tags: ['Electron', 'Windows Tray', 'Floating UI']
   },
   {
     number: '02',
     title: 'Multi-Provider Model Router',
     subtitle: 'Provider-aware capability routing.',
-    description: 'Inspects your configured keys to show ONLY available providers. Maps tasks to models capable of the exact requirements (vision, code, computer-use) with 3-key fallback per provider.',
-    tags: ['OpenAI', 'Anthropic', 'Google', '3-Key Fallback']
+    description: 'Uses configured provider credentials, model capabilities, and fallback settings to select candidates. Additional key slots can be configured per provider.',
+    tags: ['OpenAI', 'Anthropic', 'Google', 'Configurable Key Slots']
   },
   {
     number: '03',
     title: 'Native Computer Control',
     subtitle: 'Controlled OS automation layer.',
-    description: 'Directly moves mouse, inputs keystrokes, resizes/manages native windows, and analyzes displays using high-speed screen capture and OCR. No model direct access without tool validation.',
+    description: 'The agent exposes desktop automation and screen/OCR tools through its tool layer; availability depends on local permissions and configuration.',
     tags: ['pywin32', 'pyautogui', 'OCR', 'Window Management']
   },
   {
     number: '04',
     title: 'Voice & Optical Gestures',
     subtitle: 'Natural local perceptual pipeline.',
-    description: 'Wake word detection ("Helix") with VAD and speech-to-text. Camera recognizes 6 core gestures (Confirm, Reject, Search, Stop, Close, Open) locally via MediaPipe.',
-    tags: ['Wake Word', 'VAD', 'MediaPipe', '6 Gestures']
+    description: 'Optional voice input supports wake-word detection, VAD, and local or OpenAI speech-to-text. Camera gesture recognition uses MediaPipe when enabled.',
+    tags: ['Wake Word', 'VAD', 'MediaPipe']
   },
   {
     number: '05',
-    title: 'Autonomous Web Research',
+    title: 'Web Research Tools',
     subtitle: 'Playwright-driven browser agent.',
-    description: 'Navigates search engines, traverses links, extracts structured data, cross-checks facts across multiple sources, and synthesizes answers. Triggered via text, voice, or optical gesture.',
+    description: 'Can navigate web sources and extract information through configured browser tools. Results depend on accessible sources and tool configuration.',
     tags: ['Playwright', 'Data Extraction', 'Synthesis', 'Multi-Page']
   },
   {
     number: '06',
     title: 'Concurrent Background Tasks',
     subtitle: 'Parallel execution while you focus.',
-    description: 'Create long-running jobs that execute concurrently via asyncio. Check real-time progress, review execution logs, and halt or cancel operations at any moment from the task manager.',
+    description: 'Tasks may run concurrently through asyncio. The task manager shows status and logs for supported jobs; cancellation depends on the current operation.',
     tags: ['Asyncio', 'Task Manager', 'Priority Queue', 'Cancellation']
   },
   {
     number: '07',
     title: 'Policy & Permission Engine',
-    subtitle: 'Rigorous security and confirmation.',
-    description: 'Hierarchical permission tiers (READ_ONLY to CRITICAL). Potentially destructive actions require affirmative confirmation with full explanations of what will change and why.',
-    tags: ['6 Tiers', 'Protected Paths', 'Gesture Confirm', 'Audit Logs']
+    subtitle: 'Permission checks for supported tools.',
+    description: 'Local permission checks and confirmation prompts are applied according to tool risk and policy. They do not replace operating-system security controls.',
+    tags: ['Permission Checks', 'Confirmation Gates', 'Policy Engine']
   },
   {
     number: '08',
     title: 'Tiered Memory Architecture',
-    subtitle: 'Remembers context without bloat.',
-    description: 'Maintains short-term conversational context alongside long-term semantic knowledge using embeddings. Integrates with PostgreSQL pgvector for semantic retrieval.',
-    tags: ['Short-Term', 'Conversation', 'Semantic', 'pgvector']
+    subtitle: 'Conversation context and optional semantic memory.',
+    description: 'Short-term context and semantic-memory features are available; persistence and retrieval depend on application and server configuration.',
+    tags: ['Short-Term Context', 'Conversation', 'Optional Semantic Memory']
   }
 ];
 
@@ -74,9 +74,9 @@ export const Features: React.FC = () => {
       <div className="features-container">
         <div className="section-header">
           <span className="section-label">SYSTEM CAPABILITIES</span>
-          <h2 className="section-title">Engineered for Resident Autonomy</h2>
+          <h2 className="section-title">Built for the Windows Desktop</h2>
           <p className="section-desc">
-            HELIX is built from the ground up as a deep Windows service agent, not a wrapped web page. Every module functions under strict security and architectural isolation.
+            HELIX combines a Windows desktop shell with a local Python agent. Available capabilities and permissions depend on the edition and configuration.
           </p>
         </div>
 

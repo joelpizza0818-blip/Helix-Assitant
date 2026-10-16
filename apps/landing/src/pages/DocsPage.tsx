@@ -52,7 +52,7 @@ export const DocsPage: React.FC = () => {
               className={`docs-nav-item ${activeSection === 'tools' ? 'is-active' : ''}`}
               onClick={() => setActiveSection('tools')}
             >
-              4. Tools & Zero-Trust Mode
+              4. Tools & Permission Checks
             </button>
             <button
               type="button"
@@ -78,8 +78,8 @@ export const DocsPage: React.FC = () => {
           </div>
 
           <div className="docs-sidebar__box">
-            <span className="docs-box-tag">RECOMMENDED VERSION</span>
-            <p>HELIX Lite (Tauri) uses up to 80% less RAM on systems with limited resources.</p>
+            <span className="docs-box-tag">BENCHMARK STATUS</span>
+            <p>Memory use has not been benchmarked across supported configurations.</p>
             <Link to="/download" className="docs-box-link">
               Get HELIX Lite
               <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ marginLeft: 6 }}>
@@ -102,15 +102,15 @@ export const DocsPage: React.FC = () => {
               <div className="docs-callout">
                 <h4>Architecture Components</h4>
                 <ul>
-                  <li><strong>Desktop Shell (Electron or Tauri):</strong> Graphical interface residing in the System Tray, floating panel, and global keyboard controls.</li>
-                  <li><strong>Agent Core (Python Service):</strong> Autonomous engine that processes the agent's thinking cycle, orchestrates local tools, interprets OCR vision, and manages working memory.</li>
-                  <li><strong>Local IPC:</strong> High-speed, authenticated local inter-process communication between the desktop interface and the agent service.</li>
+                  <li><strong>Desktop Shell (Electron or Tauri):</strong> Desktop interface with tray, floating panel, and keyboard controls that vary by edition.</li>
+                  <li><strong>Agent Core (Python):</strong> Coordinates model requests, supported local tools, OCR, and working memory.</li>
+                  <li><strong>Local IPC:</strong> Authenticated local inter-process communication between the desktop interface and the agent.</li>
                 </ul>
               </div>
 
               <h2>Local-First Philosophy</h2>
               <p>
-                HELIX does not require a proprietary subscription to closed models nor does it store your queries in the HELIX cloud. You configure your own API keys or use local models with Ollama on your graphics card.
+                The Python agent runs locally. Requests may be sent to the AI provider or endpoint configured in the app; local model endpoints are also supported. Review each service's data policy before sending sensitive content.
               </p>
             </article>
           )}
@@ -120,40 +120,37 @@ export const DocsPage: React.FC = () => {
               <span className="docs-badge">SECTION 2</span>
               <h1>Installation: HELIX Normal vs HELIX Lite</h1>
               <p className="docs-lead">
-                We offer two official distributions to meet different hardware requirements and environment preferences.
+                HELIX currently publishes Windows x64 installers for two desktop shells. Hardware and performance differences have not been benchmarked across configurations.
               </p>
 
               <div className="docs-comparison-table">
                 <div className="comparison-col">
                   <h3>HELIX Normal (Electron)</h3>
-                  <span className="comparison-tag">Full Version</span>
+                  <span className="comparison-tag">Electron desktop shell</span>
                   <ul>
                     <li>Integrated shell based on Chromium/Node.js</li>
-                    <li>Extended support for heavy visual extensions</li>
-                    <li>Automatic updater with channel verification</li>
-                    <li>Base memory: ~180MB RAM</li>
-                    <li>Recommended for workstations and modern PCs</li>
+                    <li>Uses the shared local Python agent</li>
+                    <li>Uses the separate Electron update channel</li>
+                    <li>Memory use varies by workload and is not benchmarked</li>
                   </ul>
                 </div>
                 <div className="comparison-col is-featured">
                   <h3>HELIX Lite (Tauri)</h3>
-                  <span className="comparison-tag">Ultra-Light · Fast</span>
+                  <span className="comparison-tag">Tauri desktop shell</span>
                   <ul>
                     <li>Shell built in Rust with native Windows WebView2</li>
-                    <li>Instant startup and reduced binary size (~15MB)</li>
-                    <li>Reduced base memory: ~40MB RAM</li>
-                    <li>Same full support for the Python engine and AI models</li>
-                    <li>Recommended for laptops and maximum energy efficiency</li>
+                    <li>Uses the shared local Python agent</li>
+                    <li>Installer size and memory use vary by release and workload; not benchmarked here</li>
+                    <li>Feature parity with Normal is not guaranteed</li>
                   </ul>
                 </div>
               </div>
 
-              <h2>System Requirements</h2>
+              <h2>Published Installer Platform</h2>
               <ul>
-                <li><strong>Operating System:</strong> Windows 10 (Build 19041+) or Windows 11 (64-bit).</li>
-                <li><strong>Processor:</strong> Intel Core i3 / AMD Ryzen 3 or higher (x64).</li>
-                <li><strong>RAM:</strong> Minimum 4 GB (8 GB recommended for large models or continuous OCR).</li>
-                <li><strong>WebView2:</strong> Installed by default on Windows 11 and recent versions of Windows 10.</li>
+                <li><strong>Operating System:</strong> Windows 10 / 11 (64-bit).</li>
+                <li><strong>Minimum CPU and RAM:</strong> Not yet validated.</li>
+                <li><strong>Optional local models and perception features:</strong> Resource needs depend on the selected models and enabled features.</li>
               </ul>
             </article>
           )}
@@ -163,36 +160,32 @@ export const DocsPage: React.FC = () => {
               <span className="docs-badge">SECTION 3</span>
               <h1>AI Provider Configuration</h1>
               <p className="docs-lead">
-                Easily configure the models you prefer. Your keys never leave your machine to HELIX servers.
+                Configure a supported provider or endpoint in AI settings. Requests and credentials may be sent to that configured destination.
               </p>
 
               <h2>Supported Providers</h2>
               <div className="docs-provider-grid">
                 <div className="provider-card">
                   <h4>Google Gemini</h4>
-                  <p>Compatible with Gemini 1.5 Pro, Flash, and Gemini 2.0. Ideal for giant context windows and native multimodality.</p>
-                  <code>GEMINI_API_KEY=your_key_here</code>
+                  <p>Google provider adapter is present. Model IDs, features, availability, and quotas depend on the current provider API and account.</p>
                 </div>
                 <div className="provider-card">
                   <h4>Anthropic Claude</h4>
-                  <p>Compatible with Claude 3.5 Sonnet and Haiku. Excellent precision for programming and structured reasoning.</p>
-                  <code>ANTHROPIC_API_KEY=your_key_here</code>
+                  <p>Anthropic provider adapter is present. Model IDs, features, availability, and quotas depend on the current provider API and account.</p>
                 </div>
                 <div className="provider-card">
                   <h4>OpenAI</h4>
-                  <p>Compatible with GPT-4o, GPT-4o-mini, and o1. Great versatility and tool execution speed.</p>
-                  <code>OPENAI_API_KEY=your_key_here</code>
+                  <p>OpenAI provider adapter is present. Model IDs, features, availability, and quotas depend on the current provider API and account.</p>
                 </div>
                 <div className="provider-card">
                   <h4>Ollama (Local Models)</h4>
-                  <p>Run Llama 3, Qwen, DeepSeek, or Mistral 100% offline and free on your local GPU.</p>
-                  <code>OLLAMA_BASE_URL=http://localhost:11434</code>
+                  <p>A compatible local or custom endpoint can be configured. Whether requests stay local depends on the endpoint and other enabled integrations.</p>
                 </div>
               </div>
 
-              <h2>Secure Key Storage</h2>
+              <h2>Credential Sources and Provider Requests</h2>
               <p>
-                You can enter your keys directly from the HELIX configuration interface (Toolbox) so they are saved encrypted in the <strong>Windows Credential Manager</strong>, or define a <code>.env</code> file in the agent's root directory.
+                Credentials are read from the operating-system keyring or the agent environment. HELIX includes credentials in authenticated requests to the configured provider or endpoint; review its policies and verify custom endpoint security.
               </p>
             </article>
           )}
@@ -200,23 +193,21 @@ export const DocsPage: React.FC = () => {
           {activeSection === 'tools' && (
             <article className="docs-article">
               <span className="docs-badge">SECTION 4</span>
-              <h1>System Tools & Zero-Trust Mode</h1>
+              <h1>System Tools & Permission Checks</h1>
               <p className="docs-lead">
-                HELIX is not limited to responding with text: it can execute concrete actions on your computer, always under your rules.
+                HELIX can call supported desktop tools through local policy and permission checks. These checks do not replace operating-system security controls.
               </p>
 
-              <h2>Zero-Trust Philosophy</h2>
-              <p>
-                No AI should have unrestricted write access to your operating system. That's why HELIX implements a policy verification layer:
-              </p>
+              <h2>Action-specific requirements</h2>
               <ul>
-                <li><strong>Read operations:</strong> Checking the time, listing files in a directory, or reading requested documents are executed seamlessly.</li>
-                <li><strong>Modification or destructive operations:</strong> Creating files, editing code, running PowerShell scripts, or installing libraries display a pop-up dialog with the exact command for you to approve with a click.</li>
+                <li><strong>Shell commands:</strong> Require confirmation in the local policy engine.</li>
+                <li><strong>Other tools:</strong> Confirmation requirements vary by tool and action; do not assume every potentially destructive action is covered.</li>
+                <li><strong>Unknown tools:</strong> The policy engine rejects tools without a matching policy.</li>
               </ul>
 
               <h2>Screenshot and OCR</h2>
               <p>
-                To ask for help with what's on your screen, press the screen button or type: <em>"what does the error in the console mean?"</em>. HELIX captures only the relevant area, processes the text with OCR, and analyzes it in the same turn.
+                Screen context can be included in supported tasks. Captured images may be sent to the configured remote vision provider; review the content before requesting analysis.
               </p>
             </article>
           )}
@@ -226,14 +217,14 @@ export const DocsPage: React.FC = () => {
               <span className="docs-badge">SECTION 5</span>
               <h1>Voice, Microphone & SoundDevice</h1>
               <p className="docs-lead">
-                Talk to HELIX with the naturalness of a phone call or a walkie-talkie on your desktop.
+                Voice input depends on microphone availability, operating-system permissions, and the selected voice settings.
               </p>
 
               <h2>How to activate listening</h2>
               <ul>
-                <li><strong>Global shortcut:</strong> Press <code>Ctrl + Shift + Space</code> (configurable) to invoke HELIX by voice.</li>
-                <li><strong>Visible indicator:</strong> While the microphone is open, the animated sound wave will be displayed in amber color in the floating window.</li>
-                <li><strong>Audio processing:</strong> The audio captured by SoundDevice is transcribed in real time and the microphone is closed immediately after processing your turn.</li>
+                <li><strong>Wake word:</strong> When voice activation is enabled, microphone input may stay open for local wake-word detection.</li>
+                <li><strong>Transcription:</strong> Speech-to-text can use local Whisper or the OpenAI API. Selecting OpenAI sends captured audio to that service.</li>
+                <li><strong>Hardware:</strong> Verify microphone permission and device selection on the installed edition; this has not been tested on physical hardware.</li>
               </ul>
             </article>
           )}
@@ -243,27 +234,11 @@ export const DocsPage: React.FC = () => {
               <span className="docs-badge">SECTION 6</span>
               <h1>MCP Server Connection (Model Context Protocol)</h1>
               <p className="docs-lead">
-                Extend HELIX's capabilities by integrating it with databases, GitHub APIs, headless browsers, and custom tools through the open MCP standard.
+                MCP servers can extend the available tools. Review each server's command, environment, and permissions before enabling it.
               </p>
 
-              <h2>Configuration in <code>helix-config.json</code></h2>
-              <pre className="docs-code-block">
-{`{
-  "mcpServers": {
-    "filesystem": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "C:\\Users\\your_username\\Projects"]
-    },
-    "github": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-github"],
-      "env": {
-        "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_..."
-      }
-    }
-  }
-}`}
-              </pre>
+              <h2>Configuration</h2>
+              <p>Use the MCP section in the app to configure supported stdio servers. Review commands, arguments, and environment variables before saving; do not paste credentials into shared examples or logs.</p>
             </article>
           )}
 
@@ -275,21 +250,21 @@ export const DocsPage: React.FC = () => {
               <div className="docs-faq-item">
                 <h3>Does Windows SmartScreen show a warning when installing HELIX Lite?</h3>
                 <p>
-                  Because HELIX Lite is an executable generated directly by the Tauri pipeline and does not yet have an expensive commercial EV code signing certificate, Windows Defender may show the blue "Windows protected your PC" screen. You can click <em>"More info"</em> and then <em>"Run anyway"</em>. Additionally, the installer publishes its SHA-256 checksum on GitHub so you can verify its integrity.
+                  HELIX Lite installers are unsigned, so Windows may show an unknown-publisher warning. Verify the SHA-256 checksum on the release page before running an installer.
                 </p>
               </div>
 
               <div className="docs-faq-item">
                 <h3>Where are the agent log files stored?</h3>
                 <p>
-                  Activity and debug logs are stored locally at <code>%USERPROFILE%\.helix\logs</code>. You can inspect or delete them at any time.
+                  Log locations depend on the installed edition and configuration. Inspect local logs before sharing them because they may contain sensitive diagnostics.
                 </p>
               </div>
 
               <div className="docs-faq-item">
                 <h3>Can I switch between HELIX Normal and HELIX Lite?</h3>
                 <p>
-                  Yes. Both versions share the same model and tool configuration base, so you can install HELIX Lite if you need lower memory consumption without losing your previous configuration.
+                  The editions use separate installers and update channels. Configuration migration and memory differences have not been validated; back up settings and credentials before switching editions.
                 </p>
               </div>
             </article>
@@ -299,7 +274,7 @@ export const DocsPage: React.FC = () => {
 
       <footer className="docs-footer">
         <div className="docs-footer__inner">
-          <p>© {new Date().getFullYear()} HELIX Project. Official technical documentation.</p>
+          <p>© {new Date().getFullYear()} HELIX Project. HELIX documentation.</p>
           <div className="docs-footer__links">
             <Link to="/privacy">Privacy</Link>
             <Link to="/features">What's New</Link>

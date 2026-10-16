@@ -79,6 +79,9 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
+      - name: Block release on high or critical dependency advisories
+        run: npm audit --audit-level=high
+
       - name: Typecheck desktop release sources
         run: npm run typecheck --workspace=@helix/desktop
 

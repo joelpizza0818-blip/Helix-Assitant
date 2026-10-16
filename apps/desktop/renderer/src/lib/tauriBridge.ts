@@ -29,7 +29,7 @@ const rendererEvents: Record<string, string> = {
   onSettingsApplied: 'helix:settings-applied',
   onVoiceCaptureStarted: 'helix:voice_capture_started',
   onVoiceCaptureStopped: 'helix:voice_capture_stopped',
-  onHandLandmarks: 'helix:hand_landmarks',
+  onHandLandmarks: 'helix:hand-landmarks',
   onShowTasks: 'helix:show-tasks',
   onUpdaterStatus: 'helix:updater-status',
   onCapabilityDownloadProgress: 'helix:capability-download-progress',

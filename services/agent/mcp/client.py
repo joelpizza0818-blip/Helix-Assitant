@@ -183,11 +183,11 @@ class MCPClient:
     async def _send_request(self, method: str, params: dict = None) -> Any:
         self._req_id += 1
         req_id = self._req_id
-        
+
         req = MCPRequest(method=method, params=params, id=req_id)
         future = asyncio.get_event_loop().create_future()
         self._pending_requests[req_id] = future
-        
+
         req_str = json.dumps(req.to_dict()) + "\n"
         if self.process and self.process.stdin:
             try:
@@ -201,7 +201,7 @@ class MCPClient:
         else:
             self._pending_requests.pop(req_id, None)
             raise ConnectionError("MCP stdio server is not connected.")
-            
+
         try:
             result = await asyncio.wait_for(future, timeout=self.request_timeout)
         except asyncio.TimeoutError as error:
@@ -252,10 +252,28 @@ class MCPClient:
             while True:
                 if not self.process or not self.process.stdout:
                     break
-                line = await self.process.stdout.readline()
+
+                stdout = self.process.stdout
+
+                # Poll so an exited child is noticed even if the stream reader
+                # does not surface EOF on this platform.
+                try:
+                    line = await asyncio.wait_for(stdout.readline(), timeout=0.1)
+                except asyncio.TimeoutError:
+                    # Timed out — check whether the child already exited or
+                    # signalled EOF via at_eof().
+                    proc = self.process
+                    if proc and proc.returncode is not None:
+                        break
+                    if stdout.at_eof():
+                        break
+                    # Child still running and no EOF — keep waiting.
+                    continue
+
                 if not line:
+                    # readline() returned b'' — true EOF.
                     break
-                
+
                 try:
                     data = json.loads(line.decode('utf-8'))
                     if not isinstance(data, dict):
@@ -265,7 +283,7 @@ class MCPClient:
                         result=data.get('result'),
                         error=data.get('error')
                     )
-                    
+
                     if resp.id in self._pending_requests:
                         self._pending_requests[resp.id].set_result(resp)
                         del self._pending_requests[resp.id]
@@ -318,6 +336,7 @@ class MCPClient:
             # stream stayed open; otherwise this releases them on EOF.
             self._fail_pending(ConnectionError(self._closed_error()))
 
+
 class MCPClientManager:
     """Manages multiple MCP client connections."""
     def __init__(self, event_bus):
@@ -340,10 +359,10 @@ class MCPClientManager:
 
         self.clients[name] = client
         self.tools_cache[name] = tools
-        
+
         if self.event_bus:
             await self.event_bus.publish('mcp.server_added', {'name': name})
-            
+
         return client
 
     async def remove_server(self, name: str):
@@ -351,7 +370,7 @@ class MCPClientManager:
             client = self.clients.pop(name)
             self.tools_cache.pop(name, None)
             await client.disconnect()
-                
+
             if self.event_bus:
                 await self.event_bus.publish('mcp.server_removed', {'name': name})
 
@@ -364,5 +383,5 @@ class MCPClientManager:
     async def call_tool(self, server_name: str, tool_name: str, arguments: dict) -> Any:
         if server_name not in self.clients:
             raise ValueError(f"Server {server_name} not found")
-        
+
         return await self.clients[server_name].call_tool(tool_name, arguments)

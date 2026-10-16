@@ -30,6 +30,11 @@
     "models:check": "node scripts/generate-model-catalog.mjs --check",
     "test": "npm run models:check && npm run test --workspaces --if-present && npm run test:agent",
     "test:agent": "python -m pytest services/agent/tests/ -v",
-    "test:docker": "docker run --rm -v \"%cd%/services/agent:/app/services/agent\" -v \"%cd%/config:/app/config\" -e DISPLAY=:99 helix-test-linux sh -c \"Xvfb :99 -screen 0 1024x768x24 -ac & sleep 1 && python -m pytest services/agent/tests/ -v --tb=short\""
+    "test:docker": "docker run --rm -v \"%cd%/services/agent:/app/services/agent\" -v \"%cd%/config:/app/config\" -e DISPLAY=:99 helix-test-linux sh -c \"Xvfb :99 -screen 0 1024x768x24 -ac & sleep 1 && python -m pytest services/agent/tests/ -v --tb=short\"",
+    "test:promptfoo": "promptfoo eval --config tests/promptfoo/promptfooconfig.yaml --output tests/promptfoo/eval-results.json",
+    "test:k6": "k6 run tests/k6/landing-load-test.js"
+  },
+  "devDependencies": {
+    "promptfoo": "^0.124.1"
   }
 }

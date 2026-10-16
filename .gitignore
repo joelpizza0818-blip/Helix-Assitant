@@ -45,3 +45,13 @@ Thumbs.db
 
 # Supabase & Local Scratch
 supabase/.temp/
+
+tests/*
+!tests/k6/
+!tests/promptfoo/
+!tests/k6/*.js
+!tests/promptfoo/*.mjs
+!tests/promptfoo/*.py
+!tests/promptfoo/*.yaml
+tools/
+AGENTS.md

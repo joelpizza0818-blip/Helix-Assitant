@@ -81,6 +81,12 @@ Get-ChildItem -LiteralPath (Join-Path $dataSource "tests") -Filter "*.py" -File 
     --collect-submodules tasks `
     --collect-submodules tools `
     --collect-submodules edge_tts `
+    --collect-all keyring `
+    --collect-all sounddevice `
+    --collect-all openwakeword `
+    --collect-all cv2 `
+    --hidden-import webrtcvad `
+    --hidden-import keyring.backends.Windows `
     --hidden-import win32process `
     --hidden-import win32gui `
     --hidden-import win32con `

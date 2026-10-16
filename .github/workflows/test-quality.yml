@@ -1,0 +1,100 @@
+name: Landing, desktop, and prompt evaluation
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - 'apps/landing/**'
+      - 'apps/desktop/**'
+      - 'apps/desktop-tauri/**'
+      - 'server/**'
+      - 'tests/k6/**'
+      - 'tests/promptfoo/**'
+      - '.github/workflows/test-quality.yml'
+      - 'package.json'
+      - 'package-lock.json'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/landing/**'
+      - 'apps/desktop/**'
+      - 'apps/desktop-tauri/**'
+      - 'server/**'
+      - 'tests/k6/**'
+      - 'tests/promptfoo/**'
+      - '.github/workflows/test-quality.yml'
+      - 'package.json'
+      - 'package-lock.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  promptfoo-and-k6:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run desktop unit tests
+        run: npm test --workspace=@helix/desktop
+
+      - name: Typecheck desktop sources
+        run: npm run typecheck --workspace=@helix/desktop
+
+      - name: Run server unit tests
+        run: npm test --workspace=@helix/server
+
+      - name: Run local Promptfoo provider configuration evaluation
+        env:
+          PROMPTFOO_DISABLE_TELEMETRY: '1'
+        run: npm run test:promptfoo
+
+      - name: Build landing
+        run: npm run build:landing
+
+      - uses: grafana/setup-k6-action@v1
+
+      - name: Start local landing preview
+        shell: bash
+        run: |
+          mkdir -p test-results
+          npm run preview --workspace=@helix/landing -- --host 127.0.0.1 --port 4173 > preview.log 2>&1 &
+          echo $! > preview.pid
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:4173/ > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat preview.log
+          exit 1
+
+      - name: Run k6 against the local preview
+        env:
+          BASE_URL: http://127.0.0.1:4173
+        run: npm run test:k6 -- --summary-export=test-results/k6-summary.json
+
+      - name: Upload evaluation and load-test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: landing-promptfoo-k6-results
+          path: |
+            tests/promptfoo/eval-results.json
+            test-results/k6-summary.json
+            preview.log
+          if-no-files-found: warn

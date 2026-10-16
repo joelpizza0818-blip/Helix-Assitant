@@ -143,9 +143,16 @@ async def test_mcp_timeout_terminates_stdio_process():
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "Closing a Python child stdout descriptor does not expose EOF to the "
+        "Windows asyncio pipe reader while the child remains alive."
+    ),
+)
 async def test_mcp_server_closing_stdout_while_still_running_fails_fast_and_terminates():
     client = MCPClient(server_command=_python_command(
-        "import os,time;os.close(1);time.sleep(10)"
+        "import sys,os,time;sys.stdout.close();os.close(1);time.sleep(10)"
     ))
     client.request_timeout = 5
     await client.connect()

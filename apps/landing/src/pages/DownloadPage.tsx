@@ -70,10 +70,10 @@ export const DownloadPage: React.FC = () => {
         <div className="download-container">
           {/* Hero */}
           <div className="download-hero">
-            <span className="download-eyebrow">OFFICIAL DISTRIBUTION · WINDOWS · MACOS · LINUX</span>
+            <span className="download-eyebrow">OFFICIAL DISTRIBUTION · WINDOWS X64</span>
             <h1 className="download-title">Download HELIX for your Desktop</h1>
             <p className="download-lead">
-              Choose between the full desktop version with Electron or the ultra-lightweight version with Tauri. Both share the same local agent core, AI model router, and Zero-Trust architecture.
+            HELIX currently publishes Windows x64 desktop installers for Normal and Lite. Both use the local Python agent; AI requests go to the providers configured in the app.
             </p>
           </div>
 
@@ -108,7 +108,7 @@ export const DownloadPage: React.FC = () => {
                   <path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.19-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.26 2.13-9.5 3.24-12.74 3.35-4.35.13-9.16-1.9-14.42-6.08-3.7-3.04-7.58-7.71-11.65-14.01-6.74-10.43-11.85-22.39-15.34-35.88-3.48-13.48-5.22-25.96-5.22-37.43 0-14.13 3.69-25.86 11.07-35.18 7.39-9.32 16.52-14.11 27.41-14.36 4.35 0 9.4 1.11 15.16 3.35 5.76 2.23 9.49 3.4 11.21 3.49 2.07-.1 5.92-1.3 11.53-3.6 5.61-2.3 10.45-3.32 14.52-3.07 14.13.75 25.04 6.13 32.74 16.14-12.63 7.64-18.73 17.9-18.3 30.79.33 10.15 4.3 18.59 11.9 25.32 7.61 6.74 16.52 10.55 26.74 11.43-2.18 6.53-4.79 13.06-7.83 19.59zM119.22 31.84c0-7.39 2.66-14.34 7.98-20.85 5.33-6.52 11.96-10.55 19.9-12.1-1.09 7.82-3.97 14.88-8.66 21.19-4.69 6.3-10.87 10.36-18.54 12.17-.11-.13-.35-.22-.68-.41z" />
                 </svg>
                 <span>macOS</span>
-                <span className="download-os-tag">Ready</span>
+                <span className="download-os-tag">Source only</span>
               </button>
 
               <button
@@ -123,7 +123,7 @@ export const DownloadPage: React.FC = () => {
                   <path d="M285.5 174.6c-4.4-4.8-13.2-12.6-26.6-8.9-8.4-19.3-21.7-34.9-39.7-46.7 1.6-11.2 2.2-22.3 1.8-33.1-.9-25.2-12.6-47.5-31.3-59.8-11.8-7.7-25-11.9-37.5-12.1-1.4 0-2.8 0-4.2.1-12.5.3-25.7 4.5-37.5 12.2-18.7 12.3-30.4 34.6-31.3 59.8-.4 10.8.2 21.9 1.8 33.1-18 11.8-31.3 27.4-39.7 46.7-13.4-3.7-22.2 4.1-26.6 8.9-6.3 6.9-8.3 16.7-5.5 26.2 3.8 12.9 14.5 26.8 28.5 37.1 2.2 22.8 11.3 43.8 26.1 60.9 2 2.3 4.2 4.6 6.5 6.7 5.7 5.1 11.8 9.5 18.2 13.1-10.2 4.1-19.4 9.4-27.1 15.6-5 4-8.8 8.6-11.3 13.6-2.5 5.1-2.9 10.6-1.1 16.4 1.8 5.8 5.6 11.1 11.1 15.8 9.8 8.3 24.3 14.6 42 18.3 18 3.7 39.5 5.3 62.1 4.7 22.7.6 44.2-1 62.1-4.7 17.7-3.7 32.2-10 42-18.3 5.5-4.7 9.3-10 11.1-15.8 1.8-5.8 1.4-11.3-1.1-16.4-2.5-5-6.3-9.6-11.3-13.6-7.7-6.2-16.9-11.5-27.1-15.6 6.4-3.6 12.5-8 18.2-13.1 2.3-2.1 4.5-4.4 6.5-6.7 14.8-17.1 23.9-38.1 26.1-60.9 14-10.3 24.7-24.2 28.5-37.1 2.9-9.5.9-19.3-5.4-26.2z"/>
                 </svg>
                 <span>Linux</span>
-                <span className="download-os-tag">Ready</span>
+                <span className="download-os-tag">Source only</span>
               </button>
             </div>
           </div>
@@ -136,12 +136,12 @@ export const DownloadPage: React.FC = () => {
                 <div className="download-card__badge-row">
                   <span className="download-badge download-badge--normal">RECOMMENDED</span>
                   <span className="download-version-pill">
-                    v{installerVersion || '0.2.0'}
+                    {installerVersion ? `v${installerVersion}` : versionError ? 'Unavailable' : 'Loading…'}
                   </span>
                 </div>
                 <h2 className="download-card__title">HELIX Normal</h2>
                 <p className="download-card__desc">
-                  Full desktop shell built on Electron with deep Windows OS integration and comprehensive tool support.
+                  Electron desktop shell with Windows integration and the HELIX Python agent.
                 </p>
               </div>
 
@@ -152,11 +152,11 @@ export const DownloadPage: React.FC = () => {
                 </div>
                 <div className="download-spec-item">
                   <span className="download-spec-label">RAM FOOTPRINT</span>
-                  <span className="download-spec-val">~180 MB at idle</span>
+                  <span className="download-spec-val">Not benchmarked across configurations</span>
                 </div>
                 <div className="download-spec-item">
                   <span className="download-spec-label">INSTALLER</span>
-                  <span className="download-spec-val">~120 MB (Verified)</span>
+                  <span className="download-spec-val">Windows x64 · see release for current size</span>
                 </div>
               </div>
 
@@ -177,13 +177,13 @@ export const DownloadPage: React.FC = () => {
                   <svg className="download-check-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
-                  <span>Continuous audio and voice interaction with SoundDevice</span>
+                  <span>Optional microphone input for voice, subject to device and OS permissions</span>
                 </li>
                 <li>
                   <svg className="download-check-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
-                  <span>Built-in update channel and cloud sync</span>
+                  <span>Separate Electron update channel</span>
                 </li>
               </ul>
 
@@ -198,33 +198,17 @@ export const DownloadPage: React.FC = () => {
                     </span>
                   </>
                 ) : selectedOS === 'macos' ? (
-                  <>
-                    <a
-                      className="download-action-btn download-action-btn--primary"
-                      href="https://github.com/joelpizza0818-blip/Helix-Assitant/releases/latest"
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Download HELIX for macOS (.dmg)
-                    </a>
-                    <span className="download-note">
-                      macOS Sonoma & Sequoia (Universal: Apple Silicon & Intel)
-                    </span>
-                  </>
+                  <span className="download-note">
+                    No macOS desktop installer is published. The source repository is available for developers.
+                    {' '}
+                    <a href="https://github.com/joelpizza0818-blip/Helix-Assitant" target="_blank" rel="noreferrer">View source</a>
+                  </span>
                 ) : (
-                  <>
-                    <a
-                      className="download-action-btn download-action-btn--primary"
-                      href="https://github.com/joelpizza0818-blip/Helix-Assitant/releases/latest"
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Download HELIX for Linux (.deb / AppImage)
-                    </a>
-                    <span className="download-note">
-                      Ubuntu / Debian / Arch / Fedora (x86_64)
-                    </span>
-                  </>
+                  <span className="download-note">
+                    No Linux desktop installer is published. The source repository is available for developers.
+                    {' '}
+                    <a href="https://github.com/joelpizza0818-blip/Helix-Assitant" target="_blank" rel="noreferrer">View source</a>
+                  </span>
                 )}
               </div>
             </article>
@@ -233,29 +217,29 @@ export const DownloadPage: React.FC = () => {
             <article className="download-card download-card--lite">
               <div className="download-card__header">
                 <div className="download-card__badge-row">
-                  <span className="download-badge download-badge--lite">ULTRA-LIGHTWEIGHT · RUST</span>
+                  <span className="download-badge download-badge--lite">TAURI · RUST DESKTOP SHELL</span>
                   <span className="download-version-pill">
-                    v{liteRelease ? liteRelease.version : '0.2.0'}
+                    {liteRelease ? `v${liteRelease.version}` : liteReleaseError ? 'Unavailable' : 'Loading…'}
                   </span>
                 </div>
                 <h2 className="download-card__title">HELIX Lite</h2>
                 <p className="download-card__desc">
-                  Ultra-lightweight shell built with Tauri and compiled in Rust. Maximum performance with minimal resource consumption.
+                  Tauri and Rust desktop shell sharing the HELIX Python agent. Performance has not been benchmarked across supported configurations.
                 </p>
               </div>
 
               <div className="download-specs">
                 <div className="download-spec-item">
                   <span className="download-spec-label">ARCHITECTURE</span>
-                  <span className="download-spec-val">Tauri v2 + Rust + WebView2 + Python Core</span>
+                  <span className="download-spec-val">Tauri v2 + Rust + WebView2 + Python agent</span>
                 </div>
                 <div className="download-spec-item">
                   <span className="download-spec-label">RAM FOOTPRINT</span>
-                  <span className="download-spec-val">~40 MB at idle</span>
+                  <span className="download-spec-val">Not benchmarked across configurations</span>
                 </div>
                 <div className="download-spec-item">
                   <span className="download-spec-label">INSTALLER</span>
-                  <span className="download-spec-val">~15 MB (Fast download)</span>
+                  <span className="download-spec-val">Windows x64 · see release for current size</span>
                 </div>
               </div>
 
@@ -264,19 +248,19 @@ export const DownloadPage: React.FC = () => {
                   <svg className="download-check-icon download-check-icon--orange" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
-                  <span>Standalone ~15MB installer with no embedded Chromium overhead</span>
+                  <span>Tauri desktop shell using WebView2</span>
                 </li>
                 <li>
                   <svg className="download-check-icon download-check-icon--orange" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
-                  <span>Instant startup and 75% lower memory consumption</span>
+                  <span>Tauri desktop shell with a shared local Python agent</span>
                 </li>
                 <li>
                   <svg className="download-check-icon download-check-icon--orange" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
-                  <span>Same intelligent core with model router (Gemini, Claude, GPT, Ollama)</span>
+                  <span>Shared agent with configurable AI providers; successful responses require a working provider or local endpoint</span>
                 </li>
                 <li>
                   <svg className="download-check-icon download-check-icon--orange" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -326,30 +310,16 @@ export const DownloadPage: React.FC = () => {
                   )
                 ) : selectedOS === 'macos' ? (
                   <>
-                    <a
-                      className="download-action-btn download-action-btn--lite"
-                      href={liteRelease?.releaseUrl || "https://github.com/joelpizza0818-blip/Helix-Assitant/releases"}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Download HELIX Lite for macOS (.dmg)
-                    </a>
                     <span className="download-note">
-                      macOS Apple Silicon & Intel · Native Rust Binary
+                      No macOS installer published
+                      {' '}HELIX Lite is currently released for Windows x64 only.
                     </span>
                   </>
                 ) : (
                   <>
-                    <a
-                      className="download-action-btn download-action-btn--lite"
-                      href={liteRelease?.releaseUrl || "https://github.com/joelpizza0818-blip/Helix-Assitant/releases"}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Download HELIX Lite for Linux (.AppImage / .deb)
-                    </a>
                     <span className="download-note">
-                      Linux x86_64 · Native Rust + WebKitGTK Binary
+                      No Linux installer published
+                      {' '}HELIX Lite is currently released for Windows x64 only.
                     </span>
                   </>
                 )}
@@ -360,9 +330,9 @@ export const DownloadPage: React.FC = () => {
           {/* HELIX CLI Quickstart */}
           <section className="download-source-section" style={{ marginTop: '3rem' }}>
             <div className="download-source-header">
-              <span className="download-section-eyebrow">DEVELOPER CLI · LIGHTWEIGHT & HEADLESS</span>
-              <h3>HELIX CLI (Terminal REPL & Headless Agent)</h3>
-              <p>Run HELIX directly from your terminal with ASCII UI, real-time autocomplete, and Zero-Trust execution:</p>
+              <span className="download-section-eyebrow">DEVELOPER CLI · SOURCE PACKAGE</span>
+              <h3>Build the HELIX CLI from source</h3>
+              <p>The CLI package is not currently published to npm. Build it from this repository:</p>
             </div>
 
             <div className="download-terminal-card">
@@ -373,17 +343,11 @@ export const DownloadPage: React.FC = () => {
                 <span className="download-terminal-title">Terminal / Command Prompt / Bash</span>
               </div>
               <pre className="download-code-block">
-                <code>{`# Global install via npm
-npm install -g @helix/cli
-
-# Start interactive chat REPL with ASCII header
-helix chat
-
-# Or run a single headless prompt
-helix run "Explain the architecture of this project"
-
-# Check connected providers and models
-helix status`}</code>
+                <code>{`git clone https://github.com/joelpizza0818-blip/Helix-Assitant.git
+cd "Helix-Assitant"
+npm ci
+npm run build --workspace=@helix/cli
+node apps/cli/dist/index.js --help`}</code>
               </pre>
             </div>
           </section>
@@ -392,8 +356,8 @@ helix status`}</code>
           <section className="download-source-section">
             <div className="download-source-header">
               <span className="download-section-eyebrow">OPEN SOURCE</span>
-              <h3>Build directly from source code</h3>
-              <p>If you prefer to compile and run HELIX directly in your development environment:</p>
+              <h3>Build the Windows desktop app from source</h3>
+              <p>Desktop development and installer workflows currently target Windows x64:</p>
             </div>
 
             <div className="download-terminal-card">
@@ -429,14 +393,14 @@ npm run dev:desktop`}</code>
               <div className="download-info-card">
                 <h4>Local Key Storage</h4>
                 <p>
-                  Your API keys (Google Gemini, OpenAI, Claude, or local Ollama) are never sent to HELIX servers. They are stored in <code>Windows Credential Manager</code> or in your local <code>.env</code> file.
+                  Provider credentials are stored through the local OS credential store or supplied through the agent environment. HELIX sends requests to the provider you configure; do not enter credentials you do not trust.
                 </p>
               </div>
 
               <div className="download-info-card">
                 <h4>Visual Capture & Perception</h4>
                 <p>
-                  HELIX analyzes the screen exclusively on demand when you request it in the chat. Frames are processed in volatile memory and discarded immediately.
+                  Screen context is opt-in/on-demand; voice and camera features have separate settings. When used with a remote AI provider, the requested content may be sent to that provider.
                 </p>
               </div>
 
@@ -454,7 +418,7 @@ npm run dev:desktop`}</code>
       {/* Modern Footer */}
       <footer className="download-footer">
         <div className="download-footer__inner">
-          <p>© {new Date().getFullYear()} HELIX Project. Designed to run locally with zero trust.</p>
+          <p>© {new Date().getFullYear()} HELIX Project. Desktop installers are currently published for Windows x64.</p>
           <div className="download-footer__links">
             <Link to="/">Home</Link>
             <Link to="/features">What's New</Link>

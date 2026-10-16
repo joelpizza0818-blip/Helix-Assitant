@@ -37,7 +37,7 @@ export const PrivacyModal: React.FC<PrivacyModalProps> = ({
         <div className="privacy-modal-header">
           <div className="privacy-modal-badge">
             <span className="privacy-modal-badge__dot" />
-            <span>HELIX {targetEdition} · SECURITY VERIFICATION</span>
+            <span>HELIX {targetEdition} · PRIVACY &amp; PERMISSIONS</span>
           </div>
           <h2 id="privacy-modal-title" className="privacy-modal-title">
             Privacy and System Access Approval
@@ -57,8 +57,8 @@ export const PrivacyModal: React.FC<PrivacyModalProps> = ({
                 </svg>
               </span>
               <div>
-                <h4>On-demand screen capture</h4>
-                <p>HELIX only analyzes your screen when you explicitly ask it to in the chat or by command. Frames are processed in volatile memory and are never stored or sold.</p>
+                <h4>Optional screen context</h4>
+                <p>Screen context is optional and may be included in a task. Captured content can be sent to the AI provider configured for that request.</p>
               </div>
             </div>
 
@@ -72,7 +72,7 @@ export const PrivacyModal: React.FC<PrivacyModalProps> = ({
               </span>
               <div>
                 <h4>Transparent microphone and voice</h4>
-                <p>Microphone listening is only active during direct conversation states. There is no continuous background recording or covert storage.</p>
+                <p>When voice activation is enabled, the microphone may remain open for local wake-word detection. Speech-to-text can be local or sent to the selected remote provider.</p>
               </div>
             </div>
 
@@ -85,8 +85,8 @@ export const PrivacyModal: React.FC<PrivacyModalProps> = ({
                 </svg>
               </span>
               <div>
-                <h4>Your API keys stay with you</h4>
-                <p>Your API keys are stored locally in Windows Credential Manager or your <code>.env</code> file. They communicate directly and encrypted with your providers (Google, OpenAI, Anthropic, or local models with Ollama).</p>
+                <h4>Provider credentials</h4>
+                <p>Credentials are read from the operating-system keyring or agent environment and sent with authenticated requests to the provider or endpoint you configure.</p>
               </div>
             </div>
 
@@ -97,8 +97,8 @@ export const PrivacyModal: React.FC<PrivacyModalProps> = ({
                 </svg>
               </span>
               <div>
-                <h4>Zero-Trust Policy</h4>
-                <p>Any operation that alters files, executes commands in PowerShell, or modifies the system requires your explicit confirmation before execution.</p>
+                <h4>Tool permissions</h4>
+                <p>Shell-command execution requires confirmation in the local policy engine. Requirements vary by tool and action; operating-system permissions still apply.</p>
               </div>
             </div>
           </div>

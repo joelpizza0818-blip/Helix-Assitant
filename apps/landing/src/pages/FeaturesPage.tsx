@@ -14,60 +14,26 @@ interface Release {
 
 const RELEASES: Release[] = [
   {
-    version: '0.2.0',
-    tag: 'LATEST VERSION',
+    version: '0.1.13',
+    tag: 'LATEST CONFIRMED LITE RELEASE',
     date: 'October 2026',
-    title: 'Stagger transitions, HELIX Lite & Privacy Gates',
-    editions: ['Normal', 'Lite'],
+    title: 'HELIX Lite (Tauri)',
+    editions: ['Lite'],
     changes: [
-      'Hardware-accelerated scrollytelling engine with fluid stacked cards (Stagger) on landing and features pages.',
-      'Official support and dual distribution of HELIX Lite (Tauri, lightweight binary ~15MB and 40MB RAM) alongside HELIX Normal (Electron).',
-      'Integration of verification modal and privacy policy consent prior to executable downloads.',
-      'New official Privacy page with Zero-Trust guidelines for on-demand screen OCR and voice capture.',
-      'Official technical Documentation Center and interface redesign on authentication portals.',
+      'Windows x64 installer published in the separate Lite release channel.',
+      'Release includes a SHA-256 checksum asset.',
+      'Lite uses a Tauri shell with the shared local Python agent; installation and hardware behavior still require device-level validation.',
     ],
   },
   {
     version: '0.1.10',
+    tag: 'LATEST CONFIRMED NORMAL RELEASE',
     date: 'October 2026',
-    title: 'Model Fallbacks & Capacity Fail-Safes',
-    editions: ['Normal', 'Lite'],
-    changes: [
-      'Automatic model switching when an individual provider or key fails without losing context.',
-      'Reinforced authentication for the local agent service with safe shutdown if a critical capability is missing.',
-      'Improvements to desktop tools for window control and MCP connections.',
-    ],
-  },
-  {
-    version: '0.1.9',
-    date: 'September 2026',
-    title: 'Windows Automation Reliability',
+    title: 'HELIX Normal (Electron)',
     editions: ['Normal'],
     changes: [
-      'Inclusion of compiled Windows automation modules in the embedded Python environment.',
-      'SHA-256 checksum verification during the installation process.',
-    ],
-  },
-  {
-    version: '0.1.5',
-    date: 'August 2026',
-    title: 'Identity, Profiles & Resilience',
-    editions: ['Normal'],
-    changes: [
-      'Secure login linked with GitHub OAuth without requiring GitHub CLI installed.',
-      'Conversation history preservation during retries after network failures.',
-      'Settings panel with secure storage in Windows Credential Manager.',
-    ],
-  },
-  {
-    version: '0.1.0',
-    date: 'July 2026',
-    title: 'HELIX Desktop Agent Foundation',
-    editions: ['Normal'],
-    changes: [
-      'Initial release of the system tray resident agent for Windows.',
-      'Intelligent language model router (Gemini, Claude, GPT-4o and local Ollama).',
-      'First native voice interaction engine with SoundDevice and screen OCR.',
+      'Windows x64 Electron installer is available through the Normal installer channel.',
+      'Normal and Lite use separate update and installer channels.',
     ],
   },
 ];
@@ -93,16 +59,16 @@ export function FeaturesPage() {
       const data = await res.json();
       if (res.ok && data.success) {
         setNotifyStatus('success');
-        setNotifyMessage('Done! We will notify you by email with every new version.');
+        setNotifyMessage('Email submitted to the release-update service.');
         setNotifyEmail('');
       } else {
         setNotifyStatus('error');
         setNotifyMessage(data.error || 'Could not register the subscription.');
       }
-    } catch {
-      setNotifyStatus('success');
-      setNotifyMessage('Done! Email registered to receive updates.');
-      setNotifyEmail('');
+    } catch (error: unknown) {
+      console.error('Could not register for HELIX release updates.', error);
+      setNotifyStatus('error');
+      setNotifyMessage('Could not reach the subscription service. Please try again later.');
     }
   };
 
@@ -158,7 +124,7 @@ export function FeaturesPage() {
             <span className="features-eyebrow">VERSION HISTORY & PATCHES</span>
             <h1>What's New in HELIX</h1>
             <p>
-              Explore versions from latest to first. Scroll to stack each release.
+              Browse the latest confirmed published release for each desktop edition.
             </p>
           </div>
 
@@ -229,11 +195,11 @@ export function FeaturesPage() {
           </div>
 
           <div className="features-progress-bar" aria-hidden="true">
-            <span>Latest (v0.2.0)</span>
+            <span>Latest confirmed (Lite v0.1.13)</span>
             <div className="features-progress-track">
               <i style={{ width: `${Math.max(6, progress * 100)}%` }} />
             </div>
-            <span>Initial (v0.1.0)</span>
+            <span>Normal v0.1.10</span>
           </div>
         </div>
       </div>
@@ -242,10 +208,10 @@ export function FeaturesPage() {
       <section className="features-subscribe-section">
         <div className="features-subscribe-box">
           <div className="features-subscribe-copy">
-            <span className="features-subscribe-eyebrow">VERSION NOTIFICATIONS</span>
-            <h3>Get every new version in your inbox</h3>
+            <span className="features-subscribe-eyebrow">RELEASE UPDATES</span>
+            <h3>Request HELIX release updates</h3>
             <p>
-              We will send you an email with the release notes, Windows binaries, and download links every time we publish an update.
+              Submit your email to the release-update service. Delivery and retention depend on that service's configuration.
             </p>
           </div>
           <form className="features-subscribe-form" onSubmit={handleSubscribe}>
@@ -275,7 +241,7 @@ export function FeaturesPage() {
 
       <footer className="features-footer">
         <div className="features-footer__inner">
-          <p>© {new Date().getFullYear()} HELIX Project. Release and version history.</p>
+          <p>© {new Date().getFullYear()} HELIX Project. Published release information.</p>
           <div className="features-footer__links">
             <Link to="/">Home</Link>
             <Link to="/docs">Documentation</Link>

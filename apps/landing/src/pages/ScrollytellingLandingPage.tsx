@@ -180,15 +180,15 @@ function VideoGallery({ sectionRef }: GalleryTrackProps) {
             <div className="scrolly-browser-frame">
               <div className="scrolly-browser-frame__bar">
                 <span className="scrolly-window-dots" aria-hidden="true"><i /><i /><i /></span>
-                <span>HELIX CLI / AUTO-LAUNCH</span>
+                <span>HELIX CLI / CONNECTION</span>
                 <span className="scrolly-browser-frame__status">CLI PREVIEW</span>
               </div>
               <DemoVideo src={CLI_VIDEO_1} poster={CLI_POSTER_1} label="HELIX CLI startup and connection flow" />
             </div>
             <div className="scrolly-gallery-card__caption">
-              <span>05 / CLI INSTANT START</span>
-              <h3>Zero friction startup.</h3>
-              <p>The CLI daemon boots silently in the background and connects via WebSocket in seconds.</p>
+              <span>05 / CLI CONNECTION</span>
+              <h3>Connect from your terminal.</h3>
+              <p>The HELIX CLI can connect to the local agent over WebSocket.</p>
             </div>
           </article>
 
@@ -203,8 +203,8 @@ function VideoGallery({ sectionRef }: GalleryTrackProps) {
             </div>
             <div className="scrolly-gallery-card__caption">
               <span>06 / CLI WORKFLOWS</span>
-              <h3>Fast reasoning directly in your shell.</h3>
-              <p>Direct terminal REPL with autocompletion for @skills, #mcp tools, and slash commands.</p>
+              <h3>CLI workflows in your shell.</h3>
+              <p>Use the terminal REPL with autocompletion for skills, MCP tools, and slash commands.</p>
             </div>
           </article>
 
@@ -215,12 +215,12 @@ function VideoGallery({ sectionRef }: GalleryTrackProps) {
                 <span>HELIX CLI / TASK EXECUTION</span>
                 <span className="scrolly-browser-frame__status">CLI PREVIEW</span>
               </div>
-              <DemoVideo src={CLI_VIDEO_3} poster={CLI_POSTER_3} label="HELIX CLI autonomous task execution" />
+              <DemoVideo src={CLI_VIDEO_3} poster={CLI_POSTER_3} label="HELIX CLI task execution preview" />
             </div>
             <div className="scrolly-gallery-card__caption">
-              <span>07 / CLI AUTONOMOUS TOOLS</span>
-              <h3>Execute tasks at native speed.</h3>
-              <p>Run complex desktop tasks and code analysis from your terminal without opening a GUI.</p>
+              <span>07 / CLI TOOL EXECUTION</span>
+              <h3>Run supported tasks from your terminal.</h3>
+              <p>Use HELIX commands and agent tools from the CLI.</p>
             </div>
           </article>
         </div>
@@ -317,9 +317,9 @@ function StoriesStack({ sectionRef }: StoriesStackProps) {
           <article className="scrolly-stack-card scrolly-stack-card--cli">
             <div className="scrolly-stack-card__copy">
               <span className="scrolly-stack-card__number">02 / CLI &amp; TERMINAL</span>
-              <h3>Terminal-native. Ultra lightweight.</h3>
-              <p>Connect directly to your local ReAct agent from any command prompt. Fast startup, no GPU overhead, microphone voice input, and complete tool access.</p>
-              <span className="scrolly-pill">Persistent Agent · Instant CLI · Pure ReAct</span>
+              <h3>Use HELIX from your terminal.</h3>
+              <p>The CLI can connect to the local agent. Available commands and tools depend on configuration.</p>
+              <span className="scrolly-pill">CLI · Local agent · Configurable tools</span>
             </div>
             <div className="scrolly-illustration scrolly-illustration--cli" aria-hidden="true">
               <div className="scrolly-card-image-wrap">
@@ -369,7 +369,7 @@ function StoriesStack({ sectionRef }: StoriesStackProps) {
             <div className="scrolly-stack-card__copy">
               <span className="scrolly-stack-card__number">04 / YOUR BOUNDARIES</span>
               <h3>Keep your tools in your hands.</h3>
-              <p>HELIX works with providers you configure, and potentially destructive actions ask for your confirmation before they run.</p>
+              <p>HELIX uses configured providers. Confirmation requirements vary by tool and action.</p>
               <span className="scrolly-pill">Configured by you · Confirmed by you</span>
             </div>
             <div className="scrolly-illustration scrolly-illustration--control" aria-hidden="true">
@@ -517,7 +517,7 @@ export const ScrollytellingLandingPage: React.FC = () => {
           <Link to="/download" onClick={closeMenu}>Download <span>01</span></Link>
           <a href="#story" onClick={closeMenu}>The experience <span>02</span></a>
           <a href="#showcase" onClick={closeMenu}>See HELIX at work <span>03</span></a>
-          <Link to="/features" onClick={closeMenu}>What's New (v0.2.0) <span>04</span></Link>
+          <Link to="/features" onClick={closeMenu}>What's New <span>04</span></Link>
           <Link to="/docs" onClick={closeMenu}>Documentation <span>05</span></Link>
           <Link to="/privacy" onClick={closeMenu}>Privacy Policy <span>06</span></Link>
           <div className="scrolly-menu__account">
@@ -538,17 +538,17 @@ export const ScrollytellingLandingPage: React.FC = () => {
               Download HELIX Lite
             </button>
           </div>
-          <p className="scrolly-menu__note">A persistent AI desktop agent for Windows.</p>
+          <p className="scrolly-menu__note">A Windows desktop agent with optional voice and screen context.</p>
         </div>
       </nav>
 
       <main>
         <section className="scrolly-hero" aria-labelledby="scrolly-hero-title">
           <div className="scrolly-hero__copy">
-            <p className="scrolly-eyebrow">A desktop agent for Windows</p>
+            <p className="scrolly-eyebrow">Windows desktop agent · installers for Windows x64</p>
             <h1 id="scrolly-hero-title">An AI that works<br /><span>where you do.</span></h1>
             <p className="scrolly-hero__description">
-              HELIX brings conversation, voice, and computer tools together in one place on your desktop.
+              HELIX brings conversation and desktop tools together, with optional voice and screen context.
             </p>
             <div className="scrolly-actions">
               <button
@@ -567,7 +567,7 @@ export const ScrollytellingLandingPage: React.FC = () => {
                 className="scrolly-button scrolly-button--lite"
                 onClick={() => triggerDownloadAction('Lite')}
               >
-                Download HELIX Lite (Tauri · ~15MB)
+                Download HELIX Lite (Tauri Edition)
                 <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
                 </svg>
@@ -584,11 +584,11 @@ export const ScrollytellingLandingPage: React.FC = () => {
             <div className="scrolly-editions-strip">
               <div className="scrolly-edition-chip">
                 <span className="scrolly-edition-chip__badge">NORMAL</span>
-                <span><strong>Electron</strong> · System Tray · Complete Tools & OCR</span>
+                <span><strong>Electron</strong> · System Tray · Desktop tools & OCR</span>
               </div>
               <div className="scrolly-edition-chip">
                 <span className="scrolly-edition-chip__badge scrolly-edition-chip__badge--lite">LITE</span>
-                <span><strong>Tauri + Rust</strong> · ~15MB Setup · 40MB RAM</span>
+                <span><strong>Tauri + Rust</strong> · Windows x64 installer · RAM not benchmarked</span>
               </div>
             </div>
           </div>
@@ -662,14 +662,14 @@ export const ScrollytellingLandingPage: React.FC = () => {
         <div className="scrolly-footer__top">
           <div className="scrolly-footer__brand">
             <a href="#top" aria-label="Back to top"><HelixLogo size="sm" showText /></a>
-            <p>A persistent AI desktop agent for Windows.</p>
+            <p>A Windows desktop agent with optional voice and screen context.</p>
           </div>
           <div className="scrolly-footer__links">
             <div>
               <span>EXPLORE</span>
               <a href="#story">The experience</a>
               <a href="#showcase">Video showcase</a>
-              <Link to="/features">What's New (v0.2.0)</Link>
+              <Link to="/features">What's New</Link>
               <Link to="/docs">Documentation</Link>
             </div>
             <div>
@@ -682,7 +682,7 @@ export const ScrollytellingLandingPage: React.FC = () => {
           </div>
         </div>
         <div className="scrolly-footer__bottom">
-          <span>© {new Date().getFullYear()} HELIX Project · Local-First & Zero-Trust</span>
+          <span>© {new Date().getFullYear()} HELIX Project · Local agent · Configured providers</span>
           <a href="#top">
             Back to top
             <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ marginLeft: 6 }}>

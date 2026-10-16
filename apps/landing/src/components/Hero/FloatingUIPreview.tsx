@@ -6,11 +6,11 @@ export const FloatingUIPreview: React.FC = () => {
     <div className="preview-card">
       <div className="preview-header">
         <div className="preview-brand">
-          <span className="preview-wordmark">HELIX</span>
+          <span className="preview-wordmark">HELIX PREVIEW</span>
           <span className="preview-dot" />
         </div>
         <div className="preview-model">
-          Google · Gemini 2.0 Flash
+          Configured provider · Model
         </div>
         <div className="preview-gear" aria-label="Settings">
           <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -26,12 +26,12 @@ export const FloatingUIPreview: React.FC = () => {
             <line x1="12" y1="5" x2="12" y2="19" />
             <polyline points="19 12 12 19 5 12" />
           </svg>
-          Gemini 2.0 Flash
+          Primary model
           <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: 'middle', margin: '0 5px' }}>
             <line x1="5" y1="12" x2="19" y2="12" />
             <polyline points="12 5 19 12 12 19" />
           </svg>
-          Gemini 1.5 Pro
+          Fallback model
         </span>
       </div>
 
@@ -42,18 +42,18 @@ export const FloatingUIPreview: React.FC = () => {
         </div>
 
         <div className="preview-msg preview-msg--assistant">
-          <p>Task queued. Initialized 2 concurrent background threads for repository scanning and pytest execution.</p>
+          <p>Task queued. Review progress and results in the task manager.</p>
           <span className="preview-time">10:42 AM</span>
         </div>
 
         <div className="preview-tool-log">
           <span className="preview-tool-dot" />
           <span className="preview-tool-name">terminal_tool</span>
-          <span className="preview-tool-text">Executing: pytest tests/ -v (PID: 14820)</span>
+          <span className="preview-tool-text">Running configured tool</span>
         </div>
 
         <div className="preview-msg preview-msg--assistant">
-          <p>All 47 tests passed (0 failures). Found 3 optimization candidates in services/agent/memory/.</p>
+          <p>Example result ready for review. Check the task output before applying changes.</p>
           <span className="preview-time">10:43 AM</span>
         </div>
       </div>
@@ -62,7 +62,7 @@ export const FloatingUIPreview: React.FC = () => {
         <span className="preview-pulse-dot" />
         <span className="preview-task-count">1 task running</span>
         <span className="preview-task-sep">·</span>
-        <span className="preview-task-desc">Monitoring system telemetry</span>
+        <span className="preview-task-desc">Example task in progress</span>
       </div>
 
       <div className="preview-input-row">

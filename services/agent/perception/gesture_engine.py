@@ -214,43 +214,47 @@ class GestureEngine:
 
     def _capture_loop(self):
         detector = None
+        detect = None
         try:
             import cv2
-            import mediapipe as mp
+            try:
+                import mediapipe as mp
 
-            if hasattr(mp, "solutions"):
-                detector = mp.solutions.hands.Hands(
-                    model_complexity=0,
-                    min_detection_confidence=self.min_detection_confidence,
-                    min_tracking_confidence=0.5,
-                )
-                detect = lambda image, timestamp: detector.process(image)
-            else:
-                if not LANDMARKER_MODEL_PATH.is_file():
-                    raise RuntimeError(
-                        f"MediaPipe hand landmark model is missing: {LANDMARKER_MODEL_PATH}"
+                if hasattr(mp, "solutions"):
+                    detector = mp.solutions.hands.Hands(
+                        model_complexity=0,
+                        min_detection_confidence=self.min_detection_confidence,
+                        min_tracking_confidence=0.5,
                     )
+                    detect = lambda image, timestamp: detector.process(image)
+                elif LANDMARKER_MODEL_PATH.is_file():
+                    from mediapipe.tasks import python
+                    from mediapipe.tasks.python import vision
 
-                from mediapipe.tasks import python
-                from mediapipe.tasks.python import vision
-
-                options = vision.HandLandmarkerOptions(
-                    base_options=python.BaseOptions(
-                        model_asset_path=str(LANDMARKER_MODEL_PATH)
-                    ),
-                    running_mode=vision.RunningMode.VIDEO,
-                    num_hands=2,
-                    min_hand_detection_confidence=self.min_detection_confidence,
-                    min_tracking_confidence=0.5,
-                )
-                detector = vision.HandLandmarker.create_from_options(options)
-
-                def detect(image, timestamp):
-                    task_image = mp.Image(
-                        image_format=mp.ImageFormat.SRGB,
-                        data=image,
+                    options = vision.HandLandmarkerOptions(
+                        base_options=python.BaseOptions(
+                            model_asset_path=str(LANDMARKER_MODEL_PATH)
+                        ),
+                        running_mode=vision.RunningMode.VIDEO,
+                        num_hands=2,
+                        min_hand_detection_confidence=self.min_detection_confidence,
+                        min_tracking_confidence=0.5,
                     )
-                    return detector.detect_for_video(task_image, timestamp)
+                    detector = vision.HandLandmarker.create_from_options(options)
+
+                    def detect(image, timestamp):
+                        task_image = mp.Image(
+                            image_format=mp.ImageFormat.SRGB,
+                            data=image,
+                        )
+                        return detector.detect_for_video(task_image, timestamp)
+            except Exception as mp_err:
+                logger.warning(
+                    "MediaPipe gesture recognizer unavailable (%s); camera will stream video frames without gesture tracking.",
+                    mp_err,
+                )
+                detector = None
+                detect = None
 
             last_camera_error_log = 0.0
             last_preview_frame_time = 0.0
@@ -308,35 +312,40 @@ class GestureEngine:
                                     encoded_frame
                                 ).decode("ascii")
                                 last_preview_frame_time = now
-                        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-                        results = detect(image, int(time.monotonic() * 1000))
-                        image = None
-                        hand_landmarks = getattr(
-                            results,
-                            "multi_hand_landmarks",
-                            getattr(results, "hand_landmarks", None),
-                        )
-                        if hand_landmarks:
-                            frame_landmarks = []
-                            for index, landmarks in enumerate(hand_landmarks):
-                                gesture = self._detect_gesture(landmarks)
-                                confidence = self._hand_confidence(results, index)
-                                points = getattr(landmarks, "landmark", landmarks)
-                                frame_landmarks.append({
-                                    "points": [
-                                        [float(point.x), float(point.y), float(getattr(point, "z", 0.0))]
-                                        for point in points
-                                    ],
-                                    "gesture": gesture.name if gesture else None,
-                                    "confidence": confidence,
-                                })
-                                self._observe_gesture(gesture, confidence)
-                                self._observe_hand_commands(
-                                    frame_landmarks[-1]["points"],
-                                    confidence,
-                                )
-                            self._publish_landmarks(frame_landmarks, preview_frame)
+                        if detect is not None:
+                            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                            results = detect(image, int(time.monotonic() * 1000))
+                            image = None
+                            hand_landmarks = getattr(
+                                results,
+                                "multi_hand_landmarks",
+                                getattr(results, "hand_landmarks", None),
+                            )
+                            if hand_landmarks:
+                                frame_landmarks = []
+                                for index, landmarks in enumerate(hand_landmarks):
+                                    gesture = self._detect_gesture(landmarks)
+                                    confidence = self._hand_confidence(results, index)
+                                    points = getattr(landmarks, "landmark", landmarks)
+                                    frame_landmarks.append({
+                                        "points": [
+                                            [float(point.x), float(point.y), float(getattr(point, "z", 0.0))]
+                                            for point in points
+                                        ],
+                                        "gesture": gesture.name if gesture else None,
+                                        "confidence": confidence,
+                                    })
+                                    self._observe_gesture(gesture, confidence)
+                                    self._observe_hand_commands(
+                                        frame_landmarks[-1]["points"],
+                                        confidence,
+                                    )
+                                self._publish_landmarks(frame_landmarks, preview_frame)
+                            else:
+                                self._observe_gesture(None, 0.0)
+                                self._publish_landmarks([], preview_frame)
                         else:
+                            image = None
                             self._observe_gesture(None, 0.0)
                             self._publish_landmarks([], preview_frame)
                         time.sleep(0.05)

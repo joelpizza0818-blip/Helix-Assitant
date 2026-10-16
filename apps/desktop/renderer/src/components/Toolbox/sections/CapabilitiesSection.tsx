@@ -41,7 +41,12 @@ export default function CapabilitiesSection() {
 
   const install = async (pack: CapabilityPackState) => {
     setBusy(pack.id)
-    setDownloadProgress({ id: pack.id, receivedBytes: 0, totalBytes: pack.sizeBytes })
+    setDownloadProgress({
+      id: pack.id,
+      receivedBytes: 0,
+      totalBytes: pack.sizeBytes,
+      status: 'downloading',
+    })
     try {
       const { status: _status, installedPath: _installedPath, error: _error, ...manifest } = pack
       await window.helix.installCapability(manifest)

@@ -16,7 +16,7 @@ export const Footer: React.FC = () => {
             <span className="footer-tagline">Persistent Windows AI Desktop Agent</span>
           </div>
           <p className="footer-copyright">
-            © {new Date().getFullYear()} HELIX Project. Licensed under Apache 2.0.
+            © {new Date().getFullYear()} HELIX Project.
           </p>
         </div>
 
@@ -27,7 +27,7 @@ export const Footer: React.FC = () => {
             <Link to="/features">Release History</Link>
             <Link to="/docs">Documentation</Link>
             <a href={isHome ? '#router' : '/#router'}>Model Router</a>
-            <a href={isHome ? '#security' : '/#security'}>Zero-Trust</a>
+            <a href={isHome ? '#security' : '/#security'}>Security controls</a>
           </div>
 
           <div className="footer-col">

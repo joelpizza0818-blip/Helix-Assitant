@@ -1,0 +1,18 @@
+description: "HELIX local provider-configuration regression check"
+sharing: false
+
+prompts:
+  - "User input: {{input}}"
+
+providers:
+  - file://helix_agent_provider.mjs
+
+tests:
+  - description: "Explain how to configure a provider when none is available"
+    vars:
+      input: "Hello HELIX, respond to my request."
+    assert:
+      - type: icontains
+        value: "No AI provider API keys are configured"
+      - type: icontains
+        value: "Save & Validate"

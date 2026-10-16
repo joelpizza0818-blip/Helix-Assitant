@@ -415,6 +415,7 @@ export interface TaskExecutionSummary {
 export interface AgentError {
   code: string
   message: string
+  source?: 'camera' | 'microphone'
   provider?: ProviderID
   model?: string
   timestamp: string

@@ -60,6 +60,9 @@ jobs:
       - name: Install JavaScript dependencies
         run: npm ci
 
+      - name: Block release on high or critical dependency advisories
+        run: npm audit --audit-level=high
+
       - name: Typecheck shared desktop renderer contracts
         run: npm run typecheck --workspace=@helix/desktop
 

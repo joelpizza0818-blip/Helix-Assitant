@@ -234,6 +234,16 @@ export function useAgent(options: { persistConversation?: boolean } = {}): UseAg
     cleanups.push(
       window.helix.onError((err) => {
         console.error('[useAgent] Agent error:', err)
+        if (err.source === 'camera' || err.source === 'microphone') {
+          setMessages((previous) => [
+            ...previous,
+            {
+              role: 'assistant',
+              content: err.message,
+              timestamp: new Date().toISOString(),
+            },
+          ])
+        }
         setIsLoading(false)
         setAgentStatus('error')
       })

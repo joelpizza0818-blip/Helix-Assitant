@@ -22,7 +22,7 @@ export function Navigation() {
           <a href={isHome ? '#features' : '/#features'} className="nav-link">Capabilities</a>
           <Link to="/features" className="nav-link">What's New</Link>
           <a href={isHome ? '#router' : '/#router'} className="nav-link">Model Router</a>
-          <a href={isHome ? '#security' : '/#security'} className="nav-link">Zero-Trust</a>
+          <a href={isHome ? '#security' : '/#security'} className="nav-link">Security controls</a>
           <Link to="/docs" className="nav-link">Docs</Link>
         </div>
         

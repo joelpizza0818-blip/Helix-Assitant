@@ -673,8 +673,19 @@ async def main():
                     enabled=True,
                 )
                 logger.info("Gesture engine settings applied.")
-            except Exception as e:
-                logger.error("Failed to apply gesture settings: %s", e)
+            except Exception:
+                logger.exception("Failed to start the gesture camera.")
+                await event_bus.publish(
+                    "ERROR",
+                    {
+                        "source": "camera",
+                        "message": (
+                            "Camera could not start. Check OS camera privacy "
+                            "permissions, the selected device index, and whether "
+                            "another app is using the camera."
+                        ),
+                    },
+                )
         elif gesture_engine is not None:
             await gesture_engine.configure(
                 camera_index,
@@ -691,9 +702,19 @@ async def main():
             voice_engine = None
             logger.info("Voice engine stopped.")
         elif voice_enabled is True and voice_engine is None:
-            ww_path = Path(payload.get("wake_word_model_path", os.environ.get("WAKE_WORD_MODEL_PATH", "models/wakeword/hey_helix.onnx")))
+            raw_ww_path = payload.get("wake_word_model_path", os.environ.get("WAKE_WORD_MODEL_PATH", "models/wakeword/hey_helix.onnx"))
+            ww_path = Path(raw_ww_path)
             if not ww_path.is_absolute():
-                ww_path = Path(__file__).resolve().parent / ww_path
+                candidates = [
+                    Path(__file__).resolve().parent / ww_path,
+                    project_root / ww_path,
+                    Path(__file__).resolve().parent.parent.parent / ww_path,
+                    Path(__file__).resolve().parent / "models" / "wakeword" / "hey_helix.onnx",
+                ]
+                for cand in candidates:
+                    if cand.is_file():
+                        ww_path = cand
+                        break
             if ww_path.is_file():
                 try:
                     from perception.voice_engine import VoiceEngine
@@ -705,6 +726,7 @@ async def main():
                         "WAKE_WORD_PROVIDER": payload.get(
                             "wake_word_provider", "openwakeword"
                         ),
+                        "WAKE_WORD_MODEL_PATH": str(ww_path),
                         "WAKE_WORD_THRESHOLD": str(
                             payload.get("wake_word_threshold", 0.5)
                         ),
@@ -738,8 +760,31 @@ async def main():
                     )
                     await voice_engine.start()
                     logger.info("Voice engine started.")
-                except Exception as e:
-                    logger.error(f"Failed to start voice engine: {e}")
+                except Exception:
+                    logger.exception("Failed to start microphone input.")
+                    voice_engine = None
+                    await event_bus.publish(
+                        "ERROR",
+                        {
+                            "source": "microphone",
+                            "message": (
+                                "Microphone could not start. Check OS microphone "
+                                "privacy permissions and the selected input device."
+                            ),
+                        },
+                    )
+            else:
+                logger.error("Wake word model file was not found at %s", ww_path)
+                await event_bus.publish(
+                    "ERROR",
+                    {
+                        "source": "microphone",
+                        "message": (
+                            "Voice activation could not start because its wake-word "
+                            "model is missing from the installed agent runtime."
+                        ),
+                    },
+                )
         elif voice_enabled is True and voice_engine is not None:
             configured_aliases = payload.get("custom_wake_words", [])
             if not isinstance(configured_aliases, list):

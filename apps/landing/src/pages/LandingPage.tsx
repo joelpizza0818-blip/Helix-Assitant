@@ -75,8 +75,8 @@ export const LandingPage: React.FC = () => {
         <section className="hero-void">
           {/* Flanking text */}
           <div className="hero-void__left reveal-left">
-            <p className="hero-void__kicker">WINDOWS-RESIDENT</p>
-            <h1 className="hero-void__heading">AUTONOMOUS<br />AGENT</h1>
+            <p className="hero-void__kicker">WINDOWS DESKTOP</p>
+            <h1 className="hero-void__heading">DESKTOP<br />AGENT</h1>
           </div>
 
           {/* Centre — the 3-D logo + ELIX Lockup */}
@@ -101,15 +101,15 @@ export const LandingPage: React.FC = () => {
 
           <div className="hero-void__right reveal-right">
             <p className="hero-void__body">
-              Sees your screen.<br />
-              Hears your voice.<br />
-              Acts on your computer.<br />
-              Remembers everything.
+              Optional screen context.<br />
+              Optional voice input.<br />
+              Approval-gated computer tools.<br />
+              Conversation context.
             </p>
             <div className="hero-void__specs">
               <span><span className="spec-label">MODELS</span> Gemini · Claude · GPT</span>
-              <span><span className="spec-label">FAILOVER</span> 3 Keys / Provider</span>
-              <span><span className="spec-label">PRIVACY</span> Local · Zero-Trust</span>
+              <span><span className="spec-label">FAILOVER</span> Configurable provider fallback</span>
+              <span><span className="spec-label">PRIVACY</span> Local agent · configured AI providers</span>
             </div>
           </div>
         </section>

@@ -452,6 +452,27 @@ async def test_voice_engine_retries_a_stopped_wake_word_detector(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_voice_engine_resets_state_when_microphone_start_fails():
+    engine = VoiceEngine.__new__(VoiceEngine)
+    engine.enabled = True
+    engine._is_active = False
+    engine._subscriptions = []
+    engine._subscribe_events = Mock()
+    engine.wake_detector = SimpleNamespace(
+        provider="openwakeword",
+        start=AsyncMock(side_effect=RuntimeError("microphone unavailable")),
+        stop=AsyncMock(),
+    )
+    engine.stt = SimpleNamespace(provider="remote")
+
+    with pytest.raises(RuntimeError, match="microphone unavailable"):
+        await engine.start()
+
+    assert engine._is_active is False
+    engine.wake_detector.stop.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_audio_generator_ends_when_microphone_read_stalls(caplog):
     class StalledStream:
         def read(self, _frame_size):

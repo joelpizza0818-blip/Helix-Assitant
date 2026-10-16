@@ -24,32 +24,32 @@ export const PrivacyPage: React.FC = () => {
             <span className="privacy-eyebrow">PRIVACY & SECURITY POLICY</span>
             <h1>Your desktop. Your privacy. Your boundaries.</h1>
             <p className="privacy-lead">
-              HELIX is designed under the fundamental principle of <strong>Local-First and Zero-Trust</strong>. This policy describes with full transparency how the agent interacts with your screen, microphone, files, and artificial intelligence credentials.
+              HELIX runs a local agent and can contact configured AI providers and other services. This page summarizes the data paths visible in the current code; handling and retention also depend on your configuration and each service's policies.
             </p>
             <div className="privacy-badge-row">
               <span className="privacy-pill">
                 <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: 6 }}>
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                100% No Data Sales
+                Configured AI Providers
               </span>
               <span className="privacy-pill">
                 <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: 6 }}>
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Screen Capture Only On Demand
+                Optional Screen Context
               </span>
               <span className="privacy-pill">
                 <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: 6 }}>
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Local Credentials on Windows
+                OS Keyring or Environment
               </span>
               <span className="privacy-pill">
                 <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: 6 }}>
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Zero-Trust Access Confirmed by You
+                Tool Policies Vary by Action
               </span>
             </div>
           </div>
@@ -58,79 +58,80 @@ export const PrivacyPage: React.FC = () => {
             <section className="privacy-section">
               <h2>1. Local-First Architecture and Design Philosophy</h2>
               <p>
-                Unlike assistants based exclusively in the cloud, HELIX operates as a resident application on your Windows operating system (available in a full version with Electron and an ultra-lightweight version with Tauri). The agent's core runs locally on your computer.
+                HELIX provides Windows desktop shells built with Electron and Tauri, backed by a local Python agent.
               </p>
               <p>
-                This means that your work data, process tree, active windows, and local documents are not transferred to HELIX central servers for storage, profiling, or model training.
+                Agent processing is local, but prompts, images, audio, account, licensing, or update requests may be sent to services selected by the app or configured by you. Data handling depends on those services.
               </p>
             </section>
 
             <section className="privacy-section">
               <h2>2. Screen Capture and Visual Recognition (OCR)</h2>
               <p>
-                HELIX has screen reading capabilities to help you resolve questions about what you're seeing. Our capture policy states:
+                Screen context is optional and can be used for requests or enabled task workflows:
               </p>
               <ul>
-                <li><strong>Activation exclusively on demand:</strong> HELIX never records your screen continuously or in the background. Capture is only executed when you make an explicit request in the chat (for example, <em>"what error does this window show?"</em>) or when activating a skill that requires visual context.</li>
-                <li><strong>Processing in volatile memory:</strong> Screenshots are analyzed in temporary RAM and discarded after completing the interaction turn. No capture history is created on disk or on remote servers.</li>
-                <li><strong>Sensitive area control:</strong> You can configure exclusions for windows with sensitive content such as password managers or banking applications.</li>
+                <li><strong>When capture can occur:</strong> A request or configured task can include screen context; optional sampling may run during an active task when enabled.</li>
+                <li><strong>Provider data flow:</strong> Captured content is attached to the task context and may be sent to a configured remote vision provider. Review that provider's retention and privacy policies.</li>
+                <li><strong>Check before sharing:</strong> Do not include passwords, financial information, or other sensitive content unless you intend to send it to the selected provider.</li>
               </ul>
             </section>
 
             <section className="privacy-section">
               <h2>3. Audio and Microphone (SoundDevice)</h2>
               <p>
-                HELIX incorporates a native voice engine to enable interaction through spoken commands:
+                Voice input is optional and depends on device availability, operating-system permissions, and the selected settings:
               </p>
               <ul>
-                <li><strong>No permanent passive listening:</strong> The microphone only opens during active voice sessions initiated by you (via keyboard shortcut or voice button).</li>
-                <li><strong>Visible status indicator:</strong> Whenever HELIX is listening, you will see a clear animated visual indicator in the toolbar and the floating interface.</li>
-                <li><strong>Instant deactivation:</strong> You can mute the microphone or revoke audio permission at any time from Windows settings or the system tray.</li>
+                <li><strong>Wake-word mode:</strong> When voice activation is enabled, the agent may keep microphone input open for local wake-word detection.</li>
+                <li><strong>Transcription:</strong> Speech-to-text can use local Whisper or the OpenAI API; choosing a remote provider sends captured audio to that provider.</li>
+                <li><strong>Permissions:</strong> App settings and operating-system microphone permissions control access. Availability and status indicators should be verified on the installed edition and device.</li>
               </ul>
             </section>
 
             <section className="privacy-section">
-              <h2>4. Model Credentials and Secure Storage</h2>
+              <h2>4. Credential Sources and Provider Requests</h2>
               <p>
-                HELIX allows you to connect your own artificial intelligence providers (Google Gemini, Anthropic Claude, OpenAI, Groq) or local engines (Ollama):
+                HELIX supports configured AI providers and compatible local or custom endpoints:
               </p>
               <ul>
-                <li><strong>Secure storage in the Windows Credential Manager:</strong> Your API keys are never sent to HELIX servers. They are stored encrypted in the <code>Windows Credential Manager</code> or in your local <code>.env</code> file.</li>
-                <li><strong>Direct connection between client and provider:</strong> Calls to language models travel directly via TLS/HTTPS encrypted connections from your machine to the provider endpoints you have configured.</li>
-                <li><strong>Offline local models:</strong> If you configure HELIX with Ollama or local models, your conversations and tasks never leave your local network.</li>
+                <li><strong>Credential sources:</strong> Credentials are read from the operating-system keyring or the agent environment.</li>
+                <li><strong>Authenticated requests:</strong> HELIX sends credentials and request content to the configured provider or endpoint when a request needs them. Confirm the endpoint and its transport security before use.</li>
+                <li><strong>Local endpoints:</strong> A local model endpoint can process requests locally, but other enabled integrations may still contact remote services.</li>
               </ul>
             </section>
 
             <section className="privacy-section">
-              <h2>5. System Tool Execution and Zero-Trust Model</h2>
+              <h2>5. Tool Permissions and Confirmation</h2>
               <p>
-                To automate complex tasks, HELIX has tools to manipulate the file system, execute commands in PowerShell, and control applications:
+                HELIX exposes supported desktop tools through local permission and confirmation checks:
               </p>
               <ul>
-                <li><strong>Policy Checked:</strong> Before executing any action that modifies files, deletes data, changes registry settings, or downloads packages, HELIX requests your explicit confirmation through an on-screen dialog.</li>
-                <li><strong>Local audit log:</strong> All actions executed by the tools are logged in a local log file on your machine so you can precisely audit what commands were run and when.</li>
+                <li><strong>Action-specific controls:</strong> Shell-command execution requires confirmation in the local policy engine; requirements vary by tool and action. These checks do not replace operating-system permissions.</li>
+                <li><strong>Logs:</strong> Application logs are not a guaranteed complete audit trail. Review logs for sensitive information before sharing them.</li>
               </ul>
             </section>
 
             <section className="privacy-section">
-              <h2>6. Telemetry and Personal Data</h2>
+              <h2>6. External Services and Data Retention</h2>
               <p>
-                HELIX maintains a strict stance on data collection:
+                A complete telemetry and retention inventory has not been verified in this review. HELIX can contact configured AI providers and services used for account, licensing, and updates:
               </p>
               <ul>
-                <li><strong>Zero data sales:</strong> We do not sell, rent, or trade your personal information, your queries, or your work context to third parties under any circumstances.</li>
-                <li><strong>Minimal and anonymized telemetry:</strong> We only collect optional metrics on application stability and critical compiler crashes, without personal identifiers, usernames, or message content.</li>
+                <li>Review the privacy and retention policies of each provider and service before sending personal or sensitive data.</li>
+                <li>This page does not make a verified claim about data sales, telemetry, or retention across all connected services.</li>
+                <li>The release-notification form sends submitted email addresses to the update service. Its current implementation keeps subscribers in process memory; durable storage and notification delivery have not been verified.</li>
               </ul>
             </section>
 
             <section className="privacy-section">
               <h2>7. Deletion and User Rights</h2>
               <p>
-                In compliance with data protection regulations such as GDPR, CCPA, and best practices for desktop software security:
+                Data deletion depends on where it is stored:
               </p>
               <ul>
-                <li>You have the right to purge any previous conversations, settings, or saved credentials directly from the HELIX settings menu.</li>
-                <li>Complete uninstallation through the Windows Control Panel removes the agent's executables, logs, and services cleanly.</li>
+                <li>Conversation history, OS keyring entries, environment files, and provider-side records have separate retention and deletion behavior; HELIX does not control provider-side records.</li>
+                <li>Uninstalling HELIX does not necessarily remove credentials or data stored outside the application directory. Review each storage location and connected provider separately.</li>
               </ul>
             </section>
 
@@ -141,8 +142,8 @@ export const PrivacyPage: React.FC = () => {
               </p>
               <div className="privacy-cta-box">
                 <div>
-                  <h3>Ready to try HELIX with full peace of mind?</h3>
-                  <p>Download the Windows version with pre-approved security policies.</p>
+                  <h3>Review the current HELIX download options.</h3>
+                  <p>Check the data flows, permissions, and provider policies before installing.</p>
                 </div>
                 <Link to="/download" className="privacy-btn-action">Download HELIX</Link>
               </div>
@@ -173,7 +174,7 @@ export const PrivacyPage: React.FC = () => {
           </div>
         </div>
         <div className="privacy-footer__bottom">
-          <span>© {new Date().getFullYear()} HELIX Project. Licensed under Apache 2.0.</span>
+          <span>© {new Date().getFullYear()} HELIX Project.</span>
           <a href="#top">Back to top ↑</a>
         </div>
       </footer>

@@ -35,6 +35,7 @@ test('POST /api/updates/subscribe adds a subscriber email', async () => {
     const data = (await res.json()) as any;
     assert.equal(res.status, 200);
     assert.equal(data.success, true);
+    assert.equal(data.message, 'Subscription request accepted by the update service.');
     assert.ok(data.totalSubscribers >= 1);
   } finally {
     await stopServer(server);

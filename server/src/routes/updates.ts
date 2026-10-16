@@ -26,11 +26,11 @@ updatesRouter.post('/subscribe', (req: Request, res: Response) => {
     const { email } = SubscribeSchema.parse(req.body);
     const normalized = email.toLowerCase().trim();
     subscribersSet.add(normalized);
-    logger.info(`[Updates] New subscriber registered: ${normalized} (Total: ${subscribersSet.size})`);
+    logger.info(`[Updates] Subscriber registered (Total: ${subscribersSet.size})`);
 
     return res.status(200).json({
       success: true,
-      message: 'Subscription successful. You will receive an email when new versions are released.',
+      message: 'Subscription request accepted by the update service.',
       totalSubscribers: subscribersSet.size,
     });
   } catch (error: any) {

@@ -40,9 +40,9 @@ export const Download: React.FC<{ requireAuthenticatedDownload?: boolean }> = ({
         <div className="download-box">
           <div className="download-header">
             <span className="section-label">GET HELIX FOR WINDOWS</span>
-            <h2 className="download-title">Resident Autonomous Intelligence</h2>
+            <h2 className="download-title">HELIX Desktop for Windows</h2>
             <p className="download-desc">
-              Choose an edition and installation profile. Only verified installers are available to download.
+              Choose an edition. Only currently published Windows installers are offered here.
             </p>
           </div>
 
@@ -50,7 +50,7 @@ export const Download: React.FC<{ requireAuthenticatedDownload?: boolean }> = ({
             <article className="release-option release-option-available">
               <div>
                 <h3>HELIX Normal</h3>
-                <p>Electron · Complete installation</p>
+                <p>Electron · Windows x64 installer</p>
               </div>
               <span className="release-option-status">Current installer</span>
             </article>
@@ -64,7 +64,7 @@ export const Download: React.FC<{ requireAuthenticatedDownload?: boolean }> = ({
             <article className="release-option release-option-available">
               <div>
                 <h3>HELIX Lite</h3>
-                <p>Tauri · Complete installation</p>
+                <p>Tauri · Windows x64 installer</p>
               </div>
               <span className="release-option-status">
                 {liteRelease ? `v${liteRelease.version}` : liteReleaseError ? 'Unavailable' : 'Checking release'}
@@ -147,8 +147,8 @@ export const Download: React.FC<{ requireAuthenticatedDownload?: boolean }> = ({
             <div className="instructions-title">Quickstart from Source</div>
             <pre className="code-block selectable">
               <code>{`# 1. Clone repository
-git clone https://github.com/your-org/helix.git
-cd helix
+git clone https://github.com/joelpizza0818-blip/Helix-Assitant.git
+cd Helix-Assitant
 
 # 2. Run automated Windows setup script
 powershell -ExecutionPolicy Bypass -File scripts/setup.ps1
@@ -172,7 +172,7 @@ npm run dev:desktop`}</code>
             </div>
             <div className="req-item">
               <span className="req-title">HARDWARE</span>
-              <span className="req-val">8GB RAM (16GB recommended)</span>
+              <span className="req-val">Minimum requirements are not yet validated</span>
             </div>
             <div className="req-item">
               <span className="req-title">OPTIONAL PERCEPTION</span>
