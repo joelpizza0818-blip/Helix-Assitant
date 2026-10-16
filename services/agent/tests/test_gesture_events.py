@@ -90,9 +90,11 @@ async def test_hand_landmarks_publish_local_preview_frame():
 async def test_gesture_requires_stability_and_is_latched_until_release():
     event_bus = EventBus()
     published = []
+    publication_received = asyncio.Event()
 
     async def capture(event_name, payload):
         published.append((event_name, payload))
+        publication_received.set()
 
     await event_bus.subscribe("GESTURE_CONFIRM", capture)
     engine = GestureEngine(
@@ -111,14 +113,15 @@ async def test_gesture_requires_stability_and_is_latched_until_release():
     engine._observe_gesture(GestureType.THUMBS_UP, 0.95)
     for _ in range(8):
         engine._observe_gesture(GestureType.THUMBS_UP, 0.95)
-    await asyncio.sleep(0.01)
+    await asyncio.wait_for(publication_received.wait(), timeout=1)
     assert published == [("GESTURE_CONFIRM", {"gesture": "THUMBS_UP"})]
 
+    publication_received.clear()
     for _ in range(4):
         engine._observe_gesture(None, 0)
     for _ in range(4):
         engine._observe_gesture(GestureType.THUMBS_UP, 0.95)
-    await asyncio.sleep(0.01)
+    await asyncio.wait_for(publication_received.wait(), timeout=1)
     assert len(published) == 2
 
 
@@ -126,9 +129,11 @@ async def test_gesture_requires_stability_and_is_latched_until_release():
 async def test_learned_hand_command_matches_scaled_pose_once_until_release():
     event_bus = EventBus()
     published = []
+    publication_received = asyncio.Event()
 
     async def capture(event_name, payload):
         published.append((event_name, payload))
+        publication_received.set()
 
     await event_bus.subscribe("GESTURE_ACTION", capture)
     pose = [
@@ -158,7 +163,7 @@ async def test_learned_hand_command_matches_scaled_pose_once_until_release():
 
     for _ in range(8):
         engine._observe_hand_commands(scaled_pose, 0.95)
-    await asyncio.sleep(0.01)
+    await asyncio.wait_for(publication_received.wait(), timeout=1)
 
     assert published == [
         (
@@ -167,11 +172,12 @@ async def test_learned_hand_command_matches_scaled_pose_once_until_release():
         )
     ]
 
+    publication_received.clear()
     engine._observe_hand_commands(scaled_pose, 0.0)
     engine._observe_hand_commands(scaled_pose, 0.0)
     engine._observe_hand_commands(scaled_pose, 0.95)
     engine._observe_hand_commands(scaled_pose, 0.95)
-    await asyncio.sleep(0.01)
+    await asyncio.wait_for(publication_received.wait(), timeout=1)
 
     assert len(published) == 2
 
@@ -228,10 +234,12 @@ async def test_configuring_sensitivity_restarts_active_camera():
 async def test_window_gestures_are_allowed_without_voice_interaction(gesture):
     event_bus = EventBus()
     published = []
+    publication_received = asyncio.Event()
     state_manager = StateManager()
 
     async def capture(event_name, payload):
         published.append((event_name, payload))
+        publication_received.set()
 
     event_name = {
         GestureType.FIST: "GESTURE_CLOSE",
@@ -247,7 +255,7 @@ async def test_window_gestures_are_allowed_without_voice_interaction(gesture):
     engine._loop = asyncio.get_running_loop()
 
     await asyncio.to_thread(engine._on_gesture, gesture)
-    await asyncio.sleep(0.01)
+    await asyncio.wait_for(publication_received.wait(), timeout=1)
     assert published == [(event_name, {"gesture": gesture.name})]
 
 

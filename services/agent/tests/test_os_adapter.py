@@ -56,7 +56,10 @@ class TestOSAdapterFactory:
 
         # Default singleton remains unchanged
         default_adapter = get_os_adapter()
-        expected_type = WindowsAdapter if platform.system() == "Windows" else LinuxAdapter
+        expected_type = {
+            "Windows": WindowsAdapter,
+            "Darwin": MacOSAdapter,
+        }.get(platform.system(), LinuxAdapter)
         assert isinstance(default_adapter, expected_type)
 
 
