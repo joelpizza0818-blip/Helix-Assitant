@@ -134,11 +134,17 @@ export default function VisionSection({ settings, onSave }: Props) {
   const imageRef = useRef<HTMLImageElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const cameraEnabledByHandCommandRef = useRef(false)
+  // Keep the last event that actually had hand landmarks so Capture works
+  // even if the current frame momentarily has no detection.
+  const lastValidLandmarkRef = useRef<HandLandmarkEvent | null>(null)
 
   useEffect(() => {
     const onLandmarks = (event: HandLandmarkEvent) => {
       setLandmarkEvent(event)
       if (event.preview_frame) setCameraFrame(event.preview_frame)
+      if (event.hands?.length > 0) {
+        lastValidLandmarkRef.current = event
+      }
     }
     if (!window.helix?.onHandLandmarks) return
     return window.helix.onHandLandmarks(onLandmarks)
@@ -176,9 +182,12 @@ export default function VisionSection({ settings, onSave }: Props) {
   }, [landmarkEvent])
 
   const captureHandSample = () => {
-    const points = landmarkEvent?.hands?.[0]?.points
+    // Prefer current frame if it has landmarks; fall back to the last valid one
+    // so a momentary gap in detection does not block the capture.
+    const source = (landmarkEvent?.hands?.length ?? 0) > 0 ? landmarkEvent : lastValidLandmarkRef.current
+    const points = source?.hands?.[0]?.points
     if (!points?.length) {
-      setCameraError('No hand landmarks detected yet. Put one hand in view of the active camera and try again.')
+      setCameraError('No hand detected yet. Place one hand clearly in front of the camera and try again.')
       return
     }
     setCapturedSamples((samples) => [...samples, {
@@ -370,7 +379,14 @@ export default function VisionSection({ settings, onSave }: Props) {
           {cameraError && <p role="alert" className="text-xs" style={{ color: 'var(--red)', marginBottom: 8 }}>{cameraError}</p>}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <button type="button" className="validate-btn" onClick={captureHandSample}>Capture / Learn Pose</button>
-            <span className="text-xs text-muted">{capturedSamples.length} pose sample{capturedSamples.length === 1 ? '' : 's'} captured{landmarkEvent?.hands?.[0]?.gesture ? ` · detected ${landmarkEvent.hands[0].gesture}` : ''}</span>
+            <span className="text-xs text-muted">
+              {capturedSamples.length} pose sample{capturedSamples.length === 1 ? '' : 's'} captured
+              {(landmarkEvent?.hands?.length ?? 0) > 0
+                ? ` · ✓ hand detected${landmarkEvent!.hands[0].gesture ? ` (${landmarkEvent!.hands[0].gesture})` : ''}`
+                : lastValidLandmarkRef.current
+                  ? ' · hand not in frame right now'
+                  : ' · waiting for hand…'}
+            </span>
             <button type="button" className="btn-primary" onClick={() => void saveHandCommand()}>Save Hand Command</button>
           </div>
         </div>

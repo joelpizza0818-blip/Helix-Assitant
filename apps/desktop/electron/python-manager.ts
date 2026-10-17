@@ -62,7 +62,7 @@ export class PythonManager {
     return this.wsToken
   }
 
-  private async _waitForReady(timeoutMs = 90000): Promise<void> {
+  private async _waitForReady(timeoutMs = 300000): Promise<void> {
     const deadline = Date.now() + timeoutMs
     while (Date.now() < deadline) {
       const child = this.process
