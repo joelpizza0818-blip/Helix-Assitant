@@ -11,80 +11,68 @@ export interface BannerStatusOptions {
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  Pixel-art H icon — faithful replica of the Helix brand logo
-//  Two inner vertical pillars (full height), thin outer accent
-//  bars (mid-height), horizontal crossbar, flame tips at top.
-//  23 chars wide × 8 rows.
+//  Dot-matrix H — matches the HELIX brand mark.
+//  Each "dot" is two spaces wide ("██" = on, "  " = off)
+//  so the letter has square proportions in a terminal.
+//  Grid: 13 rows × 9 dot-columns  →  13 rows × 18 chars wide.
 // ═══════════════════════════════════════════════════════════════
 
-const H_ICON: string[] = [
-  '        ▒█   █▒        ',  // row 0 — flame tips
-  '        ██   ██        ',  // row 1 — inner pillars top
-  '  ▐█    ██   ██    █▌  ',  // row 2 — outer accents begin
-  '  ▐█    ███████    █▌  ',  // row 3 — crossbar
-  '  ▐█    ███████    █▌  ',  // row 4 — crossbar
-  '  ▐█    ██   ██    █▌  ',  // row 5 — outer accents end
-  '        ██   ██        ',  // row 6 — inner pillars
-  '        ██   ██        ',  // row 7 — inner pillars bottom
+// 1 = dot on, 0 = dot off  (9 columns per row)
+const H_DOTS: number[][] = [
+  [1, 1, 0, 0, 0, 0, 0, 1, 1],  //  0  ██           ██
+  [1, 1, 0, 0, 0, 0, 0, 1, 1],  //  1  ██           ██
+  [1, 1, 0, 0, 0, 0, 0, 1, 1],  //  2  ██           ██
+  [1, 1, 0, 0, 0, 0, 0, 1, 1],  //  3  ██           ██
+  [1, 1, 0, 0, 0, 0, 0, 1, 1],  //  4  ██           ██
+  [1, 1, 1, 1, 1, 1, 1, 1, 1],  //  5  ████████████████
+  [1, 1, 1, 1, 1, 1, 1, 1, 1],  //  6  ████████████████
+  [1, 1, 0, 0, 0, 0, 0, 1, 1],  //  7  ██           ██
+  [1, 1, 0, 0, 0, 0, 0, 1, 1],  //  8  ██           ██
+  [1, 1, 0, 0, 0, 0, 0, 1, 1],  //  9  ██           ██
+  [1, 1, 0, 0, 0, 0, 0, 1, 1],  // 10  ██           ██
+  [1, 1, 0, 0, 0, 0, 0, 1, 1],  // 11  ██           ██
+  [1, 1, 0, 0, 0, 0, 0, 1, 1],  // 12  ██           ██
 ];
 
-// ═══════════════════════════════════════════════════════════════
-//  "ELIX" in geometric block letters  (28 chars wide × 5 rows)
-//  Letters:  E (6w)  L (6w)  I (2w)  X (8w)  — 2-char gaps
-// ═══════════════════════════════════════════════════════════════
+const DOT_ON  = '██';
+const DOT_OFF = '  ';
 
-const ELIX_TEXT: string[] = [
-  '██████  ██      ██  ██    ██',
-  '██      ██      ██   ██  ██ ',
-  '█████   ██      ██    ████  ',
-  '██      ██      ██   ██  ██ ',
-  '██████  ██████  ██  ██    ██',
-];
-
-/** ELIX text starts at H_ICON row 2 (vertically centered) */
-const ELIX_OFFSET = 2;
-
-/** Top-to-bottom gradient for the H icon (white-flame → burnt orange) */
+/** Top-to-bottom gradient (row 0 = flame tip, row 12 = base) */
 const ICON_GRADIENT: string[] = [
-  '#FFFBE8',  // 0 — near-white cream  (flame glow)
-  '#FFE566',  // 1 — bright yellow
-  '#FFD700',  // 2 — gold
-  '#FFBA08',  // 3 — gold-orange
-  '#FF9F1C',  // 4 — orange
-  '#FF8C00',  // 5 — brand orange
-  '#E66D00',  // 6 — dark orange
-  '#CC5500',  // 7 — burnt orange
+  '#FFFBE8',  //  0 — near-white cream (flame glow)
+  '#FFF0A0',  //  1 — pale yellow
+  '#FFE566',  //  2 — bright yellow
+  '#FFD700',  //  3 — gold
+  '#FFBA08',  //  4 — gold-orange
+  '#FFAA00',  //  5 — amber
+  '#FF9F1C',  //  6 — orange (crossbar top)
+  '#FF9000',  //  7 — orange (crossbar bottom)
+  '#FF8C00',  //  8 — brand orange
+  '#F07800',  //  9
+  '#E66D00',  // 10 — dark orange
+  '#D96000',  // 11
+  '#CC5500',  // 12 — burnt orange (base)
 ];
 
-const ICON_W  = 23;
-const GAP     = '    ';   // 4 chars between icon and text
-const GAP_W   = GAP.length;
-const ELIX_W  = 28;
-const FULL_W  = ICON_W + GAP_W + ELIX_W;  // 55
+// Each row is 9 dots × 2 chars = 18 chars wide
+const LOGO_W = 18;
 
 // ───────────────────────────────────────────────────────────────
 //  Public API
 // ───────────────────────────────────────────────────────────────
 
 /**
- * Returns the combined HELIX logo (pixel H + ELIX text),
+ * Returns the dot-matrix HELIX H logo,
  * horizontally centered for the given terminal width.
  */
 export function getAsciiLogo(terminalWidth: number = 80): string {
-  const leftPad = Math.max(0, Math.floor((terminalWidth - FULL_W) / 2));
+  const leftPad = Math.max(0, Math.floor((terminalWidth - LOGO_W) / 2));
   const pad = ' '.repeat(leftPad);
 
-  return H_ICON
-    .map((iconRow, i) => {
-      const coloredIcon = chalk.hex(ICON_GRADIENT[i]).bold(iconRow);
-      const elixIdx = i - ELIX_OFFSET;
-
-      if (elixIdx >= 0 && elixIdx < ELIX_TEXT.length) {
-        const coloredElix = chalk.whiteBright.bold(ELIX_TEXT[elixIdx]);
-        return pad + coloredIcon + GAP + coloredElix;
-      }
-
-      return pad + coloredIcon;
+  return H_DOTS
+    .map((row, i) => {
+      const rowStr = row.map((dot) => (dot ? DOT_ON : DOT_OFF)).join('');
+      return pad + chalk.hex(ICON_GRADIENT[i]).bold(rowStr);
     })
     .join('\n');
 }
@@ -185,6 +173,6 @@ export function getVoiceIndicator(isCapturing: boolean, voiceEnabled: boolean): 
 }
 
 // Legacy named exports kept for compatibility with other modules
-export const HELIX_LOGO_ASCII  = H_ICON;
-export const HELIX_BIG_ART     = H_ICON;
-export const HELIX_HARD_BLOCKS = H_ICON;
+export const HELIX_LOGO_ASCII  = H_DOTS;
+export const HELIX_BIG_ART     = H_DOTS;
+export const HELIX_HARD_BLOCKS = H_DOTS;
