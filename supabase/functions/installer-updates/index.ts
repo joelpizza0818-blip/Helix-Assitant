@@ -96,7 +96,13 @@ Deno.serve(async (request: Request) => {
   const route = url.pathname.split('/installer-updates/')[1] ?? 'latest.yml'
   const isMetadata = route === '' || route === 'latest.yml'
   const isPolicy = route === 'policy.json'
-  const assetName = route.startsWith('download/') ? decodeURIComponent(route.slice('download/'.length)) : ''
+  // Accept both /download/{name} (rewritten URLs in latest.yml) and /{name} directly
+  // (electron-updater generic provider downloads assets at the root URL).
+  const assetName = route.startsWith('download/')
+    ? decodeURIComponent(route.slice('download/'.length))
+    : UPDATE_ASSET_PATTERN.test(decodeURIComponent(route))
+      ? decodeURIComponent(route)
+      : ''
   if (!isMetadata && !isPolicy && !UPDATE_ASSET_PATTERN.test(assetName)) {
     return response(404, 'Not found', 'text/plain')
   }
