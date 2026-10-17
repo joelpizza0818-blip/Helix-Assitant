@@ -7,7 +7,7 @@
     "access": "public"
   },
   "bin": {
-    "helix": "./bin/helix.js"
+    "helix": "bin/helix.js"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

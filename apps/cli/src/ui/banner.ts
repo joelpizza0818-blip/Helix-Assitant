@@ -11,6 +11,161 @@ export interface BannerStatusOptions {
 }
 
 // ═══════════════════════════════════════════════════════════════
+//  HELIX — Kiro-style noise/glitch dot-matrix logo.
+//  Each letter is drawn on a 9-row grid using small mixed
+//  characters (@, #, %, *, +, =, ~) like the Kiro CLI banner.
+//  Empty cells are a dim background dot (·).
+//  Colors cycle per-character: orange, white, cyan.
+// ═══════════════════════════════════════════════════════════════
+
+// Character sets used to fill "on" pixels (noise effect)
+const NOISE = ['@@', '%%', '##', '**', '++', '==', '~~', '$$'];
+
+// Deterministic noise: pick char based on row+col position
+function noiseCh(row: number, col: number): string {
+  return NOISE[(row * 3 + col * 7) % NOISE.length];
+}
+
+// Color cycle per character — orange dominant, accents of white/cyan
+function noiseColor(row: number, col: number): string {
+  const v = (row * 5 + col * 3) % 9;
+  if (v < 5) return '#FF8C00';   // orange (dominant)
+  if (v < 7) return '#FFFFFF';   // white accent
+  return '#00BFFF';              // cyan accent
+}
+
+const OFF = '  ';  // 2 spaces per empty cell
+
+// ── Letter bitmaps — 1=on, 0=off, 9 rows × 5 cols each ────────
+
+const H = [
+  [1,0,0,0,1],
+  [1,0,0,0,1],
+  [1,0,0,0,1],
+  [1,1,1,1,1],
+  [1,1,1,1,1],
+  [1,0,0,0,1],
+  [1,0,0,0,1],
+  [1,0,0,0,1],
+  [1,0,0,0,1],
+];
+
+const E = [
+  [1,1,1,1,1],
+  [1,0,0,0,0],
+  [1,0,0,0,0],
+  [1,1,1,1,0],
+  [1,1,1,1,0],
+  [1,0,0,0,0],
+  [1,0,0,0,0],
+  [1,0,0,0,0],
+  [1,1,1,1,1],
+];
+
+const L = [
+  [1,0,0,0,0],
+  [1,0,0,0,0],
+  [1,0,0,0,0],
+  [1,0,0,0,0],
+  [1,0,0,0,0],
+  [1,0,0,0,0],
+  [1,0,0,0,0],
+  [1,0,0,0,0],
+  [1,1,1,1,1],
+];
+
+const I = [
+  [1,1,1,1,1],
+  [0,0,1,0,0],
+  [0,0,1,0,0],
+  [0,0,1,0,0],
+  [0,0,1,0,0],
+  [0,0,1,0,0],
+  [0,0,1,0,0],
+  [0,0,1,0,0],
+  [1,1,1,1,1],
+];
+
+const X = [
+  [1,0,0,0,1],
+  [1,1,0,1,1],
+  [0,1,0,1,0],
+  [0,1,1,1,0],
+  [0,0,1,0,0],
+  [0,1,1,1,0],
+  [0,1,0,1,0],
+  [1,1,0,1,1],
+  [1,0,0,0,1],
+];
+
+const LETTERS = [H, E, L, I, X];
+const LETTER_GAP = 2;  // empty cols between letters
+const ROWS = 9;
+const COLS_PER_LETTER = 5;
+
+// ── Gradient: top rows = white/yellow, mid = orange, base = dark orange
+const ROW_COLORS: string[] = [
+  '#FFFBE8',
+  '#FFE566',
+  '#FFD700',
+  '#FFBA08',
+  '#FF9F1C',
+  '#FF8C00',
+  '#F07800',
+  '#E66D00',
+  '#CC5500',
+];
+
+// ───────────────────────────────────────────────────────────────
+//  Public API
+// ───────────────────────────────────────────────────────────────
+
+export function getAsciiLogo(terminalWidth: number = 80): string {
+  // total width: 5 letters × 5 cols × 2 chars + 4 gaps × 2 chars × 2
+  const totalCols = LETTERS.length * COLS_PER_LETTER + (LETTERS.length - 1) * LETTER_GAP;
+  const totalChars = totalCols * 2;
+  const leftPad = Math.max(0, Math.floor((terminalWidth - totalChars) / 2));
+  const pad = ' '.repeat(leftPad);
+
+  const lines: string[] = [];
+
+  for (let row = 0; row < ROWS; row++) {
+    let line = pad;
+    let globalCol = 0;
+
+    for (let li = 0; li < LETTERS.length; li++) {
+      const letter = LETTERS[li];
+
+      for (let col = 0; col < COLS_PER_LETTER; col++) {
+        if (letter[row][col]) {
+          const ch = noiseCh(row, globalCol);
+          // blend per-cell noise color with row gradient
+          const color = (row + globalCol) % 4 === 0
+            ? noiseColor(row, globalCol)
+            : ROW_COLORS[row];
+          line += chalk.hex(color).bold(ch);
+        } else {
+          line += chalk.hex('#333333')('··');
+        }
+        globalCol++;
+      }
+
+      // gap between letters
+      if (li < LETTERS.length - 1) {
+        for (let g = 0; g < LETTER_GAP; g++) {
+          line += chalk.hex('#333333')('··');
+          globalCol++;
+        }
+      }
+    }
+
+    lines.push(line);
+  }
+
+  return lines.join('\n');
+}
+
+// ═══════════════════════════════════════════════════════════════
 //  HELIX brand mark — faithful ASCII replica.
 //
 //  The real logo has THREE vertical bar groups:
@@ -78,22 +233,6 @@ const LOGO_W = 21;
 // ───────────────────────────────────────────────────────────────
 //  Public API
 // ───────────────────────────────────────────────────────────────
-
-/**
- * Returns the dot-matrix HELIX H logo,
- * horizontally centered for the given terminal width.
- */
-export function getAsciiLogo(terminalWidth: number = 80): string {
-  const leftPad = Math.max(0, Math.floor((terminalWidth - LOGO_W) / 2));
-  const pad = ' '.repeat(leftPad);
-
-  return H_DOTS
-    .map((row, i) => {
-      const rowStr = row.map((dot) => (dot ? DOT_ON : DOT_OFF)).join('');
-      return pad + chalk.hex(ICON_GRADIENT[i]).bold(rowStr);
-    })
-    .join('\n');
-}
 
 /**
  * Compact, badge-style status bar.
@@ -191,6 +330,6 @@ export function getVoiceIndicator(isCapturing: boolean, voiceEnabled: boolean): 
 }
 
 // Legacy named exports kept for compatibility with other modules
-export const HELIX_LOGO_ASCII  = H_DOTS;
-export const HELIX_BIG_ART     = H_DOTS;
-export const HELIX_HARD_BLOCKS = H_DOTS;
+export const HELIX_LOGO_ASCII  = LETTERS;
+export const HELIX_BIG_ART     = LETTERS;
+export const HELIX_HARD_BLOCKS = LETTERS;
