@@ -2,7 +2,10 @@
   "name": "@helix/cli",
   "version": "0.1.0",
   "description": "HELIX - Interactive Terminal CLI for Windows AI Desktop Agent",
-  "private": true,
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "helix": "./bin/helix.js"
   },

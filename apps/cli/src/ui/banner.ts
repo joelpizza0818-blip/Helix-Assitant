@@ -11,51 +11,69 @@ export interface BannerStatusOptions {
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  Dot-matrix H — matches the HELIX brand mark.
-//  Each "dot" is two spaces wide ("██" = on, "  " = off)
-//  so the letter has square proportions in a terminal.
-//  Grid: 13 rows × 9 dot-columns  →  13 rows × 18 chars wide.
+//  HELIX brand mark — faithful ASCII replica.
+//
+//  The real logo has THREE vertical bar groups:
+//    Left  : 2 thin bars (outer left accent + inner left pillar)
+//    Center: 1 thin bar  (shorter, only mid-height crossbar)
+//    Right : 2 thin bars (inner right pillar + outer right accent)
+//
+//  Each bar is rendered as a column of "██" blocks.
+//  Gradient runs top (cream/white) → bottom (burnt orange).
+//
+//  Layout per row — 6 columns of dots, each dot = "██" + 1 space:
+//    col 0 : outer-left   bar
+//    col 1 : inner-left   bar  (full height)
+//    col 2 : (gap)
+//    col 3 : center       bar  (rows 4-8 only — the crossbar)
+//    col 4 : (gap)
+//    col 5 : inner-right  bar  (full height)
+//    col 6 : outer-right  bar
+//
+//  13 rows total.  The outer bars are shorter (rows 2-10).
 // ═══════════════════════════════════════════════════════════════
 
-// 1 = dot on, 0 = dot off  (9 columns per row)
+// Columns:  [outerL, innerL, gap, center, gap, innerR, outerR]
+// 1 = block on, 0 = off
 const H_DOTS: number[][] = [
-  [1, 1, 0, 0, 0, 0, 0, 1, 1],  //  0  ██           ██
-  [1, 1, 0, 0, 0, 0, 0, 1, 1],  //  1  ██           ██
-  [1, 1, 0, 0, 0, 0, 0, 1, 1],  //  2  ██           ██
-  [1, 1, 0, 0, 0, 0, 0, 1, 1],  //  3  ██           ██
-  [1, 1, 0, 0, 0, 0, 0, 1, 1],  //  4  ██           ██
-  [1, 1, 1, 1, 1, 1, 1, 1, 1],  //  5  ████████████████
-  [1, 1, 1, 1, 1, 1, 1, 1, 1],  //  6  ████████████████
-  [1, 1, 0, 0, 0, 0, 0, 1, 1],  //  7  ██           ██
-  [1, 1, 0, 0, 0, 0, 0, 1, 1],  //  8  ██           ██
-  [1, 1, 0, 0, 0, 0, 0, 1, 1],  //  9  ██           ██
-  [1, 1, 0, 0, 0, 0, 0, 1, 1],  // 10  ██           ██
-  [1, 1, 0, 0, 0, 0, 0, 1, 1],  // 11  ██           ██
-  [1, 1, 0, 0, 0, 0, 0, 1, 1],  // 12  ██           ██
+//   oL  iL  g   ce  g   iR  oR
+  [  0,  1,  0,  0,  0,  1,  0 ],  //  0
+  [  0,  1,  0,  0,  0,  1,  0 ],  //  1
+  [  1,  1,  0,  0,  0,  1,  1 ],  //  2  outer bars start
+  [  1,  1,  0,  0,  0,  1,  1 ],  //  3
+  [  1,  1,  0,  1,  0,  1,  1 ],  //  4  center bar starts
+  [  1,  1,  0,  1,  0,  1,  1 ],  //  5
+  [  1,  1,  1,  1,  1,  1,  1 ],  //  6  full crossbar row
+  [  1,  1,  0,  1,  0,  1,  1 ],  //  7
+  [  1,  1,  0,  1,  0,  1,  1 ],  //  8  center bar ends
+  [  1,  1,  0,  0,  0,  1,  1 ],  //  9
+  [  1,  1,  0,  0,  0,  1,  1 ],  // 10  outer bars end
+  [  0,  1,  0,  0,  0,  1,  0 ],  // 11
+  [  0,  1,  0,  0,  0,  1,  0 ],  // 12
 ];
 
-const DOT_ON  = '██';
-const DOT_OFF = '  ';
+const DOT_ON  = '██ ';  // block + 1 space → each cell = 3 chars
+const DOT_OFF = '   ';  // 3 spaces
 
-/** Top-to-bottom gradient (row 0 = flame tip, row 12 = base) */
+/** Top-to-bottom gradient — cream flame tip → burnt-orange base */
 const ICON_GRADIENT: string[] = [
-  '#FFFBE8',  //  0 — near-white cream (flame glow)
-  '#FFF0A0',  //  1 — pale yellow
+  '#FFFBE8',  //  0 — near-white cream
+  '#FFF4CC',  //  1
   '#FFE566',  //  2 — bright yellow
   '#FFD700',  //  3 — gold
   '#FFBA08',  //  4 — gold-orange
   '#FFAA00',  //  5 — amber
-  '#FF9F1C',  //  6 — orange (crossbar top)
-  '#FF9000',  //  7 — orange (crossbar bottom)
+  '#FF9F1C',  //  6 — orange (crossbar)
+  '#FF9000',  //  7
   '#FF8C00',  //  8 — brand orange
   '#F07800',  //  9
   '#E66D00',  // 10 — dark orange
   '#D96000',  // 11
-  '#CC5500',  // 12 — burnt orange (base)
+  '#CC5500',  // 12 — burnt orange
 ];
 
-// Each row is 9 dots × 2 chars = 18 chars wide
-const LOGO_W = 18;
+// 7 cols × 3 chars = 21 chars wide
+const LOGO_W = 21;
 
 // ───────────────────────────────────────────────────────────────
 //  Public API
