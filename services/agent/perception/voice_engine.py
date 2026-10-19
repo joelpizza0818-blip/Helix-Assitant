@@ -112,6 +112,30 @@ class VoiceEngine:
     async def start(self):
         if not self.enabled or self._is_active:
             return
+        try:
+            import faster_whisper as _fw
+            import openwakeword as _oww
+            import sounddevice as _sd
+            logger.info(
+                "VoiceEngine dependencies: faster_whisper=%s openwakeword=%s sounddevice=%s",
+                getattr(_fw, "__version__", "unknown"),
+                getattr(_oww, "__version__", "unknown"),
+                getattr(_sd, "__version__", "unknown"),
+            )
+        except ImportError as _dep_err:
+            logger.info("VoiceEngine dependency versions unavailable: %s", _dep_err)
+        _session_name = os.environ.get("SESSIONNAME", "")
+        if "RDP" in _session_name.upper() or "ICA" in _session_name.upper():
+            logger.warning(
+                "VoiceEngine: sesión remota detectada (SESSIONNAME=%s). "
+                "El micrófono puede no estar disponible en este entorno.",
+                _session_name,
+            )
+            await self.event_bus.publish(
+                "VOICE_HARDWARE_UNAVAILABLE",
+                {"reason": "rdp_session", "session_name": _session_name},
+            )
+            return
         if not getattr(self.wake_detector, "provider", None):
             raise RuntimeError(
                 "Voice activation has no compatible wake-word ONNX model."

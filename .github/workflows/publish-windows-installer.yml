@@ -23,6 +23,19 @@ jobs:
         with:
           ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
 
+      - name: Verify fix commits are present in release tag
+        shell: pwsh
+        run: |
+          $gestureContent = Get-Content "services/agent/perception/gesture_engine.py" -Raw
+          $voiceContent = Get-Content "services/agent/perception/voice_engine.py" -Raw
+          if (-not ($gestureContent -match 'rgb_frame')) {
+            throw "gesture_engine.py does not contain the 'rgb_frame' fix. The release tag was created before the fix was committed."
+          }
+          if (-not ($voiceContent -match '_subscriptions\s*=\s*\[\]')) {
+            throw "voice_engine.py does not contain the '_subscriptions = []' fix. The release tag was created before the fix was committed."
+          }
+          Write-Host "Fix validation passed: both perception fixes are present in this release tag."
+
       - name: Validate release version and publish credentials
         shell: pwsh
         env:

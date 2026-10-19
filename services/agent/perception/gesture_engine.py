@@ -116,7 +116,29 @@ class GestureEngine:
             return
         if self._thread and self._thread.is_alive():
             raise RuntimeError("Gesture camera thread is still shutting down")
-        
+
+        try:
+            import cv2 as _cv2
+            import mediapipe as _mp
+            logger.info("GestureEngine dependencies: cv2=%s mediapipe=%s", getattr(_cv2, "__version__", "unknown"), getattr(_mp, "__version__", "unknown"))
+        except ImportError as _dep_err:
+            logger.info("GestureEngine dependency versions unavailable: %s", _dep_err)
+
+        _session_name = os.environ.get("SESSIONNAME", "")
+        if "RDP" in _session_name.upper() or "ICA" in _session_name.upper():
+            logger.warning(
+                "GestureEngine: sesión remota detectada (SESSIONNAME=%s). "
+                "La cámara puede no estar disponible en este entorno.",
+                _session_name,
+            )
+            asyncio.ensure_future(
+                self.event_bus.publish(
+                    "GESTURE_HARDWARE_UNAVAILABLE",
+                    {"reason": "rdp_session", "session_name": _session_name},
+                )
+            )
+            return
+
         try:
             import cv2  # noqa: F401
             import mediapipe  # noqa: F401
