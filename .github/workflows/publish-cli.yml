@@ -6,6 +6,9 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/cli
     steps:
       - uses: actions/checkout@v4
 
@@ -15,13 +18,14 @@ jobs:
           registry-url: https://registry.npmjs.org/
 
       - name: Install dependencies
+        working-directory: .
         run: npm ci
 
       - name: Build CLI
+        working-directory: .
         run: npm run build --workspace=apps/cli
 
       - name: Publish to npm
         run: npm publish --access public --no-workspaces
-        working-directory: apps/cli
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
