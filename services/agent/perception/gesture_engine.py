@@ -313,9 +313,14 @@ class GestureEngine:
                                 ).decode("ascii")
                                 last_preview_frame_time = now
                         if detect is not None:
-                            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-                            results = detect(image, int(time.monotonic() * 1000))
+                            # FIX v0.2.1: use a separate variable for the RGB
+                            # converted frame so `image` is always reset to None
+                            # for the next cap.read() call, preventing the loop
+                            # from reprocessing a stale frame when detection is
+                            # slow.
+                            rgb_frame = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
                             image = None
+                            results = detect(rgb_frame, int(time.monotonic() * 1000))
                             hand_landmarks = getattr(
                                 results,
                                 "multi_hand_landmarks",

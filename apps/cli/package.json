@@ -1,6 +1,6 @@
 {
-  "name": "@helix/cli",
-  "version": "0.1.0",
+  "name": "helix-assistant-cli",
+  "version": "0.2.1",
   "description": "HELIX - Interactive Terminal CLI for Windows AI Desktop Agent",
   "private": false,
   "publishConfig": {

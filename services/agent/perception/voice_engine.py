@@ -128,7 +128,13 @@ class VoiceEngine:
                     "Check microphone privacy permissions and the selected input device."
                 )
         except Exception:
+            # FIX v0.2.1: cancel subscription tasks created above so they do
+            # not leak into the event loop when startup fails.
             self._is_active = False
+            for sub in self._subscriptions:
+                if not sub.done():
+                    sub.cancel()
+            self._subscriptions = []
             try:
                 await self.wake_detector.stop()
             except Exception:

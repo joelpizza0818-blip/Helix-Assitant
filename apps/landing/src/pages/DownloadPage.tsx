@@ -330,9 +330,9 @@ export const DownloadPage: React.FC = () => {
           {/* HELIX CLI Quickstart */}
           <section className="download-source-section" style={{ marginTop: '3rem' }}>
             <div className="download-source-header">
-              <span className="download-section-eyebrow">DEVELOPER CLI · SOURCE PACKAGE</span>
-              <h3>Build the HELIX CLI from source</h3>
-              <p>The CLI package is not currently published to npm. Build it from this repository:</p>
+              <span className="download-section-eyebrow">DEVELOPER CLI · NPM PACKAGE</span>
+              <h3>Try HELIX CLI instantly with npx</h3>
+              <p>The CLI is published on npm. No install needed — run it directly with npx:</p>
             </div>
 
             <div className="download-terminal-card">
@@ -340,14 +340,15 @@ export const DownloadPage: React.FC = () => {
                 <span className="download-terminal-dots">
                   <i /><i /><i />
                 </span>
-                <span className="download-terminal-title">Terminal / Command Prompt / Bash</span>
+                <span className="download-terminal-title">Terminal / Command Prompt / PowerShell</span>
               </div>
               <pre className="download-code-block">
-                <code>{`git clone https://github.com/joelpizza0818-blip/Helix-Assitant.git
-cd "Helix-Assitant"
-npm ci
-npm run build --workspace=@helix/cli
-node apps/cli/dist/index.js --help`}</code>
+                <code>{`# Run directly without installing (requires Node.js 18+)
+npx @helix/cli
+
+# Or install globally
+npm install -g @helix/cli
+helix`}</code>
               </pre>
             </div>
           </section>
