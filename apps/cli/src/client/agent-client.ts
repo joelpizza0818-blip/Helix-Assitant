@@ -1,4 +1,4 @@
-mport WebSocket from 'ws';
+import WebSocket from 'ws';
 import { EventEmitter } from 'events';
 import type {
   AgentMessage,
@@ -178,7 +178,7 @@ export class AgentClient extends EventEmitter {
           } else {
             this.reconnecting = false;
             this.emit('agent_start_failed', {
-              error: 'El servicio del agente no respondiÃ³ en el puerto 8765 dentro de 45s.',
+              error: 'El servicio del agente no respondiÃƒÂ³ en el puerto 8765 dentro de 45s.',
             });
             if (!this.isExplicitlyClosed && this.autoReconnect) {
               this._scheduleReconnect();
