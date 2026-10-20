@@ -1,4 +1,4 @@
-﻿use std::{
+use std::{
     collections::HashMap,
     fs,
     future::Future,
@@ -1822,4 +1822,3 @@ mod tests {
         assert!(!cancel_capability_operation(&downloads, "vision").await);
     }
 }
-
