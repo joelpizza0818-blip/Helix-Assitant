@@ -1,6 +1,6 @@
-{
+﻿{
   "name": "@helix/desktop-tauri",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "scripts": {
     "tauri": "tauri"
@@ -15,3 +15,4 @@
     "@tauri-apps/cli": "^2.8.4"
   }
 }
+
