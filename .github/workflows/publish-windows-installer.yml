@@ -1,4 +1,4 @@
-name: Publish Windows installer
+﻿name: Publish Windows installer
 
 on:
   release:
@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   build-and-publish:
-    if: github.event_name != 'release' || !github.event.release.prerelease
+    if: github.event_name != 'release' || (!github.event.release.prerelease && !startsWith(github.event.release.tag_name, 'lite-'))
     runs-on: windows-latest
     timeout-minutes: 180
     steps:
@@ -208,3 +208,4 @@ jobs:
           }
           Write-Host "Verified $tag is the latest private installer release."
           Write-Host "Installer SHA-256: $($env:INSTALLER_SHA256)"
+
