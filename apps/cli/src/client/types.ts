@@ -1,4 +1,4 @@
-export interface AgentMessage<T = unknown> {
+xport interface AgentMessage<T = unknown> {
   type: string;
   payload: T;
   timestamp?: string;

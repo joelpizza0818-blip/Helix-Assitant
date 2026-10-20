@@ -1,4 +1,4 @@
-import {
+mport {
   app,
   BrowserWindow,
   Tray,
@@ -306,7 +306,7 @@ function createFloatingWindow(): BrowserWindow {
 
   loadWithRetry(win, `${RENDERER_URL}#floating`)
 
-  // Prevent closing — hide instead
+  // Prevent closing â€” hide instead
   win.on('close', (e) => {
     e.preventDefault()
     win.hide()
@@ -978,7 +978,7 @@ app.on('before-quit', (event) => {
 })
 
 app.on('window-all-closed', () => {
-  // Do NOT quit — HELIX lives in the tray
+  // Do NOT quit â€” HELIX lives in the tray
   // Only quit when user explicitly selects Quit from tray menu
 })
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+mport { useState, useEffect, useCallback, useRef } from 'react'
 import type {
   AgentMessage, AgentStatus, AgentStatusUpdate, TaskDefinition,
   ConfirmationRequest, FallbackEvent, ProviderStatus, ModelDefinition,
@@ -122,7 +122,7 @@ export function useAgent(options: { persistConversation?: boolean } = {}): UseAg
     const cleanups: Array<() => void> = []
 
     if (!window.helix) {
-      console.warn('window.helix not available — are we in Electron?')
+      console.warn('window.helix not available â€” are we in Electron?')
       return
     }
 

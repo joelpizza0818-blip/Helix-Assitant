@@ -1,4 +1,4 @@
-export interface ActiveMention {
+xport interface ActiveMention {
   trigger: '@' | '/'
   query: string
   start: number

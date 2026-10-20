@@ -1,4 +1,4 @@
-const MEDIA_TYPES = new Set(['audio', 'video'])
+onst MEDIA_TYPES = new Set(['audio', 'video'])
 
 export function isTrustedRendererRequest(
   topLevelUrl: string,

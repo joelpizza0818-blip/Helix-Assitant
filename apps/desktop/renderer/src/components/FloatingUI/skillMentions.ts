@@ -1,4 +1,4 @@
-import type { Plugin } from 'unified'
+mport type { Plugin } from 'unified'
 import type { Content, Parent, Root, Strong } from 'mdast'
 
 export interface SkillMentionSegment {

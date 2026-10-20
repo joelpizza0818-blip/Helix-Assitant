@@ -1,4 +1,4 @@
-import test from 'node:test';
+mport test from 'node:test';
 import assert from 'node:assert/strict';
 import { Autocompleter, SLASH_COMMANDS } from '../src/ui/autocomplete';
 import { formatSkill, formatMcp, highlightMentions, ORANGE } from '../src/ui/colors';
@@ -87,7 +87,7 @@ test('Colors: highlightMentions formats @skills and #mcps', () => {
 test('Banner: getAsciiLogo contains HELIX art', () => {
   const logo = getAsciiLogo();
   assert.ok(logo.length > 20);
-  assert.ok(logo.includes('█') || logo.includes('ELIX'));
+  assert.ok(logo.includes('â–ˆ') || logo.includes('ELIX'));
 });
 
 test('Banner: getStatusBar reflects connection and mic state', () => {

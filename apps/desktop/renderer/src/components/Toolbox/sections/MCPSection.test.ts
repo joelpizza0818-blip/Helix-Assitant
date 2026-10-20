@@ -1,4 +1,4 @@
-import test from 'node:test'
+mport test from 'node:test'
 import assert from 'node:assert/strict'
 import { mcpSaveErrorMessage, saveMcpServerDraft } from './mcpDraft.ts'
 import { prepareSettingsSave } from '../../../hooks/settingsSave.ts'

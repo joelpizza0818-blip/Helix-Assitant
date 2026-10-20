@@ -1,4 +1,4 @@
-import { Command } from 'commander';
+mport { Command } from 'commander';
 import { HelixRepl } from './ui/repl';
 import { getWsUrl, getWsToken } from './config/env';
 import { AgentClient } from './client/agent-client';
@@ -14,7 +14,7 @@ program
   .description('HELIX - Interactive Terminal CLI for Windows AI Desktop Agent')
   .version('0.1.0')
   .option('-u, --ws-url <url>', 'URL del servidor WebSocket del agente', getWsUrl())
-  .option('-t, --token <token>', 'Token de autenticación WebSocket de HELIX', getWsToken())
+  .option('-t, --token <token>', 'Token de autenticaciÃ³n WebSocket de HELIX', getWsToken())
   .action(async (options) => {
     // Default action: start interactive chat REPL
     const repl = new HelixRepl({
@@ -26,7 +26,7 @@ program
 
 program
   .command('chat')
-  .description('Iniciar sesión de chat interactivo con HELIX')
+  .description('Iniciar sesiÃ³n de chat interactivo con HELIX')
   .action(async () => {
     const opts = program.opts();
     const repl = new HelixRepl({
@@ -95,7 +95,7 @@ program
 
     try {
       await client.connect();
-      console.log(`  ${GREEN('● Conectado')} al agente en ${client.url}`);
+      console.log(`  ${GREEN('â— Conectado')} al agente en ${client.url}`);
 
       const [settings, skills, mcpServers] = await Promise.all([
         client.getSettings().catch(() => ({} as HelixSettings)),
@@ -103,14 +103,14 @@ program
         client.getMcpServers().catch(() => []),
       ]);
 
-      const micStatus = settings.voice_enabled !== false ? GREEN('🟢 Activo') : RED('🔴 Inactivo');
-      console.log(`  Micrófono:   ${micStatus}`);
+      const micStatus = settings.voice_enabled !== false ? GREEN('ðŸŸ¢ Activo') : RED('ðŸ”´ Inactivo');
+      console.log(`  MicrÃ³fono:   ${micStatus}`);
       console.log(`  Skills:      ${ORANGE(skills.length.toString())} registradas`);
       console.log(`  MCP Servers: ${CYAN(mcpServers.length.toString())} configurados`);
       console.log('');
       client.close();
     } catch (err) {
-      console.log(`  ${RED('● Desconectado')} del agente en ${client.url}`);
+      console.log(`  ${RED('â— Desconectado')} del agente en ${client.url}`);
       console.log(DIM(`  Detalle: ${(err as Error).message}\n`));
     }
   });
@@ -130,7 +130,7 @@ program
       await client.connect();
       await handleShowApiKey(client);
     } catch (err) {
-      console.error(RED(`Error de conexión con el agente: ${(err as Error).message}`));
+      console.error(RED(`Error de conexiÃ³n con el agente: ${(err as Error).message}`));
     } finally {
       client.close();
     }

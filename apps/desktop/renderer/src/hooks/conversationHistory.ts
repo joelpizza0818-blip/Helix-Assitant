@@ -1,4 +1,4 @@
-import type { AgentMessage } from '../types/global'
+mport type { AgentMessage } from '../types/global'
 
 const HISTORY_STORAGE_KEY = 'helix:conversation-history'
 

@@ -1,4 +1,4 @@
-import prompts from 'prompts';
+mport prompts from 'prompts';
 import chalk from 'chalk';
 import type { AgentClient } from '../client/agent-client';
 import { CYAN, GREEN, RED, YELLOW, GRAY, BOLD, DIM } from '../ui/colors';
@@ -13,7 +13,7 @@ const KNOWN_PROVIDERS = [
 ];
 
 export async function handleShowApiKey(client: AgentClient): Promise<void> {
-  console.log(`\n${BOLD('🔑 Configuración Actual de API Keys:')}\n`);
+  console.log(`\n${BOLD('ðŸ”‘ ConfiguraciÃ³n Actual de API Keys:')}\n`);
 
   try {
     const providers = await client.getProviders();
@@ -23,7 +23,7 @@ export async function handleShowApiKey(client: AgentClient): Promise<void> {
     }
 
     for (const provider of providers) {
-      const statusIcon = provider.configured ? GREEN('●') : GRAY('○');
+      const statusIcon = provider.configured ? GREEN('â—') : GRAY('â—‹');
       const providerTitle = provider.configured
         ? chalk.greenBright.bold(provider.name || provider.id)
         : chalk.gray(provider.name || provider.id);
@@ -35,22 +35,22 @@ export async function handleShowApiKey(client: AgentClient): Promise<void> {
           let healthBadge: string;
           switch (slot.health) {
             case 'healthy':
-              healthBadge = chalk.green('✔ Válida / Activa');
+              healthBadge = chalk.green('âœ” VÃ¡lida / Activa');
               break;
             case 'degraded':
-              healthBadge = chalk.yellow('⚠ Degradada');
+              healthBadge = chalk.yellow('âš  Degradada');
               break;
             case 'cooldown':
-              healthBadge = chalk.red('⏳ Cooldown');
+              healthBadge = chalk.red('â³ Cooldown');
               break;
             case 'unconfigured':
-              healthBadge = chalk.gray('○ No configurada');
+              healthBadge = chalk.gray('â—‹ No configurada');
               break;
             default:
               healthBadge = chalk.gray(slot.health);
           }
 
-          const maskedText = slot.configured ? chalk.cyan('••••••••••••••••') : chalk.gray('vacío');
+          const maskedText = slot.configured ? chalk.cyan('â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢') : chalk.gray('vacÃ­o');
           console.log(`     ${GRAY('Slot ' + slot.slot + ':')} ${maskedText}  [${healthBadge}]`);
         }
       } else {
@@ -64,7 +64,7 @@ export async function handleShowApiKey(client: AgentClient): Promise<void> {
 }
 
 export async function handleConfigApiKey(client: AgentClient): Promise<void> {
-  console.log(`\n${BOLD('⚙️  Configurador Interactivo de API Keys')}\n`);
+  console.log(`\n${BOLD('âš™ï¸  Configurador Interactivo de API Keys')}\n`);
 
   // 1. Select Provider
   const providerAnswer = await prompts({
@@ -76,7 +76,7 @@ export async function handleConfigApiKey(client: AgentClient): Promise<void> {
 
   const providerId = providerAnswer.provider as string | undefined;
   if (!providerId) {
-    console.log(YELLOW('Operación cancelada.\n'));
+    console.log(YELLOW('OperaciÃ³n cancelada.\n'));
     return;
   }
 
@@ -88,14 +88,14 @@ export async function handleConfigApiKey(client: AgentClient): Promise<void> {
     choices: [
       { title: 'Slot 1 (Principal)', value: 1 },
       { title: 'Slot 2 (Respaldo)', value: 2 },
-      { title: 'Slot 3 (Rotación)', value: 3 },
-      { title: 'Añadir nuevo Slot', value: 4 },
+      { title: 'Slot 3 (RotaciÃ³n)', value: 3 },
+      { title: 'AÃ±adir nuevo Slot', value: 4 },
     ],
   });
 
   const slotNumber = slotAnswer.slot as number | undefined;
   if (!slotNumber) {
-    console.log(YELLOW('Operación cancelada.\n'));
+    console.log(YELLOW('OperaciÃ³n cancelada.\n'));
     return;
   }
 
@@ -104,12 +104,12 @@ export async function handleConfigApiKey(client: AgentClient): Promise<void> {
     type: 'password',
     name: 'apiKey',
     message: `Introduce la API Key para ${providerId.toUpperCase()} (Slot ${slotNumber}):`,
-    validate: (val: string) => (val && val.trim().length > 0 ? true : 'La API Key no puede estar vacía'),
+    validate: (val: string) => (val && val.trim().length > 0 ? true : 'La API Key no puede estar vacÃ­a'),
   });
 
   const apiKey = (keyAnswer.apiKey as string | undefined)?.trim();
   if (!apiKey) {
-    console.log(YELLOW('Operación cancelada.\n'));
+    console.log(YELLOW('OperaciÃ³n cancelada.\n'));
     return;
   }
 
@@ -118,12 +118,12 @@ export async function handleConfigApiKey(client: AgentClient): Promise<void> {
   try {
     const health = await client.validateKey(providerId, slotNumber, apiKey);
     if (health === 'healthy') {
-      console.log(GREEN(`\n  ✔ ¡API Key validada y guardada con éxito en el almacén seguro!`));
+      console.log(GREEN(`\n  âœ” Â¡API Key validada y guardada con Ã©xito en el almacÃ©n seguro!`));
       console.log(DIM(`  Proveedor: ${providerId} | Slot: ${slotNumber} | Estado: healthy\n`));
     } else {
-      console.log(YELLOW(`\n  ⚠ La clave fue procesada pero su estado es: ${health}\n`));
+      console.log(YELLOW(`\n  âš  La clave fue procesada pero su estado es: ${health}\n`));
     }
   } catch (err) {
-    console.log(RED(`\n  ✖ Error al validar la API Key: ${(err as Error).message}\n`));
+    console.log(RED(`\n  âœ– Error al validar la API Key: ${(err as Error).message}\n`));
   }
 }

@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core'
+mport { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrent, onOpenUrl } from '@tauri-apps/plugin-deep-link'
 import { writeText } from '@tauri-apps/plugin-clipboard-manager'

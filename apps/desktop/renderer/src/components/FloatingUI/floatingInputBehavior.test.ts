@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict'
+mport assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   FLOATING_INPUT_MAX_HEIGHT,

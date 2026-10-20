@@ -1,4 +1,4 @@
-export const FLOATING_INPUT_MIN_HEIGHT = 38
+xport const FLOATING_INPUT_MIN_HEIGHT = 38
 export const FLOATING_INPUT_MAX_HEIGHT = 160
 
 export function getFloatingInputSize(scrollHeight: number) {

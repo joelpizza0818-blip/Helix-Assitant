@@ -1,4 +1,4 @@
-const MAX_TEXT_LENGTH = 80_000
+onst MAX_TEXT_LENGTH = 80_000
 let refreshTimer = null
 let lastPublishedAt = 0
 

@@ -1,1 +1,1 @@
-export { HelixRepl, type ReplOptions } from './repl';
+xport { HelixRepl, type ReplOptions } from './repl';

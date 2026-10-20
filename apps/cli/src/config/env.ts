@@ -1,4 +1,4 @@
-import path from 'path';
+mport path from 'path';
 import fs from 'fs';
 import dotenv from 'dotenv';
 
