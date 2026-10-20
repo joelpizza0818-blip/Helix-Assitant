@@ -1,4 +1,4 @@
-# HELIX - Persistent Windows AI Desktop Agent
+ # HELIX - Persistent Windows AI Desktop Agent
 
 HELIX is an advanced AI desktop agent tailored for Windows, providing deep OS integration, seamless automation, and contextual awareness via voice, vision, and screen perception.
 

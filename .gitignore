@@ -56,3 +56,6 @@ tests/*
 tests/promptfoo/eval-results*.json
 tools/
 AGENTS.md
+
+.kiro
+.hypothesis
