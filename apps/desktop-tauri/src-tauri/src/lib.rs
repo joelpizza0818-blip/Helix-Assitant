@@ -1,4 +1,4 @@
-use std::{
+﻿use std::{
     collections::HashMap,
     fs,
     future::Future,
@@ -217,10 +217,10 @@ fn resolve_agent_dir(
 
 fn python_candidates(agent_dir: &Path, project_root: &Path) -> Vec<PathBuf> {
     let mut candidates = vec![
-        agent_dir.join(".venv/Scripts/python.exe"),
         project_root.join(".venv/Scripts/python.exe"),
-        agent_dir.join(".venv/bin/python"),
+        agent_dir.join(".venv/Scripts/python.exe"),
         project_root.join(".venv/bin/python"),
+        agent_dir.join(".venv/bin/python"),
     ]
     .into_iter()
     .filter(|candidate| candidate.is_file())
@@ -1822,3 +1822,4 @@ mod tests {
         assert!(!cancel_capability_operation(&downloads, "vision").await);
     }
 }
+
