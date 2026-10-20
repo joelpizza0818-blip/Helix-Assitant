@@ -1,4 +1,4 @@
-import logging
+﻿import logging
 import asyncio
 import base64
 import threading
@@ -127,8 +127,8 @@ class GestureEngine:
         _session_name = os.environ.get("SESSIONNAME", "")
         if "RDP" in _session_name.upper() or "ICA" in _session_name.upper():
             logger.warning(
-                "GestureEngine: sesión remota detectada (SESSIONNAME=%s). "
-                "La cámara puede no estar disponible en este entorno.",
+                "GestureEngine: sesiÃ³n remota detectada (SESSIONNAME=%s). "
+                "La cÃ¡mara puede no estar disponible en este entorno.",
                 _session_name,
             )
             asyncio.ensure_future(
@@ -714,3 +714,4 @@ class GestureEngine:
             future.result()
         except Exception:
             logger.exception("Failed to publish detected gesture")
+
