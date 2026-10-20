@@ -1,4 +1,4 @@
-name: Release HELIX Lite (Tauri)
+﻿name: Release HELIX Lite (Tauri)
 
 on:
   push:
@@ -69,6 +69,18 @@ jobs:
       - name: Test shared desktop contracts
         run: npm test --workspace=@helix/desktop
 
+      - name: Prepare Python runtime environment
+        shell: pwsh
+        run: |
+          python -m venv services\agent\.venv
+          services\agent\.venv\Scripts\python.exe -m pip install --upgrade pip
+          services\agent\.venv\Scripts\python.exe -m pip install -r services\agent\requirements.txt pyinstaller
+      - name: Build agent runtime for Tauri bundling
+        shell: pwsh
+        run: |
+          npm run build:agent-runtime
+          if ($LASTEXITCODE -ne 0) { throw "Agent runtime build failed." }
+
       - name: Format-check and test the Tauri bridge
         shell: pwsh
         run: |
@@ -76,13 +88,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Tauri bridge formatting check failed." }
           cargo test --manifest-path apps\desktop-tauri\src-tauri\Cargo.toml
           if ($LASTEXITCODE -ne 0) { throw "Tauri bridge tests failed." }
-
-      - name: Prepare Python runtime environment
-        shell: pwsh
-        run: |
-          python -m venv services\agent\.venv
-          services\agent\.venv\Scripts\python.exe -m pip install --upgrade pip
-          services\agent\.venv\Scripts\python.exe -m pip install -r services\agent\requirements.txt pyinstaller
 
       - name: Validate capability trust key
         shell: pwsh
@@ -131,3 +136,5 @@ jobs:
               --title "HELIX Lite ${{ steps.lite-version.outputs.version }}" `
               --notes "HELIX Lite (Tauri) Windows x64 installer. This installer is unsigned; Windows may show an unknown-publisher warning. Verify the attached SHA-256 file before running it. This release and updater are separate from HELIX Normal/Electron."
           }
+
+
