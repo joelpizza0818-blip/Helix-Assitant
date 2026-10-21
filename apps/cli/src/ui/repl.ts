@@ -122,14 +122,14 @@ export class HelixRepl {
       if (!this.waitingLogged) {
         this.waitingLogged = true;
         console.log(`\n${RED('â—')} ${chalk.yellowBright('Esperando al servicio del agente HELIX en ws://127.0.0.1:8765...')}`);
-        console.log(`${GRAY('  (Si no responde tras 3 reintentos, el CLI lo iniciarÃ¡ automÃ¡ticamente en segundo plano)')}\n`);
+        console.log(`${GRAY('  (Si no responde tras 3 reintentos, el CLI lo iniciará automáticamente en segundo plano)')}\n`);
       }
       this._promptUser();
     });
 
     this.client.on('auto_spawning_agent', () => {
       process.stdout.write(`\n${CYAN_BOLD('âš™ï¸')} ${chalk.hex('#FF9F1C').bold('[AUTO-START]:')} Iniciando el servicio del agente HELIX en segundo plano...\n`);
-      process.stdout.write(`${GRAY('  Por favor espere mientras termina de inicializarse (no se realizarÃ¡n reintentos hasta que estÃ© listo).')}\n`);
+      process.stdout.write(`${GRAY('  Por favor espere mientras termina de inicializarse (no se realizarán reintentos hasta que estÃ© listo).')}\n`);
     });
 
     this.client.on('agent_starting_progress', (data: { elapsedSec: number }) => {
@@ -141,7 +141,7 @@ export class HelixRepl {
     });
 
     this.client.on('agent_start_failed', (data: { error?: string }) => {
-      process.stdout.write(`\r\x1b[K\n  ${chalk.red('âœ–')} ${chalk.redBright('No se pudo iniciar el servicio automÃ¡ticamente:')} ${chalk.gray(data?.error || 'Tiempo agotado')}\n`);
+      process.stdout.write(`\r\x1b[K\n  ${chalk.red('âœ–')} ${chalk.redBright('No se pudo iniciar el servicio automáticamente:')} ${chalk.gray(data?.error || 'Tiempo agotado')}\n`);
       this._promptUser();
     });
 
@@ -208,28 +208,28 @@ export class HelixRepl {
 
   private async _handleConfirmationDialog(req: ConfirmationRequest): Promise<void> {
     console.log(`\n${YELLOW_BOLD('âš ï¸  CONFIRMACIÃ“N DE ACCIÃ“N REQUERIDA')}`);
-    console.log(`  AcciÃ³n:      ${chalk.white.bold(req.action || req.tool || 'AcciÃ³n del sistema')}`);
+    console.log(`  Acción:      ${chalk.white.bold(req.action || req.tool || 'Acción del sistema')}`);
     if (req.description) {
-      console.log(`  DescripciÃ³n: ${DIM(req.description)}`);
+      console.log(`  Descripción: ${DIM(req.description)}`);
     }
     if (req.arguments && Object.keys(req.arguments).length > 0) {
-      console.log(`  ParÃ¡metros:  ${GRAY(JSON.stringify(req.arguments))}`);
+      console.log(`  Parámetros:  ${GRAY(JSON.stringify(req.arguments))}`);
     }
 
     const answer = await prompts({
       type: 'confirm',
       name: 'confirmed',
-      message: 'Â¿Permitir al agente ejecutar esta acciÃ³n?',
+      message: '¿Permitir al agente ejecutar esta acciÃ³n?',
       initial: true,
     });
 
     const reqId = req.request_id || req.id || '';
     if (answer.confirmed) {
       this.client.confirmAction(reqId);
-      console.log(GREEN('  âœ” AcciÃ³n confirmada.\n'));
+      console.log(GREEN('  âœ” Acción confirmada.\n'));
     } else {
       this.client.rejectAction(reqId);
-      console.log(RED('  âœ– AcciÃ³n rechazada.\n'));
+      console.log(RED('  âœ– Acción rechazada.\n'));
     }
 
     this._promptUser();
@@ -250,7 +250,7 @@ export class HelixRepl {
     });
 
     rl.on('close', () => {
-      console.log(DIM('\nCerrando sesiÃ³n de HELIX CLI...'));
+      console.log(DIM('\nCerrando sesión de HELIX CLI...'));
       this.client.close();
       process.exit(0);
     });
@@ -264,7 +264,7 @@ export class HelixRepl {
         this.activeTaskId = null;
         this._promptUser();
       } else {
-        console.log(DIM('\nÂ¡Hasta pronto!'));
+        console.log(DIM('\n¡Hasta pronto!'));
         this.client.close();
         process.exit(0);
       }
@@ -428,7 +428,7 @@ export class HelixRepl {
       for (const t of tasks.slice(-10)) {
         let statusBadge = chalk.gray(t.status);
         if (t.status === 'COMPLETED') statusBadge = chalk.green('âœ” Completada');
-        if (t.status === 'RUNNING') statusBadge = chalk.yellow('â³ En ejecuciÃ³n');
+        if (t.status === 'RUNNING') statusBadge = chalk.yellow('â³ En ejecución');
         if (t.status === 'FAILED') statusBadge = chalk.red('âœ– Fallida');
         if (t.status === 'CANCELLED') statusBadge = chalk.gray('â—‹ Cancelada');
 
@@ -464,8 +464,8 @@ export class HelixRepl {
     console.log(`  ${chalk.hex('#FF8C00').bold('â¬¡ Estado del Sistema')}`);
     console.log(`  ${chalk.gray('â”€'.repeat(40))}`);
     console.log(`  ${chalk.gray('Agente WS')}     ${this.client.connected ? chalk.green('â— Conectado') : chalk.red('â— Desconectado')} ${chalk.gray(this.client.url)}`);
-    console.log(`  ${chalk.gray('MicrÃ³fono')}     ${this.voiceEnabled ? chalk.green('â— Activo') + chalk.gray(' (hey helix)') : chalk.red('â— Inactivo')}`);
-    console.log(`  ${chalk.gray('ConversaciÃ³n')}  ${chalk.gray(this.conversationId)} ${chalk.gray(`(${this.conversationHistory.length} msgs)`)}`);
+    console.log(`  ${chalk.gray('Micrófono')}     ${this.voiceEnabled ? chalk.green('â— Activo') + chalk.gray(' (hey helix)') : chalk.red('â— Inactivo')}`);
+    console.log(`  ${chalk.gray('Conversación')}  ${chalk.gray(this.conversationId)} ${chalk.gray(`(${this.conversationHistory.length} msgs)`)}`);
     console.log(`  ${chalk.gray('Skills')}        ${chalk.hex('#FF8C00').bold(this.autocompleter.getSkills().length.toString())} registradas`);
     console.log(`  ${chalk.gray('MCP Tools')}     ${chalk.cyan.bold(this.autocompleter.getMcpTools().length.toString())} disponibles`);
     console.log('');
