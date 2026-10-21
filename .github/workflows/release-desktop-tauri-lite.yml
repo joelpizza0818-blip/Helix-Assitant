@@ -1,4 +1,4 @@
-﻿name: Release HELIX Lite (Tauri)
+name: Release HELIX Lite (Tauri)
 
 on:
   push:

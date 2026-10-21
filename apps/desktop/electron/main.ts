@@ -68,6 +68,31 @@ let shutdownComplete = false
 let adminAuthenticated = false
 let pendingOAuthCallback: string | null = null
 
+const MAX_LOG_BUFFER_LINES = 2000
+const recentLogBuffer: string[] = []
+let logFileStream: fs.WriteStream | null = null
+
+function appendSystemLog(prefix: string, message: string): void {
+  const timestamp = new Date().toISOString()
+  const formattedLine = `[${timestamp}] ${prefix} ${message}`
+  recentLogBuffer.push(formattedLine)
+  if (recentLogBuffer.length > MAX_LOG_BUFFER_LINES) {
+    recentLogBuffer.shift()
+  }
+  try {
+    if (!logFileStream) {
+      const logsDirectory = path.join(app.getPath('userData'), 'logs')
+      if (!fs.existsSync(logsDirectory)) {
+        fs.mkdirSync(logsDirectory, { recursive: true })
+      }
+      logFileStream = fs.createWriteStream(path.join(logsDirectory, 'helix.log'), { flags: 'a', encoding: 'utf-8' })
+    }
+    logFileStream.write(formattedLine + '\n')
+  } catch {
+    // Ignore logging failures to prevent interrupting main execution
+  }
+}
+
 function normalizeOAuthCallbackUrl(value: string): string | null {
   let callback: URL
   try {
@@ -411,14 +436,17 @@ async function startPythonAgent(): Promise<void> {
   pythonManager = new PythonManager()
 
   pythonManager.onStdout((line) => {
+    appendSystemLog('[Python]', line)
     console.log(`[Python] ${line}`)
   })
 
   pythonManager.onStderr((line) => {
+    appendSystemLog('[Python:err]', line)
     console.error(`[Python:err] ${line}`)
   })
 
   pythonManager.onExit((code) => {
+    appendSystemLog('[Python]', `Process exited with code: ${code}`)
     console.warn(`[Python] Process exited with code: ${code}`)
     trayManager?.updateStatus('error')
   })
@@ -429,6 +457,7 @@ async function startPythonAgent(): Promise<void> {
     path.join(app.getPath('userData'), 'settings.json'),
     packagedAgent
   )
+  appendSystemLog('[Main]', `Python agent started on port ${wsPort} (packaged: ${Boolean(packagedAgent)})`)
   console.log('[Main] Python agent started')
 }
 
@@ -558,6 +587,38 @@ function setupIPC(): void {
     const savedBackup = writeAdminConfig({ ...current, backups: [backup, ...current.backups.filter((item) => item.version !== version)] }).backups[0]
     const sync = await publishAdminBackup(savedBackup, accessToken)
     return { ...savedBackup, synced: sync.synced, syncError: sync.error }
+  })
+  ipcMain.handle('helix:admin-logs', async (_event, accessToken: string) => {
+    if (!await verifyGithubAdmin(accessToken)) throw new Error('Admin authentication required.')
+    const logsDirectory = path.join(app.getPath('userData'), 'logs')
+    const mainLogFile = path.join(logsDirectory, 'helix.log')
+    const agentLogFile = path.join(logsDirectory, 'agent.log')
+    return {
+      success: true,
+      logs: [...recentLogBuffer],
+      logPath: mainLogFile,
+      agentLogPath: fs.existsSync(agentLogFile) ? agentLogFile : undefined,
+      totalCount: recentLogBuffer.length,
+    }
+  })
+  ipcMain.handle('helix:admin-clear-logs', async (_event, accessToken: string) => {
+    if (!await verifyGithubAdmin(accessToken)) throw new Error('Admin authentication required.')
+    recentLogBuffer.length = 0
+    try {
+      if (logFileStream) {
+        logFileStream.end()
+        logFileStream = null
+      }
+      const logsDirectory = path.join(app.getPath('userData'), 'logs')
+      const mainLogFile = path.join(logsDirectory, 'helix.log')
+      if (fs.existsSync(mainLogFile)) {
+        fs.writeFileSync(mainLogFile, '', 'utf-8')
+      }
+    } catch {
+      // Ignore clear errors
+    }
+    appendSystemLog('[Main]', 'Logs cleared by admin.')
+    return { success: true }
   })
 
   ipcMain.handle('helix:get-browser-extension-info', () => {

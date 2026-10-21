@@ -8,14 +8,26 @@ export function isTrustedRendererRequest(
   try {
     const topLevel = new URL(topLevelUrl)
     const renderer = new URL(rendererUrl)
-    const origin = securityOrigin ? new URL(securityOrigin) : null
 
     if (renderer.protocol === 'file:') {
-      return topLevel.protocol === 'file:'
-        && topLevel.pathname === renderer.pathname
-        && origin?.protocol === 'file:'
+      // In production, Chromium gives file:// schemes an opaque origin ('null' or 'file://')
+      const topLevelPath = decodeURIComponent(topLevel.pathname).toLowerCase().replace(/\\/g, '/')
+      const rendererPath = decodeURIComponent(renderer.pathname).toLowerCase().replace(/\\/g, '/')
+      if (topLevel.protocol !== 'file:' || topLevelPath !== rendererPath) {
+        return false
+      }
+      if (!securityOrigin || securityOrigin === 'null' || securityOrigin === 'file://') {
+        return true
+      }
+      try {
+        const origin = new URL(securityOrigin)
+        return origin.protocol === 'file:'
+      } catch {
+        return false
+      }
     }
 
+    const origin = securityOrigin ? new URL(securityOrigin) : null
     return topLevel.origin === renderer.origin
       && origin?.origin === renderer.origin
   } catch {

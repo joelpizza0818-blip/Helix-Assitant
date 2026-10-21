@@ -166,6 +166,7 @@ export class PythonManager {
           process.env.PYTHONPATH
         ].filter(Boolean).join(path.delimiter),
         HELIX_SETTINGS_PATH: this.settingsPath,
+        HELIX_LOG_DIR: path.join(path.dirname(this.settingsPath), 'logs'),
         ...websocketTokenEnvironment(this.getWebSocketToken())
       }
     })

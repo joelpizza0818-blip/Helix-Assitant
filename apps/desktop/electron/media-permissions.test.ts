@@ -44,8 +44,32 @@ test('only trusts the packaged renderer file, not another file URL', () => {
   )
   assert.equal(
     isTrustedRendererRequest(
+      'file:///C:/Program%20Files/HELIX/dist/index.html#floating',
+      'null',
+      'file:///C:/Program%20Files/HELIX/dist/index.html',
+    ),
+    true,
+  )
+  assert.equal(
+    isTrustedRendererRequest(
+      'file:///C:/Program%20Files/HELIX/dist/index.html#toolbox',
+      undefined,
+      'file:///c:/Program%20Files/HELIX/dist/index.html',
+    ),
+    true,
+  )
+  assert.equal(
+    isTrustedRendererRequest(
       'file:///C:/Users/Public/untrusted.html',
       'file://',
+      'file:///C:/Program%20Files/HELIX/dist/index.html',
+    ),
+    false,
+  )
+  assert.equal(
+    isTrustedRendererRequest(
+      'file:///C:/Users/Public/untrusted.html',
+      'null',
       'file:///C:/Program%20Files/HELIX/dist/index.html',
     ),
     false,

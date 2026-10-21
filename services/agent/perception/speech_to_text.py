@@ -2,10 +2,23 @@ import logging
 import asyncio
 import importlib.util
 import os
+import sys
 import tempfile
 import wave
 
 logger = logging.getLogger(__name__)
+
+
+def _is_module_available(name: str) -> bool:
+    """Check module availability, supporting frozen PyInstaller and mocked specs in tests."""
+    if getattr(sys, "frozen", False):
+        try:
+            __import__(name)
+            return True
+        except ImportError:
+            return False
+    return importlib.util.find_spec(name) is not None
+
 
 class SpeechToText:
     @staticmethod
@@ -32,9 +45,9 @@ class SpeechToText:
             self.provider = 'whisper_local'
             
         if self.provider == 'whisper_local':
-            if importlib.util.find_spec('faster_whisper') is not None:
+            if _is_module_available('faster_whisper'):
                 self._local_backend = 'faster-whisper'
-            elif importlib.util.find_spec('whisper') is not None:
+            elif _is_module_available('whisper'):
                 self._local_backend = 'openai-whisper'
                 logger.warning(
                     "faster-whisper is not installed; using the slower openai-whisper backend."

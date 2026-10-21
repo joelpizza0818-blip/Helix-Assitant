@@ -1,14 +1,58 @@
-import logging
 import asyncio
 import importlib.util
+import logging
 import os
 import re
+import sys
 import time
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL_PATH = Path(__file__).resolve().parents[1] / "models" / "wakeword" / "hey_helix.onnx"
+
+def resolve_wake_word_model_path(model_path: str | Path | None = None) -> Path:
+    """Resolve the hey_helix ONNX model path across development and frozen installations."""
+    if model_path:
+        p = Path(model_path)
+        if p.is_file():
+            return p
+        if not p.is_absolute():
+            candidates = [
+                Path(__file__).resolve().parents[1] / p,
+                Path(sys.executable).parent / "_internal" / "services" / "agent" / p,
+                Path(sys.executable).parent / "services" / "agent" / p,
+                Path(getattr(sys, "_MEIPASS", "")) / "services" / "agent" / p,
+                Path(os.environ.get("HELIX_PROJECT_ROOT", ".")) / "services" / "agent" / p,
+            ]
+            for cand in candidates:
+                if cand.is_file():
+                    return cand
+            return candidates[0]
+    candidates = [
+        Path(__file__).resolve().parents[1] / "models" / "wakeword" / "hey_helix.onnx",
+        Path(sys.executable).parent / "_internal" / "services" / "agent" / "models" / "wakeword" / "hey_helix.onnx",
+        Path(sys.executable).parent / "services" / "agent" / "models" / "wakeword" / "hey_helix.onnx",
+        Path(getattr(sys, "_MEIPASS", "")) / "services" / "agent" / "models" / "wakeword" / "hey_helix.onnx",
+        Path(os.environ.get("HELIX_PROJECT_ROOT", ".")) / "services" / "agent" / "models" / "wakeword" / "hey_helix.onnx",
+    ]
+    for cand in candidates:
+        if cand.is_file():
+            return cand
+    return candidates[0]
+
+
+def _is_module_available(name: str) -> bool:
+    """Check module availability, supporting frozen PyInstaller and mocked specs in tests."""
+    if getattr(sys, "frozen", False):
+        try:
+            __import__(name)
+            return True
+        except ImportError:
+            return False
+    return importlib.util.find_spec(name) is not None
+
+
+DEFAULT_MODEL_PATH = resolve_wake_word_model_path()
 DEFAULT_WAKE_WORD_THRESHOLD = 0.5
 MIN_WAKE_WORD_THRESHOLD = 0.1
 MAX_WAKE_WORD_THRESHOLD = 0.9
@@ -86,7 +130,7 @@ class WakeWordDetector:
             logger.error("Unsupported wake word provider %r; this app uses OpenWakeWord.", self.provider)
             self.provider = None
             return
-        if importlib.util.find_spec("openwakeword") is None:
+        if not _is_module_available("openwakeword"):
             logger.error("openwakeword is not installed. Wake word detection is unavailable.")
             self.provider = None
             return

@@ -298,6 +298,33 @@ export async function installTauriBridge(): Promise<void> {
         syncError: 'Saved locally only; Lite release backups are not provisioned.',
       }
     },
+    getAdminLogs: async (accessToken: string) => {
+      const auth = await invoke<{ success?: boolean; authenticated?: boolean }>('admin_request', {
+        method: 'GET',
+        path: '/authorization',
+        accessToken,
+      })
+      if (auth.success !== true || auth.authenticated !== true) {
+        throw new Error('Admin authentication is required.')
+      }
+      return {
+        success: true,
+        logs: ['[Lite] Registros de Lite gestionados a través de la consola nativa del sistema.'],
+        logPath: 'HELIX Lite',
+        totalCount: 1,
+      }
+    },
+    clearAdminLogs: async (accessToken: string) => {
+      const auth = await invoke<{ success?: boolean; authenticated?: boolean }>('admin_request', {
+        method: 'GET',
+        path: '/authorization',
+        accessToken,
+      })
+      if (auth.success !== true || auth.authenticated !== true) {
+        throw new Error('Admin authentication is required.')
+      }
+      return { success: true }
+    },
   }
 
   window.helix = api as unknown as HelixAPI

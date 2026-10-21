@@ -1,26 +1,29 @@
 // ═══════════════════════════════════════════════════════════════
-// Windows Console Encoding Fix
+// Cross-Platform Terminal & Stream Encoding Setup
+// Compatible with: Windows CMD (CP850/437/1252/65001), PowerShell,
+// Linux terminal (xterm/kitty/gnome), and Bash (MSYS2/Git Bash/WSL).
 // ═══════════════════════════════════════════════════════════════
-// Windows uses different code pages (850, 437, 1252) by default.
-// Force UTF-8 for proper Spanish/Unicode character display.
-if (process.platform === 'win32' && process.stdout.isTTY) {
+if (process.stdin.setEncoding) {
+  process.stdin.setEncoding('utf-8');
+}
+if (process.stdout.setDefaultEncoding) {
+  process.stdout.setDefaultEncoding('utf-8');
+}
+if (process.stderr.setDefaultEncoding) {
+  process.stderr.setDefaultEncoding('utf-8');
+}
+
+// On Windows, force console code page to 65001 (UTF-8)
+if (process.platform === 'win32') {
   try {
-    // Try to set console to UTF-8 (chcp 65001)
     const { execSync } = require('child_process');
     execSync('chcp 65001 >nul 2>&1', { stdio: 'ignore' });
   } catch {
-    // Silently fail if chcp not available
-  }
-  
-  // Set Node.js stdout/stderr encoding
-  if (process.stdout.setDefaultEncoding) {
-    process.stdout.setDefaultEncoding('utf-8');
-  }
-  if (process.stderr.setDefaultEncoding) {
-    process.stderr.setDefaultEncoding('utf-8');
+    // Silently continue if chcp is unavailable
   }
 }
 
+import fs from 'node:fs';
 import { Command } from 'commander';
 import { HelixRepl } from './ui/repl';
 import { getWsUrl, getWsToken } from './config/env';
@@ -29,6 +32,41 @@ import type { HelixSettings } from './client/types';
 import { handleShowApiKey } from './commands/apikey';
 import { ORANGE, CYAN, GREEN, RED, BOLD, DIM } from './ui/colors';
 import { getAsciiLogo } from './ui/banner';
+
+async function readStdin(): Promise<string> {
+  if (process.stdin.isTTY) {
+    return '';
+  }
+  return new Promise((resolve) => {
+    let input = '';
+    const onData = (chunk: Buffer | string) => {
+      input += chunk.toString();
+    };
+    process.stdin.on('data', onData);
+    process.stdin.once('end', () => {
+      cleanup();
+      if (input.charCodeAt(0) === 0xfeff) input = input.slice(1);
+      resolve(input.trim());
+    });
+    process.stdin.once('error', () => {
+      cleanup();
+      resolve('');
+    });
+    // If no data arrives and stream is not ended within 300ms, abort to prevent hanging
+    const timer = setTimeout(() => {
+      cleanup();
+      if (input.charCodeAt(0) === 0xfeff) input = input.slice(1);
+      resolve(input.trim());
+    }, 300);
+
+    function cleanup() {
+      clearTimeout(timer);
+      process.stdin.removeListener('data', onData);
+      process.stdin.pause();
+    }
+    process.stdin.resume();
+  });
+}
 
 const program = new Command();
 
@@ -60,9 +98,17 @@ program
   });
 
 program
-  .command('run <prompt>')
-  .description('Ejecutar un prompt directamente y esperar la respuesta')
-  .action(async (promptText: string) => {
+  .command('run [prompt...]')
+  .description('Ejecutar un prompt directamente y esperar la respuesta (soporta pipes: cat file | helix run)')
+  .action(async (promptParts: string[]) => {
+    let promptText = (promptParts || []).join(' ').trim();
+    if (!promptText || promptText === '-') {
+      promptText = await readStdin();
+    }
+    if (!promptText) {
+      console.error(RED('Error: Debes proporcionar un prompt como argumento o a través de stdin (ej: echo "hola" | helix run).'));
+      process.exit(1);
+    }
     const opts = program.opts();
     const client = new AgentClient({
       wsUrl: opts.wsUrl || getWsUrl(),
@@ -70,6 +116,7 @@ program
       autoReconnect: false,
     });
 
+    console.log(DIM(`Prompt: ${promptText}\n`));
     console.log(CYAN(`Conectando con HELIX en ${client.url}...`));
     try {
       await client.connect();
@@ -78,7 +125,6 @@ program
       process.exit(1);
     }
 
-    console.log(DIM(`Prompt: ${promptText}\n`));
     const convId = `cli_run_${Date.now()}`;
 
     client.on('react_step', (step: { iteration?: number }) => {

@@ -139,3 +139,49 @@ test('Launcher: probePort resolves false on closed random port', async () => {
   const pythonExec = findPythonExecutable(process.cwd());
   assert.ok(pythonExec.length > 0);
 });
+
+test('CLI: run without arguments prints helpful error and exits with code 1', async () => {
+  const { execSync } = await import('node:child_process');
+  const path = await import('node:path');
+  const binPath = path.resolve(__dirname, '../bin/helix.js');
+  try {
+    execSync(`node "${binPath}" run`, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+    assert.fail('Should have exited with code 1');
+  } catch (err: any) {
+    assert.equal(err.status, 1);
+    const stderr = err.stderr.toString('utf-8');
+    assert.ok(stderr.includes('Debes proporcionar un prompt'));
+  }
+});
+
+test('CLI: run with piped UTF-8 Spanish text with BOM is decoded cleanly', async () => {
+  const { spawn } = await import('node:child_process');
+  const path = await import('node:path');
+  const binPath = path.resolve(__dirname, '../bin/helix.js');
+
+  const child = spawn('node', [binPath, 'run'], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+
+  // Write UTF-8 BOM + Spanish text with accents
+  const payload = Buffer.concat([
+    Buffer.from([0xef, 0xbb, 0xbf]),
+    Buffer.from('¿Cuál es la configuración actual?', 'utf-8'),
+  ]);
+
+  child.stdin.write(payload);
+  child.stdin.end();
+
+  let stdout = '';
+  let stderr = '';
+  child.stdout.on('data', (d) => { stdout += d.toString('utf-8'); });
+  child.stderr.on('data', (d) => { stderr += d.toString('utf-8'); });
+
+  await new Promise<void>((resolve) => {
+    child.on('close', () => {
+      assert.ok(stdout.includes('¿Cuál es la configuración actual?'));
+      resolve();
+    });
+  });
+});
+

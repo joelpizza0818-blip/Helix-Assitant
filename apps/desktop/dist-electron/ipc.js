@@ -134,6 +134,12 @@ class IPCBridge {
     sendCapabilityResolved(payload) {
         this._sendToPython({ type: 'CAPABILITY_RESOLVED', payload, timestamp: new Date().toISOString() });
     }
+    async loadCapabilityPack(manifest) {
+        await this._request({
+            type: 'LOAD_CAPABILITY_PACK',
+            payload: manifest,
+        }, 30000);
+    }
     sendEmergencyStop() {
         this._sendToPython({ type: 'TASK_CANCEL_ALL', payload: {}, timestamp: new Date().toISOString() });
     }

@@ -44,6 +44,18 @@ export default function AdminSection({ profile, onPendingReportsCount }: AdminSe
   const [rankFilter, setRankFilter] = useState('all')
   const [loadingDirectory, setLoadingDirectory] = useState(false)
 
+  // System logs state for installed build diagnostics
+  const [logs, setLogs] = useState<string[]>([])
+  const [logPath, setLogPath] = useState<string>('')
+  const [agentLogPath, setAgentLogPath] = useState<string | undefined>(undefined)
+  const [loadingLogs, setLoadingLogs] = useState(false)
+  const [logsError, setLogsError] = useState<string | null>(null)
+  const [logFilter, setLogFilter] = useState('')
+  const [logLevel, setLogLevel] = useState<'all' | 'info' | 'warn' | 'error'>('all')
+  const [autoRefresh, setAutoRefresh] = useState(false)
+  const [copiedLogs, setCopiedLogs] = useState(false)
+  const [clearingLogs, setClearingLogs] = useState(false)
+
   const isMaster = profile.rank === 'master-admin'
   const isLiteRuntime = '__TAURI_INTERNALS__' in window
 
@@ -213,6 +225,86 @@ export default function AdminSection({ profile, onPendingReportsCount }: AdminSe
     }
   }
 
+  const fetchLogs = useCallback(async () => {
+    setLoadingLogs(true)
+    setLogsError(null)
+    try {
+      let token = ''
+      if (!isLiteRuntime) {
+        token = (await getAccessToken()) || ''
+      }
+      const res = await window.helix.getAdminLogs(token)
+      if (res && res.success) {
+        setLogs(res.logs || [])
+        setLogPath(res.logPath || '')
+        setAgentLogPath(res.agentLogPath)
+      }
+    } catch (cause) {
+      setLogsError(cause instanceof Error ? cause.message : 'No se pudieron obtener los registros.')
+    } finally {
+      setLoadingLogs(false)
+    }
+  }, [isLiteRuntime])
+
+  useEffect(() => {
+    void fetchLogs()
+  }, [fetchLogs])
+
+  useEffect(() => {
+    if (!autoRefresh) return
+    const timer = window.setInterval(() => {
+      void fetchLogs()
+    }, 3000)
+    return () => window.clearInterval(timer)
+  }, [autoRefresh, fetchLogs])
+
+  const filteredLogs = useMemo(() => {
+    const query = logFilter.trim().toLowerCase()
+    return logs.filter((line) => {
+      const lower = line.toLowerCase()
+      if (query && !lower.includes(query)) return false
+      if (logLevel === 'error') {
+        return lower.includes('error') || lower.includes('[python:err]') || lower.includes('critical') || lower.includes('exception')
+      }
+      if (logLevel === 'warn') {
+        return lower.includes('warn') || lower.includes('warning')
+      }
+      if (logLevel === 'info') {
+        return lower.includes('info')
+      }
+      return true
+    })
+  }, [logs, logFilter, logLevel])
+
+  const clearLogs = useCallback(async () => {
+    if (!window.confirm('¿Deseas limpiar el registro del sistema?')) return
+    setClearingLogs(true)
+    setLogsError(null)
+    try {
+      let token = ''
+      if (!isLiteRuntime) {
+        token = (await getAccessToken()) || ''
+      }
+      await window.helix.clearAdminLogs(token)
+      await fetchLogs()
+    } catch (cause) {
+      setLogsError(cause instanceof Error ? cause.message : 'No se pudieron limpiar los registros.')
+    } finally {
+      setClearingLogs(false)
+    }
+  }, [fetchLogs, isLiteRuntime])
+
+  const copyLogsToClipboard = useCallback(async () => {
+    try {
+      const text = filteredLogs.join('\n')
+      await navigator.clipboard.writeText(text)
+      setCopiedLogs(true)
+      window.setTimeout(() => setCopiedLogs(false), 2000)
+    } catch {
+      setLogsError('No se pudieron copiar los registros al portapapeles.')
+    }
+  }, [filteredLogs])
+
   return (
     <section className="toolbox-section">
       <h2 className="toolbox-section__title">Admin</h2>
@@ -340,6 +432,109 @@ export default function AdminSection({ profile, onPendingReportsCount }: AdminSe
           </p>
         ))}
       </div>}
+
+      <div className="toolbox-card">
+        <div className="toolbox-card__title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>Registros del Sistema (Admin)</span>
+          <span className="text-xs text-muted">{filteredLogs.length} / {logs.length} líneas</span>
+        </div>
+        <p className="text-xs text-muted">
+          Registros en tiempo real de la versión instalada y el agente en segundo plano. Solo visible para administradores.
+        </p>
+        {logPath && (
+          <p className="text-xs text-muted" style={{ wordBreak: 'break-all' }}>
+            <strong>Archivo:</strong> <code>{logPath}</code>
+          </p>
+        )}
+        {agentLogPath && (
+          <p className="text-xs text-muted" style={{ wordBreak: 'break-all' }}>
+            <strong>Agente:</strong> <code>{agentLogPath}</code>
+          </p>
+        )}
+        {logsError && <p className="toolbox-error" role="alert">{logsError}</p>}
+
+        <div className="helix-admin-logs-toolbar">
+          <input
+            className="form-input"
+            aria-label="Buscar en logs"
+            placeholder="Filtrar por texto..."
+            value={logFilter}
+            onChange={(e) => setLogFilter(e.target.value)}
+          />
+          <select
+            className="form-input"
+            aria-label="Nivel de logs"
+            value={logLevel}
+            onChange={(e) => setLogLevel(e.target.value as 'all' | 'info' | 'warn' | 'error')}
+            style={{ maxWidth: '110px' }}
+          >
+            <option value="all">Todos</option>
+            <option value="info">INFO</option>
+            <option value="warn">WARN</option>
+            <option value="error">ERROR</option>
+          </select>
+          <label className="toggle" style={{ fontSize: '11px', gap: '6px' }}>
+            <input
+              type="checkbox"
+              checked={autoRefresh}
+              onChange={(e) => setAutoRefresh(e.target.checked)}
+            />
+            <span className="toggle__slider" />
+            Auto (3s)
+          </label>
+          <button
+            type="button"
+            className="validate-btn"
+            disabled={loadingLogs}
+            onClick={() => void fetchLogs()}
+          >
+            {loadingLogs ? 'Cargando…' : 'Actualizar'}
+          </button>
+          <button
+            type="button"
+            className="validate-btn"
+            disabled={!filteredLogs.length}
+            onClick={() => void copyLogsToClipboard()}
+          >
+            {copiedLogs ? '¡Copiado!' : 'Copiar'}
+          </button>
+          <button
+            type="button"
+            className="validate-btn"
+            disabled={clearingLogs || !logs.length}
+            onClick={() => void clearLogs()}
+          >
+            {clearingLogs ? 'Limpiando…' : 'Limpiar'}
+          </button>
+        </div>
+
+        <div className="helix-admin-logs-viewer" role="region" aria-label="Consola de logs de administrador">
+          {filteredLogs.length > 0 ? (
+            filteredLogs.map((line, index) => {
+              const lower = line.toLowerCase()
+              let lineClass = 'helix-admin-logs-line'
+              if (lower.includes('error') || lower.includes('[python:err]') || lower.includes('exception')) {
+                lineClass += ' helix-admin-logs-line--error'
+              } else if (lower.includes('warn')) {
+                lineClass += ' helix-admin-logs-line--warn'
+              } else if (line.includes('[Python]')) {
+                lineClass += ' helix-admin-logs-line--python'
+              } else if (line.includes('[Main]')) {
+                lineClass += ' helix-admin-logs-line--main'
+              }
+              return (
+                <div key={index} className={lineClass}>
+                  {line}
+                </div>
+              )
+            })
+          ) : (
+            <div className="text-xs text-muted" style={{ fontStyle: 'italic', padding: '12px 0' }}>
+              {loadingLogs ? 'Cargando registros…' : 'No hay registros que coincidan con el filtro.'}
+            </div>
+          )}
+        </div>
+      </div>
 
       <div className="toolbox-card">
         <div className="toolbox-card__title">Enviar reporte de error</div>

@@ -75,6 +75,22 @@ from ai.base_provider import ChatMessage
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("HELIX_MAIN")
 
+try:
+    log_dir_env = os.environ.get("HELIX_LOG_DIR")
+    if log_dir_env:
+        log_dir = Path(log_dir_env)
+    elif getattr(sys, "frozen", False):
+        log_dir = Path(os.environ.get("APPDATA", ".")) / "helix" / "logs"
+    else:
+        log_dir = project_root / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    file_handler = logging.FileHandler(str(log_dir / "agent.log"), encoding="utf-8")
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    logging.getLogger().addHandler(file_handler)
+except Exception as log_ex:
+    logger.warning("Could not initialize agent file logger: %s", log_ex)
+
 async def ws_handler(websocket, clients: set, request_handler: DesktopRequestHandler):
     clients.add(websocket)
     try:
@@ -709,7 +725,12 @@ async def main():
                     Path(__file__).resolve().parent / ww_path,
                     project_root / ww_path,
                     Path(__file__).resolve().parent.parent.parent / ww_path,
+                    Path(sys.executable).parent / "_internal" / "services" / "agent" / ww_path,
+                    Path(sys.executable).parent / "services" / "agent" / ww_path,
+                    Path(getattr(sys, "_MEIPASS", "")) / "services" / "agent" / ww_path,
                     Path(__file__).resolve().parent / "models" / "wakeword" / "hey_helix.onnx",
+                    Path(sys.executable).parent / "_internal" / "services" / "agent" / "models" / "wakeword" / "hey_helix.onnx",
+                    Path(getattr(sys, "_MEIPASS", "")) / "services" / "agent" / "models" / "wakeword" / "hey_helix.onnx",
                 ]
                 for cand in candidates:
                     if cand.is_file():

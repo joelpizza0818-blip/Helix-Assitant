@@ -238,6 +238,59 @@
   gap: 4px;
 }
 
+.helix-admin-logs-viewer {
+  background: #090d16;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #c9d1d9;
+  max-height: 380px;
+  overflow-y: auto;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+  margin-top: 10px;
+}
+
+.helix-admin-logs-line {
+  margin: 0;
+  padding: 2px 0;
+}
+
+.helix-admin-logs-line--error {
+  color: #f85149;
+}
+
+.helix-admin-logs-line--warn {
+  color: #e3b341;
+}
+
+.helix-admin-logs-line--python {
+  color: #58a6ff;
+}
+
+.helix-admin-logs-line--main {
+  color: #7ee787;
+}
+
+.helix-admin-logs-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.helix-admin-logs-toolbar .form-input {
+  flex: 1 1 160px;
+  min-width: 130px;
+}
+
+
 .helix-admin-report > p {
   white-space: pre-wrap;
   overflow-wrap: anywhere;

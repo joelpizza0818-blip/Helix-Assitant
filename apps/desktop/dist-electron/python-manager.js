@@ -53,7 +53,7 @@ class PythonManager {
         }
         return this.wsToken;
     }
-    async _waitForReady(timeoutMs = 90000) {
+    async _waitForReady(timeoutMs = 300000) {
         const deadline = Date.now() + timeoutMs;
         while (Date.now() < deadline) {
             const child = this.process;
@@ -153,6 +153,7 @@ class PythonManager {
                     process.env.PYTHONPATH
                 ].filter(Boolean).join(path_1.default.delimiter),
                 HELIX_SETTINGS_PATH: this.settingsPath,
+                HELIX_LOG_DIR: path_1.default.join(path_1.default.dirname(this.settingsPath), 'logs'),
                 ...(0, websocket_auth_1.websocketTokenEnvironment)(this.getWebSocketToken())
             }
         });

@@ -85,7 +85,16 @@ Get-ChildItem -LiteralPath (Join-Path $dataSource "tests") -Filter "*.py" -File 
     --collect-all sounddevice `
     --collect-all openwakeword `
     --collect-all cv2 `
+    --collect-all mediapipe `
+    --collect-all faster_whisper `
+    --collect-all onnxruntime `
     --hidden-import webrtcvad `
+    --hidden-import sounddevice `
+    --hidden-import soundfile `
+    --hidden-import pyaudio `
+    --hidden-import scipy `
+    --hidden-import scipy.signal `
+    --hidden-import numpy `
     --hidden-import keyring.backends.Windows `
     --hidden-import win32process `
     --hidden-import win32gui `
@@ -94,6 +103,11 @@ Get-ChildItem -LiteralPath (Join-Path $dataSource "tests") -Filter "*.py" -File 
     --hidden-import pythoncom `
     --hidden-import win32com.client `
     --copy-metadata edge-tts `
+    --copy-metadata faster-whisper `
+    --copy-metadata openwakeword `
+    --copy-metadata mediapipe `
+    --copy-metadata onnxruntime `
+    --copy-metadata tqdm `
     --hidden-import pyautogui `
     --hidden-import mouseinfo `
     --hidden-import pygetwindow `
@@ -114,11 +128,34 @@ if (-not (Test-Path $agentExecutable)) {
 }
 
 $agentRuntimeRoot = Join-Path $runtimeRoot "helix-agent"
+
+# Ensure models are copied directly to both runtime model locations
+$modelSource = Join-Path $dataSource "models"
+if (Test-Path -LiteralPath $modelSource) {
+    $targetModelsLocations = @(
+        (Join-Path $agentRuntimeRoot "services\agent\models"),
+        (Join-Path $agentRuntimeRoot "_internal\services\agent\models")
+    )
+    foreach ($targetModels in $targetModelsLocations) {
+        New-Item -ItemType Directory -Force -Path $targetModels | Out-Null
+        & robocopy $modelSource $targetModels /E /R:1 /W:1 | Out-Null
+    }
+}
 $agentDataFiles = @(Get-ChildItem -LiteralPath $agentRuntimeRoot -Recurse -File -Force)
 $agentSourcePattern = "[\\/]+services[\\/]+agent[\\/]+"
 $mainSourceIncluded = @($agentDataFiles | Where-Object { $_.FullName -match ($agentSourcePattern + "main\.py$") }).Count -gt 0
 if (-not $mainSourceIncluded) {
     throw "The packaged runtime is missing services/agent/main.py from its data files."
+}
+
+$handLandmarkerIncluded = @($agentDataFiles | Where-Object { $_.Name -eq "hand_landmarker.task" }).Count -gt 0
+if (-not $handLandmarkerIncluded) {
+    throw "The packaged runtime is missing hand_landmarker.task gesture model."
+}
+
+$wakeWordIncluded = @($agentDataFiles | Where-Object { $_.Name -eq "hey_helix.onnx" }).Count -gt 0
+if (-not $wakeWordIncluded) {
+    throw "The packaged runtime is missing hey_helix.onnx wake word model."
 }
 
 $forbiddenRuntimeFiles = @(

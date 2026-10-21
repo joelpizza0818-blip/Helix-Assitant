@@ -83,6 +83,8 @@ export interface HelixAPI {
   getAdminConfig: (accessToken: string) => Promise<AdminConfig>
   saveAdminConfig: (accessToken: string, config: AdminConfig) => Promise<AdminConfig>
   createVersionBackup: (accessToken: string, version: string) => Promise<AdminBackup>
+  getAdminLogs: (accessToken: string) => Promise<{ success: boolean; logs: string[]; logPath: string; agentLogPath?: string; totalCount: number }>
+  clearAdminLogs: (accessToken: string) => Promise<{ success: boolean }>
 }
 
 export interface AdminBackup { version: string; createdAt: string; currentVersion: string | null; synced?: boolean; syncError?: string }

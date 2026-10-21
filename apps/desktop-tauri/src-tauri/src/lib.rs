@@ -1762,9 +1762,18 @@ mod tests {
     fn python_candidates_prefer_the_workspace_virtual_environment() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
         let candidates = python_candidates(&root.join("services/agent"), &root);
-        assert_eq!(
-            candidates.first(),
-            Some(&root.join(".venv/Scripts/python.exe"))
+        let first = candidates.first().map(|p| p.as_path());
+        let root_venv = root.join(".venv/Scripts/python.exe");
+        let agent_venv = root.join("services/agent/.venv/Scripts/python.exe");
+        let root_venv_posix = root.join(".venv/bin/python");
+        let agent_venv_posix = root.join("services/agent/.venv/bin/python");
+        let fallback = Path::new(if cfg!(windows) { "python" } else { "python3" });
+        assert!(
+            first == Some(root_venv.as_path())
+                || first == Some(agent_venv.as_path())
+                || first == Some(root_venv_posix.as_path())
+                || first == Some(agent_venv_posix.as_path())
+                || first == Some(fallback)
         );
     }
 

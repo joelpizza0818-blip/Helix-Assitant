@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 import asyncio
 import base64
 import threading
@@ -6,11 +6,28 @@ import os
 from enum import Enum
 from pathlib import Path
 import time
+import sys
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
-LANDMARKER_MODEL_PATH = Path(__file__).resolve().parents[1] / "models" / "gesture" / "hand_landmarker.task"
+
+def resolve_landmarker_model_path() -> Path:
+    """Resolve the MediaPipe hand landmarker task model path across environments."""
+    candidates = [
+        Path(__file__).resolve().parents[1] / "models" / "gesture" / "hand_landmarker.task",
+        Path(sys.executable).parent / "_internal" / "services" / "agent" / "models" / "gesture" / "hand_landmarker.task",
+        Path(sys.executable).parent / "services" / "agent" / "models" / "gesture" / "hand_landmarker.task",
+        Path(getattr(sys, "_MEIPASS", "")) / "services" / "agent" / "models" / "gesture" / "hand_landmarker.task",
+        Path(os.environ.get("HELIX_PROJECT_ROOT", ".")) / "services" / "agent" / "models" / "gesture" / "hand_landmarker.task",
+    ]
+    for cand in candidates:
+        if cand.is_file():
+            return cand
+    return candidates[0]
+
+
+LANDMARKER_MODEL_PATH = resolve_landmarker_model_path()
 
 
 class GestureType(Enum):
@@ -127,8 +144,8 @@ class GestureEngine:
         _session_name = os.environ.get("SESSIONNAME", "")
         if "RDP" in _session_name.upper() or "ICA" in _session_name.upper():
             logger.warning(
-                "GestureEngine: sesiÃ³n remota detectada (SESSIONNAME=%s). "
-                "La cÃ¡mara puede no estar disponible en este entorno.",
+                "GestureEngine: sesión remota detectada (SESSIONNAME=%s). "
+                "La cámara puede no estar disponible en este entorno.",
                 _session_name,
             )
             asyncio.ensure_future(
@@ -242,6 +259,7 @@ class GestureEngine:
             try:
                 import mediapipe as mp
 
+                landmarker_path = resolve_landmarker_model_path()
                 if hasattr(mp, "solutions"):
                     detector = mp.solutions.hands.Hands(
                         model_complexity=0,
@@ -249,13 +267,13 @@ class GestureEngine:
                         min_tracking_confidence=0.5,
                     )
                     detect = lambda image, timestamp: detector.process(image)
-                elif LANDMARKER_MODEL_PATH.is_file():
+                elif landmarker_path.is_file():
                     from mediapipe.tasks import python
                     from mediapipe.tasks.python import vision
 
                     options = vision.HandLandmarkerOptions(
                         base_options=python.BaseOptions(
-                            model_asset_path=str(LANDMARKER_MODEL_PATH)
+                            model_asset_path=str(landmarker_path)
                         ),
                         running_mode=vision.RunningMode.VIDEO,
                         num_hands=2,
@@ -270,6 +288,11 @@ class GestureEngine:
                             data=image,
                         )
                         return detector.detect_for_video(task_image, timestamp)
+                else:
+                    logger.error(
+                        "MediaPipe gesture model file not found at %s. Video preview will continue without hand tracking.",
+                        landmarker_path,
+                    )
             except Exception as mp_err:
                 logger.warning(
                     "MediaPipe gesture recognizer unavailable (%s); camera will stream video frames without gesture tracking.",

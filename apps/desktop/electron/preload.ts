@@ -214,4 +214,8 @@ contextBridge.exposeInMainWorld('helix', {
     ipcRenderer.invoke('helix:admin-save-config', accessToken, config),
   createVersionBackup: (accessToken: string, version: string): Promise<unknown> =>
     ipcRenderer.invoke('helix:admin-backup', accessToken, version),
+  getAdminLogs: (accessToken: string): Promise<{ success: boolean; logs: string[]; logPath: string; agentLogPath?: string; totalCount: number }> =>
+    ipcRenderer.invoke('helix:admin-logs', accessToken),
+  clearAdminLogs: (accessToken: string): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke('helix:admin-clear-logs', accessToken),
 })
