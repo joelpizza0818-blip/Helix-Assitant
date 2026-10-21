@@ -1,4 +1,4 @@
-﻿import readline from 'readline';
+import readline from 'readline';
 import chalk from 'chalk';
 import prompts from 'prompts';
 import { AgentClient } from '../client/agent-client';
