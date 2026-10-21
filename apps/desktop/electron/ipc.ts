@@ -1,4 +1,4 @@
-mport { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain } from 'electron'
 import WebSocket from 'ws'
 import type { BrowserPageSnapshot } from './browser-extension-bridge'
 import { websocketAuthHeaders } from './websocket-auth'

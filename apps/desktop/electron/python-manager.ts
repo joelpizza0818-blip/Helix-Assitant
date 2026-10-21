@@ -1,4 +1,4 @@
-mport { execFile, spawn, ChildProcess } from 'child_process'
+import { execFile, spawn, ChildProcess } from 'child_process'
 import { createServer } from 'net'
 import {
   createWebSocketToken,

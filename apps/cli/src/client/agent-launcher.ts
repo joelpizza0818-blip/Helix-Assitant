@@ -1,4 +1,4 @@
-mport { spawn, ChildProcess, execSync } from 'child_process';
+import { spawn, ChildProcess, execSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -327,7 +327,7 @@ export async function spawnAgentDaemon(port: number = 8765): Promise<{ success: 
   if (!scriptPath) {
     return {
       success: false,
-      error: 'No se encontrÃ³ el script services/agent/main.py del agente Python.',
+      error: 'No se encontró el script services/agent/main.py del agente Python.',
     };
   }
 

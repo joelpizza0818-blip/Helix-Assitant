@@ -1,4 +1,4 @@
-mport { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer } from 'electron'
 
 // Type-safe event listener cleanup
 function createEventListener<T>(channel: string, fn: (data: T) => void): () => void {
@@ -8,7 +8,7 @@ function createEventListener<T>(channel: string, fn: (data: T) => void): () => v
 }
 
 // Expose HELIX API to renderer via contextBridge
-// NEVER expose raw ipcRenderer â€” only specific allowed methods
+// NEVER expose raw ipcRenderer — only specific allowed methods
 contextBridge.exposeInMainWorld('helix', {
   // Send text command to agent
   sendMessage: (payload: {
@@ -96,7 +96,7 @@ contextBridge.exposeInMainWorld('helix', {
   cancelCapability: (id: string): Promise<boolean> =>
     ipcRenderer.invoke('helix:cancel-capability', id),
 
-  // Validate an API key â€” key goes directly to Python, never logged here
+  // Validate an API key — key goes directly to Python, never logged here
   validateKey: (provider: string, slot: number, key: string): Promise<string> =>
     ipcRenderer.invoke('helix:validate-key', provider, slot, key),
 

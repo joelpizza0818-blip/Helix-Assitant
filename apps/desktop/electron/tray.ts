@@ -1,4 +1,4 @@
-mport { Tray, Menu, nativeImage } from 'electron'
+import { Tray, Menu, nativeImage } from 'electron'
 import path from 'path'
 import fs from 'fs'
 
@@ -19,7 +19,7 @@ export class TrayManager {
     }
 
     this.tray = new Tray(icon)
-    this.tray.setToolTip('HELIX â€” AI Computer Agent')
+    this.tray.setToolTip('HELIX — AI Computer Agent')
 
     this.tray.on('click', () => {
       this.onLeftClickHandler?.()
@@ -33,11 +33,11 @@ export class TrayManager {
 
   updateStatus(status: AgentStatus): void {
     const tooltips: Record<AgentStatus, string> = {
-      idle: 'HELIX â€” Ready',
-      busy: 'HELIX â€” Working...',
-      error: 'HELIX â€” Error (click to open)',
-      listening: 'HELIX â€” Listening...',
-      executing: 'HELIX â€” Executing task...'
+      idle: 'HELIX — Ready',
+      busy: 'HELIX — Working...',
+      error: 'HELIX — Error (click to open)',
+      listening: 'HELIX — Listening...',
+      executing: 'HELIX — Executing task...'
     }
     this.tray?.setToolTip(tooltips[status] ?? 'HELIX')
   }

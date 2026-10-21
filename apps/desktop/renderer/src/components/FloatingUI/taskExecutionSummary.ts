@@ -1,4 +1,4 @@
-mport type {
+import type {
   ModelInputSummary,
   TaskDefinition,
   TaskExecutionSummary,
@@ -13,7 +13,7 @@ export function safeSummaryText(value: unknown, limit = 240): string {
   const text = String(value ?? '').replace(/\s+/g, ' ').trim()
     .replace(NAMED_SECRET, '$1[REDACTED]')
     .replace(SECRET_VALUE, '[REDACTED]')
-  return text.length > limit ? `${text.slice(0, limit - 1)}â€¦` : text
+  return text.length > limit ? `${text.slice(0, limit - 1)}…` : text
 }
 
 export function toggleSummaryExpanded(expanded: boolean): boolean {

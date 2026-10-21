@@ -1,4 +1,4 @@
-mport type { MCPServerConfig } from '../../../types/global'
+import type { MCPServerConfig } from '../../../types/global'
 import type { SettingsSaveResult } from '../../../hooks/settingsSave'
 
 export function mcpSaveErrorMessage(error: unknown): string {

@@ -1,11 +1,11 @@
-mport prompts from 'prompts';
+import prompts from 'prompts';
 import chalk from 'chalk';
 import type { AgentClient } from '../client/agent-client';
 import type { McpServerConfig } from '../client/types';
 import { formatMcp, CYAN_BOLD, GREEN, RED, YELLOW, GRAY, BOLD, DIM } from '../ui/colors';
 
 export async function handleListMcp(client: AgentClient): Promise<void> {
-  console.log(`\n${BOLD('ðŸ”Œ Servidores y Herramientas MCP:')}\n`);
+  console.log(`\n${BOLD('🔌 Servidores y Herramientas MCP:')}\n`);
 
   try {
     const servers = await client.getMcpServers();
@@ -18,14 +18,14 @@ export async function handleListMcp(client: AgentClient): Promise<void> {
     for (const server of servers) {
       let statusBadge = chalk.gray('idle');
       if (server.status === 'connected') {
-        statusBadge = chalk.green('â— Conectado');
+        statusBadge = chalk.green('● Conectado');
       } else if (server.status === 'connecting') {
-        statusBadge = chalk.yellow('â³ Conectando');
+        statusBadge = chalk.yellow('⏳ Conectando');
       } else if (server.status === 'error') {
-        statusBadge = chalk.red('âœ– Error');
+        statusBadge = chalk.red('✖ Error');
       }
 
-      console.log(`  ${CYAN_BOLD('â—ˆ')} ${formatMcp(server.name)}  [${statusBadge}]`);
+      console.log(`  ${CYAN_BOLD('◈')} ${formatMcp(server.name)}  [${statusBadge}]`);
       console.log(`    ${GRAY('Comando:')} ${chalk.white(server.command)}`);
       if (server.error) {
         console.log(`    ${RED('Error:')} ${server.error}`);
@@ -33,7 +33,7 @@ export async function handleListMcp(client: AgentClient): Promise<void> {
       if (server.tools && server.tools.length > 0) {
         console.log(`    ${DIM('Herramientas provistas:')}`);
         for (const tool of server.tools) {
-          console.log(`      ${DIM('â€¢')} ${formatMcp(tool.name)}${tool.description ? DIM(` - ${tool.description}`) : ''}`);
+          console.log(`      ${DIM('•')} ${formatMcp(tool.name)}${tool.description ? DIM(` - ${tool.description}`) : ''}`);
         }
       }
       console.log('');
@@ -44,7 +44,7 @@ export async function handleListMcp(client: AgentClient): Promise<void> {
 }
 
 export async function handleCreateMcp(client: AgentClient): Promise<void> {
-  console.log(`\n${BOLD('âš™ï¸  Registrar Nuevo Servidor MCP')}\n`);
+  console.log(`\n${BOLD('⚙️  Registrar Nuevo Servidor MCP')}\n`);
 
   const answers = await prompts([
     {
@@ -52,7 +52,7 @@ export async function handleCreateMcp(client: AgentClient): Promise<void> {
       name: 'name',
       message: 'Nombre identificador del servidor MCP (ej. filesystem, github, fetch):',
       validate: (v: string) =>
-        /^[a-zA-Z0-9_-]+$/.test(v) ? true : 'Usa solo letras, nÃºmeros, guiones y guiones bajos',
+        /^[a-zA-Z0-9_-]+$/.test(v) ? true : 'Usa solo letras, números, guiones y guiones bajos',
     },
     {
       type: 'text',
@@ -69,7 +69,7 @@ export async function handleCreateMcp(client: AgentClient): Promise<void> {
   ]);
 
   if (!answers.name || !answers.command) {
-    console.log(YELLOW('\nOperaciÃ³n cancelada.\n'));
+    console.log(YELLOW('\nOperación cancelada.\n'));
     return;
   }
 
@@ -97,9 +97,9 @@ export async function handleCreateMcp(client: AgentClient): Promise<void> {
     console.log(GRAY(`\nGuardando servidor MCP ${formatMcp(answers.name)}...`));
     await client.saveSettings({ mcp_servers: updatedServers });
 
-    console.log(GREEN(`âœ” Â¡Servidor MCP ${formatMcp(answers.name)} registrado con Ã©xito!`));
-    console.log(DIM(`  HELIX sincronizarÃ¡ las herramientas automÃ¡ticamente.\n`));
+    console.log(GREEN(`✔ ¡Servidor MCP ${formatMcp(answers.name)} registrado con éxito!`));
+    console.log(DIM(`  HELIX sincronizará las herramientas automáticamente.\n`));
   } catch (err) {
-    console.log(RED(`âœ– Error al registrar servidor MCP: ${(err as Error).message}\n`));
+    console.log(RED(`✖ Error al registrar servidor MCP: ${(err as Error).message}\n`));
   }
 }

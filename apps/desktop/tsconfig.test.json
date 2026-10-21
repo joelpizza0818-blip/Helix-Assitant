@@ -1,4 +1,4 @@
-
+{
   "extends": "./tsconfig.renderer.json",
   "compilerOptions": {
     "module": "CommonJS",

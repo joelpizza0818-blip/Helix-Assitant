@@ -1,4 +1,4 @@
-mport chalk from 'chalk';
+import chalk from 'chalk';
 
 export const customChalk = new chalk.Instance({ level: 3 });
 

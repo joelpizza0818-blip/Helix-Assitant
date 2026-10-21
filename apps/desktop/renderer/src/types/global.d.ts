@@ -1,4 +1,4 @@
-/ Global type declarations for the HELIX preload bridge
+// Global type declarations for the HELIX preload bridge
 // This is injected by electron/preload.ts via contextBridge
 
 /// <reference types="vite/client" />
@@ -149,7 +149,7 @@ export interface MemoryStatus {
   message: string
 }
 
-// â”€â”€ Shared types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Shared types ──────────────────────────────────────────────────────────────
 
 export type UpdaterStatus =
   | { status: 'checking'; currentVersion: string }

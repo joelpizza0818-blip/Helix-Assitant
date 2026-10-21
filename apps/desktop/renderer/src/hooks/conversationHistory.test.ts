@@ -1,4 +1,4 @@
-mport assert from 'node:assert/strict'
+import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { deleteConversation, type StoredConversation } from './conversationHistory'
 

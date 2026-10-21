@@ -1,4 +1,4 @@
-onst HELIX_PORT = 47831
+const HELIX_PORT = 47831
 const HELIX_URL = `http://127.0.0.1:${HELIX_PORT}/page`
 const PAGE_REFRESH_ALARM = 'helix-active-page-refresh'
 let queuedActiveSnapshot = null

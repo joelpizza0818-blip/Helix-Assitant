@@ -1,4 +1,4 @@
-onst tokenInput = document.getElementById('pairing-token')
+const tokenInput = document.getElementById('pairing-token')
 const status = document.getElementById('status')
 
 chrome.storage.local.get('pairingToken').then(({ pairingToken }) => {

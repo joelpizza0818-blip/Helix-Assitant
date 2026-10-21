@@ -1,4 +1,4 @@
-mport chalk from 'chalk';
+import chalk from 'chalk';
 import type { AgentClient } from '../client/agent-client';
 import { formatSkill, formatMcp, ORANGE, CYAN, MAGENTA, DIM } from './colors';
 
@@ -16,7 +16,7 @@ export const SLASH_COMMANDS: CommandDefinition[] = [
   { command: '/browser', description: 'Ver estado del navegador web o abrir URLs', usage: '/browser [open <url>]' },
   { command: '/config-apikey', description: 'Configurador interactivo de API Keys (OpenAI, Anthropic, Gemini, etc.)' },
   { command: '/show-apikey', description: 'Ver estado y validez de las API Keys configuradas' },
-  { command: '/microphone', description: 'Ver o alternar estado del micrÃ³fono', usage: '/microphone [enable|disable]' },
+  { command: '/microphone', description: 'Ver o alternar estado del micrófono', usage: '/microphone [enable|disable]' },
   { command: '/tasks', description: 'Ver tareas activas y recientes del agente' },
   { command: '/models', description: 'Listar modelos disponibles de proveedores configurados' },
   { command: '/status', description: 'Mostrar resumen del estado del sistema' },
@@ -136,16 +136,16 @@ export class Autocompleter {
    */
   public renderHelp(): void {
     console.log('');
-    console.log(`  ${chalk.hex('#FF8C00').bold('â¬¡ Comandos Disponibles')}  ${chalk.gray('(/ + [Tab] para autocompletar)')}`);
-    console.log(`  ${chalk.gray('â”€'.repeat(50))}`);
+    console.log(`  ${chalk.hex('#FF8C00').bold('⬡ Comandos Disponibles')}  ${chalk.gray('(/ + [Tab] para autocompletar)')}`);
+    console.log(`  ${chalk.gray('─'.repeat(50))}`);
     for (const cmd of SLASH_COMMANDS) {
       const usage = cmd.usage ? `  ${chalk.gray(cmd.usage)}` : '';
       console.log(`  ${chalk.magenta(cmd.command.padEnd(16))} ${chalk.gray(cmd.description)}${usage}`);
     }
 
     console.log('');
-    console.log(`  ${chalk.hex('#FF8C00').bold('â¬¡ Prefijos Especiales')}`);
-    console.log(`  ${chalk.gray('â”€'.repeat(50))}`);
+    console.log(`  ${chalk.hex('#FF8C00').bold('⬡ Prefijos Especiales')}`);
+    console.log(`  ${chalk.gray('─'.repeat(50))}`);
     console.log(`  ${formatSkill('nombre')}            ${chalk.gray('Invoca una skill registrada')}`);
     console.log(`  ${formatMcp('herramienta')}       ${chalk.gray('Invoca herramientas MCP')}`);
     console.log('');

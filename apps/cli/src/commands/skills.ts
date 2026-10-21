@@ -1,4 +1,4 @@
-mport prompts from 'prompts';
+import prompts from 'prompts';
 import chalk from 'chalk';
 import type { AgentClient } from '../client/agent-client';
 import { formatSkill, ORANGE_BOLD, GREEN, RED, YELLOW, GRAY, BOLD, DIM } from '../ui/colors';
@@ -18,7 +18,7 @@ export async function handleListSkills(client: AgentClient, specificSkill?: stri
       if (match) {
         console.log(`\n${BOLD('Detalles de la Skill:')}`);
         console.log(`  Nombre:       ${formatSkill(match.name)}`);
-        console.log(`  DescripciÃ³n:  ${chalk.white(match.description || 'Sin descripciÃ³n')}`);
+        console.log(`  Descripción:  ${chalk.white(match.description || 'Sin descripción')}`);
         if (match.triggers && match.triggers.length > 0) {
           console.log(`  Disparadores: ${DIM(match.triggers.join(', '))}`);
         }
@@ -31,11 +31,11 @@ export async function handleListSkills(client: AgentClient, specificSkill?: stri
       console.log(YELLOW(`\n  Skill "${specificSkill}" no encontrada. Listando todas las disponibles:\n`));
     }
 
-    console.log(`\n${BOLD('âš¡ Skills Registradas en HELIX:')}\n`);
+    console.log(`\n${BOLD('⚡ Skills Registradas en HELIX:')}\n`);
     for (const skill of skills) {
       const nameTag = formatSkill(skill.name);
       const isCustom = skill.custom ? chalk.hex('#FFA500')(' [custom]') : '';
-      console.log(`  ${ORANGE_BOLD('âœ¦')} ${nameTag}${isCustom}`);
+      console.log(`  ${ORANGE_BOLD('✦')} ${nameTag}${isCustom}`);
       if (skill.description) {
         console.log(`    ${DIM(skill.description)}`);
       }
@@ -50,7 +50,7 @@ export async function handleListSkills(client: AgentClient, specificSkill?: stri
 }
 
 export async function handleCreateSkill(client: AgentClient): Promise<void> {
-  console.log(`\n${BOLD('ðŸ› ï¸  Crear Nueva Skill en HELIX')}\n`);
+  console.log(`\n${BOLD('🛠️  Crear Nueva Skill en HELIX')}\n`);
 
   const answers = await prompts([
     {
@@ -60,13 +60,13 @@ export async function handleCreateSkill(client: AgentClient): Promise<void> {
       validate: (v: string) =>
         /^[a-zA-Z0-9_-]+$/.test(v)
           ? true
-          : 'El nombre solo puede contener letras, nÃºmeros, guiones y guiones bajos',
+          : 'El nombre solo puede contener letras, números, guiones y guiones bajos',
     },
     {
       type: 'text',
       name: 'description',
-      message: 'DescripciÃ³n corta de la funcionalidad:',
-      validate: (v: string) => (v && v.trim() ? true : 'La descripciÃ³n es requerida'),
+      message: 'Descripción corta de la funcionalidad:',
+      validate: (v: string) => (v && v.trim() ? true : 'La descripción es requerida'),
     },
     {
       type: 'text',
@@ -77,13 +77,13 @@ export async function handleCreateSkill(client: AgentClient): Promise<void> {
     {
       type: 'text',
       name: 'instructions',
-      message: 'Instrucciones o system prompt para la ejecuciÃ³n de la skill:',
+      message: 'Instrucciones o system prompt para la ejecución de la skill:',
       validate: (v: string) => (v && v.trim() ? true : 'Las instrucciones son requeridas'),
     },
   ]);
 
   if (!answers.name || !answers.description || !answers.instructions) {
-    console.log(YELLOW('\nOperaciÃ³n cancelada.\n'));
+    console.log(YELLOW('\nOperación cancelada.\n'));
     return;
   }
 
@@ -101,9 +101,9 @@ export async function handleCreateSkill(client: AgentClient): Promise<void> {
   try {
     console.log(GRAY(`\nGuardando skill ${formatSkill(skillPayload.name)}...`));
     await client.saveSkill(skillPayload);
-    console.log(GREEN(`âœ” Â¡Skill ${formatSkill(skillPayload.name)} creada con Ã©xito!`));
+    console.log(GREEN(`✔ ¡Skill ${formatSkill(skillPayload.name)} creada con éxito!`));
     console.log(DIM(`  Puedes invocarla usando: ${formatSkill(skillPayload.name)} <tu consulta>\n`));
   } catch (err) {
-    console.log(RED(`âœ– Error al crear la skill: ${(err as Error).message}\n`));
+    console.log(RED(`✖ Error al crear la skill: ${(err as Error).message}\n`));
   }
 }

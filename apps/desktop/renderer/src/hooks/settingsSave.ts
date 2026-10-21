@@ -1,4 +1,4 @@
-mport type { HelixSettings, LegacyMCPServerConfig, MCPServerConfig } from '../types/global'
+import type { HelixSettings, LegacyMCPServerConfig, MCPServerConfig } from '../types/global'
 
 export type SettingsSaveResult =
   | { ok: true }

@@ -1,4 +1,4 @@
-mport { createHash, randomUUID } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import { clipboard, nativeImage, type NativeImage } from 'electron'
 
 const MAX_HISTORY_ITEMS = 30

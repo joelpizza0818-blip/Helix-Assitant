@@ -1,4 +1,4 @@
-mport { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import type { HelixSettings } from '../types/global'
 import { prepareSettingsSave, type SettingsSaveResult } from './settingsSave'
 

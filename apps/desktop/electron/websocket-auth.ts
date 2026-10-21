@@ -1,4 +1,4 @@
-mport { randomBytes } from 'crypto'
+import { randomBytes } from 'crypto'
 
 export function createWebSocketToken(): string {
   return randomBytes(32).toString('hex')

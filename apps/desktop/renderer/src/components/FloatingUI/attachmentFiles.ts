@@ -1,4 +1,4 @@
-xport const MAX_CHAT_ATTACHMENTS = 10
+export const MAX_CHAT_ATTACHMENTS = 10
 export const MAX_CHAT_ATTACHMENT_BYTES = 8 * 1024 * 1024
 export const CHAT_ATTACHMENT_ACCEPT =
   'image/jpeg,image/png,image/webp,image/gif,.txt,.md,.json,.csv,.pdf,.doc,.docx,.js,.ts,.py,.html,.css'

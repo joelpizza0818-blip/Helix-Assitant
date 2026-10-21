@@ -1,5 +1,4 @@
-{ 
-
+{
   "compilerOptions": {
     "target": "ES2022",
     "module": "commonjs",
@@ -10,11 +9,10 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "moduleResolution": "bundler",
+    "moduleResolution": "node",
     "resolveJsonModule": true,
     "declaration": true
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
 }
-

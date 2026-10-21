@@ -1,4 +1,4 @@
-mport chalk from 'chalk';
+import chalk from 'chalk';
 import { ORANGE, CYAN, GREEN, RED, YELLOW, GRAY, BOLD, DIM } from './colors';
 
 export interface BannerStatusOptions {
@@ -10,19 +10,19 @@ export interface BannerStatusOptions {
   activeTasksCount?: number;
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-//  HELIX â€” Pixel-art dot-matrix logo.
-//  Each letter is drawn on an 8-row Ã— 5-col grid.
-//  "On" pixels â†’ "â–ˆâ–ˆ" block, "off" pixels â†’ "  " (space).
-//  Gradient runs top â†’ bottom:
+// ═══════════════════════════════════════════════════════════════
+//  HELIX — Pixel-art dot-matrix logo.
+//  Each letter is drawn on an 8-row × 5-col grid.
+//  "On" pixels → "██" block, "off" pixels → "  " (space).
+//  Gradient runs top → bottom:
 //    rows 0-1 : bright white/cream
 //    rows 2-3 : bright yellow
 //    rows 4-5 : orange
 //    rows 6-7 : deep red
-//  Matches the pixel-art HELIX image with yellowâ†’orangeâ†’red gradient.
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+//  Matches the pixel-art HELIX image with yellow→orange→red gradient.
+// ═══════════════════════════════════════════════════════════════
 
-// â”€â”€ Letter bitmaps â€” 1=on, 0=off, 8 rows Ã— 5 cols each â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Letter bitmaps — 1=on, 0=off, 8 rows × 5 cols each ────────
 
 const H: number[][] = [
   [1,0,0,0,1],
@@ -84,25 +84,25 @@ const LETTER_GAP = 1;   // 1 empty col between letters
 const ROWS = 8;
 const COLS_PER_LETTER = 5;
 
-// â”€â”€ Top-to-bottom gradient â€” cream/white â†’ yellow â†’ orange â†’ red â”€â”€
+// ── Top-to-bottom gradient — cream/white → yellow → orange → red ──
 // Row 0 = top, row 7 = bottom
 const ROW_COLORS: string[] = [
-  '#FFF9E0',  // 0 â€” near-white cream
-  '#FFE84D',  // 1 â€” bright yellow
-  '#FFD200',  // 2 â€” gold yellow
-  '#FFB300',  // 3 â€” amber
-  '#FF8C00',  // 4 â€” orange
-  '#FF6600',  // 5 â€” deep orange
-  '#E63000',  // 6 â€” red-orange
-  '#CC1A00',  // 7 â€” deep red
+  '#FFF9E0',  // 0 — near-white cream
+  '#FFE84D',  // 1 — bright yellow
+  '#FFD200',  // 2 — gold yellow
+  '#FFB300',  // 3 — amber
+  '#FF8C00',  // 4 — orange
+  '#FF6600',  // 5 — deep orange
+  '#E63000',  // 6 — red-orange
+  '#CC1A00',  // 7 — deep red
 ];
 
-const BLOCK_ON  = 'â–ˆâ–ˆ';  // filled square block
+const BLOCK_ON  = '██';  // filled square block
 const BLOCK_OFF = '  ';  // empty (black background)
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ───────────────────────────────────────────────────────────────
 //  Public API
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ───────────────────────────────────────────────────────────────
 
 export function getAsciiLogo(terminalWidth: number = 80): string {
   // total character width: each cell = 2 chars
@@ -143,32 +143,32 @@ export function getAsciiLogo(terminalWidth: number = 80): string {
  * Compact, badge-style status bar.
  */
 export function getStatusBar(options: BannerStatusOptions): string {
-  // â”€â”€ Connection â”€â”€
+  // ── Connection ──
   const conn = options.connected
-    ? `${chalk.green('â—')} ${chalk.greenBright.bold('CONECTADO')} ${chalk.gray(options.wsUrl)}`
-    : `${chalk.red('â—')} ${chalk.redBright.bold('DESCONECTADO')} ${chalk.gray(options.wsUrl)}`;
+    ? `${chalk.green('●')} ${chalk.greenBright.bold('CONECTADO')} ${chalk.gray(options.wsUrl)}`
+    : `${chalk.red('●')} ${chalk.redBright.bold('DESCONECTADO')} ${chalk.gray(options.wsUrl)}`;
 
-  // â”€â”€ Microphone â”€â”€
+  // ── Microphone ──
   let mic: string;
   if (options.isCapturingVoice) {
-    mic = chalk.bgRed.white.bold(' ðŸŽ™ï¸ CAPTURANDO ');
+    mic = chalk.bgRed.white.bold(' 🎙️ CAPTURANDO ');
   } else if (options.voiceEnabled) {
-    mic = `${chalk.green('â—')} ${chalk.white('Mic')} ${chalk.gray('"hey helix"')}`;
+    mic = `${chalk.green('●')} ${chalk.white('Mic')} ${chalk.gray('"hey helix"')}`;
   } else {
-    mic = `${chalk.red('â—')} ${chalk.gray('Mic Off')}`;
+    mic = `${chalk.red('●')} ${chalk.gray('Mic Off')}`;
   }
 
-  // â”€â”€ Model â”€â”€
+  // ── Model ──
   const model = options.currentModel
-    ? `${chalk.hex('#FF9F1C')('âš¡')} ${chalk.white(options.currentModel)}`
-    : `${chalk.hex('#FF9F1C')('âš¡')} ${chalk.white('Local ReAct')}`;
+    ? `${chalk.hex('#FF9F1C')('⚡')} ${chalk.white(options.currentModel)}`
+    : `${chalk.hex('#FF9F1C')('⚡')} ${chalk.white('Local ReAct')}`;
 
-  // â”€â”€ Active tasks â”€â”€
+  // ── Active tasks ──
   const tasks = (options.activeTasksCount ?? 0) > 0
-    ? `  ${chalk.yellow('â³')} ${chalk.yellowBright(String(options.activeTasksCount))}`
+    ? `  ${chalk.yellow('⏳')} ${chalk.yellowBright(String(options.activeTasksCount))}`
     : '';
 
-  const sep = chalk.gray(' â”‚ ');
+  const sep = chalk.gray(' │ ');
   return `  ${conn}${sep}${mic}${sep}${model}${tasks}`;
 }
 
@@ -183,27 +183,27 @@ export function renderHeader(options: BannerStatusOptions, clearScreen: boolean 
 
   const width = process.stdout.columns || 80;
 
-  // â”€â”€ Logo â”€â”€
+  // ── Logo ──
   const logo = getAsciiLogo(width);
 
-  // â”€â”€ Tagline â”€â”€
+  // ── Tagline ──
   const tagline = 'Persistent AI Desktop Agent';
   const tagPad = Math.max(0, Math.floor((width - tagline.length - 8) / 2));
   const subtitle =
     ' '.repeat(tagPad) +
-    chalk.gray('â•¶â”€â”€â”€') +
+    chalk.gray('╶───') +
     ' ' +
     chalk.hex('#FF9F1C')(tagline) +
     ' ' +
-    chalk.gray('â”€â”€â”€â•´');
+    chalk.gray('───╴');
 
-  // â”€â”€ Status bar â”€â”€
+  // ── Status bar ──
   const statusBar = getStatusBar(options);
 
-  // â”€â”€ Visual lines â”€â”€
-  const thinLine = chalk.gray('â”€'.repeat(width));
+  // ── Visual lines ──
+  const thinLine = chalk.gray('─'.repeat(width));
 
-  // â”€â”€ Render â”€â”€
+  // ── Render ──
   console.log('');
   console.log(logo);
   console.log('');
@@ -213,8 +213,8 @@ export function renderHeader(options: BannerStatusOptions, clearScreen: boolean 
   console.log(statusBar);
   console.log(thinLine);
   console.log(
-    `  ${chalk.hex('#FF8C00')('@skill')} ${chalk.gray('Skills')}  ${chalk.gray('â”‚')}  ` +
-    `${chalk.cyan('#mcp')} ${chalk.gray('Herramientas')}  ${chalk.gray('â”‚')}  ` +
+    `  ${chalk.hex('#FF8C00')('@skill')} ${chalk.gray('Skills')}  ${chalk.gray('│')}  ` +
+    `${chalk.cyan('#mcp')} ${chalk.gray('Herramientas')}  ${chalk.gray('│')}  ` +
     `${chalk.magenta('/help')} ${chalk.gray('Comandos')}`
   );
   console.log(thinLine);
@@ -226,12 +226,12 @@ export function renderHeader(options: BannerStatusOptions, clearScreen: boolean 
  */
 export function getVoiceIndicator(isCapturing: boolean, voiceEnabled: boolean): string {
   if (isCapturing) {
-    return chalk.bgRed.white.bold(' ðŸŽ™ï¸  VOZ DETECTADA [HEY HELIX] ðŸ”Š ');
+    return chalk.bgRed.white.bold(' 🎙️  VOZ DETECTADA [HEY HELIX] 🔊 ');
   }
   if (voiceEnabled) {
-    return chalk.green('ðŸŸ¢ [Mic Activo]');
+    return chalk.green('🟢 [Mic Activo]');
   }
-  return chalk.red('ðŸ”´ [Mic Inactivo]');
+  return chalk.red('🔴 [Mic Inactivo]');
 }
 
 // Legacy named exports kept for compatibility with other modules
