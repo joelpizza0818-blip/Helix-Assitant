@@ -1,3 +1,26 @@
+// ═══════════════════════════════════════════════════════════════
+// Windows Console Encoding Fix
+// ═══════════════════════════════════════════════════════════════
+// Windows uses different code pages (850, 437, 1252) by default.
+// Force UTF-8 for proper Spanish/Unicode character display.
+if (process.platform === 'win32' && process.stdout.isTTY) {
+  try {
+    // Try to set console to UTF-8 (chcp 65001)
+    const { execSync } = require('child_process');
+    execSync('chcp 65001 >nul 2>&1', { stdio: 'ignore' });
+  } catch {
+    // Silently fail if chcp not available
+  }
+  
+  // Set Node.js stdout/stderr encoding
+  if (process.stdout.setDefaultEncoding) {
+    process.stdout.setDefaultEncoding('utf-8');
+  }
+  if (process.stderr.setDefaultEncoding) {
+    process.stderr.setDefaultEncoding('utf-8');
+  }
+}
+
 import { Command } from 'commander';
 import { HelixRepl } from './ui/repl';
 import { getWsUrl, getWsToken } from './config/env';
