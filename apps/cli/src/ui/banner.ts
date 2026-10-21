@@ -22,7 +22,10 @@ export function getAsciiLogo(terminalWidth: number = 80): string {
     '\x1b[38;2;240;98;15m██ \x1b[38;2;255;95;18m██   ██ \x1b[38;2;240;98;15m██\x1b[0m',
     '   \x1b[38;2;220;74;12m██   ██\x1b[0m'
   ];
-  return lines.join('\n');
+  const visibleWidth = 62;
+  const leftPad = Math.max(0, Math.floor((terminalWidth - visibleWidth) / 2));
+  const padding = ' '.repeat(leftPad);
+  return lines.map(line => padding + line).join('\n');
 }
 
 export function getStatusBar(options: BannerStatusOptions): string {
