@@ -1,4 +1,4 @@
-import {
+﻿import {
   app,
   BrowserWindow,
   Tray,
@@ -51,6 +51,8 @@ if (isDev) {
     path.join(app.getPath('appData'), `@helix-desktop-dev-${checkoutName}`)
   )
 }
+
+const APP_ICON_PATH = path.join(__dirname, '../assets/icon.ico')
 
 let floatingWindow: BrowserWindow | null = null
 let toolboxWindow: BrowserWindow | null = null
@@ -321,6 +323,7 @@ function createFloatingWindow(): BrowserWindow {
     resizable: false,
     show: false,
     backgroundColor: '#101010',
+    icon: APP_ICON_PATH,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -331,7 +334,7 @@ function createFloatingWindow(): BrowserWindow {
 
   loadWithRetry(win, `${RENDERER_URL}#floating`)
 
-  // Prevent closing — hide instead
+  // Prevent closing â€” hide instead
   win.on('close', (e) => {
     e.preventDefault()
     win.hide()
@@ -351,6 +354,7 @@ function createToolboxWindow(): BrowserWindow {
     show: false,
     backgroundColor: '#101010',
     title: 'HELIX Toolbox',
+    icon: APP_ICON_PATH,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -1039,7 +1043,7 @@ app.on('before-quit', (event) => {
 })
 
 app.on('window-all-closed', () => {
-  // Do NOT quit — HELIX lives in the tray
+  // Do NOT quit â€” HELIX lives in the tray
   // Only quit when user explicitly selects Quit from tray menu
 })
 
