@@ -59,6 +59,8 @@ class ShellTool(BaseTool):
             self.block_elevated_execution = settings['block_elevated_execution']
         if isinstance(settings.get('sandbox_enabled'), bool):
             self.sandbox_enabled = settings['sandbox_enabled']
+        if settings.get('sandbox_mode') in {'restricted', 'isolated', 'windows_sandbox', 'docker'}:
+            self.sandbox_mode = settings['sandbox_mode']
 
     @staticmethod
     def _startupinfo():
@@ -69,9 +71,6 @@ class ShellTool(BaseTool):
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         startupinfo.wShowWindow = subprocess.SW_HIDE
         return startupinfo
-        if settings.get('sandbox_mode') in {'restricted', 'isolated', 'windows_sandbox', 'docker'}:
-            self.sandbox_mode = settings['sandbox_mode']
-
     def _create_sandboxed_env(self) -> Dict[str, str]:
         safe_keys = {
             'SYSTEMROOT', 'SYSTEMDRIVE', 'WINDIR', 'COMSPEC', 'PATHEXT',
