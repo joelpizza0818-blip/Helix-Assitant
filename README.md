@@ -1,110 +1,144 @@
-# HELIX - Persistent Windows AI Desktop Agent
+# HELIX - Persistent AI Assistant & Desktop Agent
 
-HELIX is an advanced AI desktop agent tailored for Windows, providing deep OS integration, seamless automation, and contextual awareness via voice, vision, and screen perception.
+HELIX is an advanced AI desktop agent tailored for multi-shell execution across Windows, macOS, and Linux, providing deep OS integration, seamless automation, and contextual awareness via voice, vision, screen perception, and terminal interaction.
 
 🌐 **Official Website & Downloads:** [https://helix-assistant.vercel.app](https://helix-assistant.vercel.app)  
-📦 **Windows Releases:** [Download HELIX Normal & Lite](https://helix-assistant.vercel.app/download)  
-📖 **Documentation:** [HELIX Docs](https://helix-assistant.vercel.app/docs) &bull; **Features:** [Architecture & Capabilities](https://helix-assistant.vercel.app/features)
+📦 **Releases:** [Download HELIX Normal, Lite & CLI](https://helix-assistant.vercel.app/download)  
+📖 **Documentation:** [HELIX Docs](https://helix-assistant.vercel.app/docs) • **Features:** [Capabilities](https://helix-assistant.vercel.app/features)
 
-## Architecture Overview
+---
+
+## Multi-Shell Architecture
+
+HELIX provides three specialized shells sharing the same local Python perception and reasoning runtime (`ws://127.0.0.1:8765`):
 
 ```text
-Windows OS
-   │
-   ├─ HELIX Desktop Shell (Electron/React UI)
-   │
-   └─ HELIX Agent Process (Python)
-        ├─ AI Orchestrator
-        ├─ Model Router & Fallback System
-        ├─ Task Manager
-        ├─ Memory Subsystem
-        ├─ Perception (Voice, Vision, Gesture, Screen)
-        ├─ Tool System
-        ├─ Security & Permission Manager
-        ├─ OS Integration
-        ├─ Browser Automation
-        └─ Providers (OpenAI, Anthropic, Google)
+                               ┌────────────────────────────────────────────────────────┐
+                               │                    Operating System                    │
+                               │               (Windows / macOS / Linux)                │
+                               └───────────────────────────┬────────────────────────────┘
+                                                           │
+              ┌────────────────────────────────────────────┼────────────────────────────────────────────┐
+              │                                            │                                            │
+              ▼                                            ▼                                            ▼
+   HELIX Normal (Electron)                      HELIX Lite (Tauri)                           HELIX CLI
+   apps/desktop                                 apps/desktop-tauri                           apps/cli (helix-assistant-cli)
+   - Full React/Electron UI                     - Lightweight Rust/Tauri binary              - Interactive terminal REPL
+   - Integrated floating pill & Toolbox         - Ultra-fast startup, ~15MB base             - Auto-complete for @skills & #mcps
+   - Live system admin logs stream              - Native webview rendering                   - Cross-platform UTF-8/CP1252/CP65001
+   - PyInstaller agent runtime bundled          - Low memory footprint                       - Direct npx execution
+              │                                            │                                            │
+              └────────────────────────────────────────────┼────────────────────────────────────────────┘
+                                                           │ WebSocket (127.0.0.1:8765)
+                                                           ▼
+                                         ┌───────────────────────────────────┐
+                                         │       HELIX Agent (Python)        │
+                                         ├───────────────────────────────────┤
+                                         │ • AI Orchestrator & ReAct Loop    │
+                                         │ • Multi-Provider Router & Fallback│
+                                         │ • OpenWakeWord & Faster-Whisper   │
+                                         │ • MediaPipe Gesture Recognition   │
+                                         │ • Permission Manager & Sandboxing │
+                                         │ • Local MCP & Tool Execution      │
+                                         └───────────────────────────────────┘
 ```
 
-## Prerequisites
-- Node.js >= 18
-- Python >= 3.10
-- PostgreSQL (or Supabase)
-- Windows 10/11
+### Choosing the Right Shell
 
-## Setup Steps
-1. Clone the repository
-2. Run `.\scripts\setup.ps1` from PowerShell
-3. Copy `.env.example` to `.env` and configure keys
-4. See [Environment Guide](docs/ENVIRONMENT.md) for configuration details
+| Shell | Target Audience | Primary Strengths | Install / Run Command |
+|---|---|---|---|
+| **HELIX Normal (Electron)** | Daily desktop automation & Power users | Full feature set, embedded local models, live Toolbox, visual Admin diagnostics | `HELIX-Setup-0.2.4.exe` (Windows x64) |
+| **HELIX Lite (Tauri)** | Low-spec machines & Minimalists | Extremely fast startup, ~15MB binary, minimal idle memory consumption | `HELIX-Lite-Setup.exe` (Windows x64) |
+| **HELIX CLI** | Developers & Headless / Remote environments | Interactive terminal REPL, zero-overhead GUI, runs anywhere Node is available | `npx helix-assistant-cli` |
 
-## Windows Installer Build
+---
 
-The release build creates a standalone NSIS installer with the Python agent bundled inside it. A user installs HELIX and launches it from the Start menu or desktop shortcut; no terminal startup command is required.
+## Version Governance & Hierarchy
 
-On a Windows build machine with the project dependencies installed, run:
+To maintain coherence across packages in this monorepo, version numbers follow a strictly defined hierarchy:
+
+1. **Global Product Release Version (`v0.2.4`)**:
+   - Represents the user-facing release of HELIX.
+   - Tagged in Git as `vX.Y.Z` (Electron & core) and `lite-vX.Y.Z` (Tauri Lite).
+   - Mirrored in `apps/desktop/package.json`, `apps/cli/package.json`, and `apps/desktop-tauri/src-tauri/tauri.conf.json`.
+
+2. **Monorepo Root Manifest (`1.0.0`)**:
+   - Manages developer workspaces, shared dev dependencies, formatting tools, and build orchestration scripts.
+
+3. **Internal Sub-service Manifests (`0.1.0`)**:
+   - `server/package.json` and `apps/landing/package.json` maintain independent service release lifecycles.
+
+---
+
+## Quick Start & Installation
+
+### Option 1: Interactive Terminal CLI (Instant)
+
+Run directly without manual installation:
+
+```bash
+npx helix-assistant-cli
+```
+
+Or install globally:
+
+```bash
+npm install -g helix-assistant-cli
+helix
+```
+
+### Option 2: Desktop Applications (Windows Installer)
+
+Download the installer from the [Official Downloads Page](https://helix-assistant.vercel.app/download) or build from source:
 
 ```powershell
+# 1. Clone repository
+git clone https://github.com/joelpizza0818-blip/Helix-Assitant.git
+cd Helix-Assitant
+
+# 2. Run automated setup (installs Node & Python requirements)
 .\scripts\setup.ps1
-npm run build:windows
+
+# 3. Build standalone Windows installer
+npm run build --workspace=@helix/desktop
 ```
 
-The setup script installs the PyInstaller build dependency from
-`services/agent/requirements.txt`; `build:windows` produces and embeds the
-standalone agent executable before building the NSIS installer.
+The resulting standalone executable is generated in `apps/desktop/release/`.
 
-The installer is written to `apps/desktop/release/HELIX-Setup-<version>.exe`
-and staged privately at `apps/landing/private-downloads/HELIX-Setup.exe`.
-Publishing a stable release with a tag matching `apps/desktop/package.json`
-(for example, `v0.1.7`) starts the
-[Windows installer workflow](.github/workflows/publish-windows-installer.yml).
-It rebuilds the installer from that exact source tag, uploads the installer,
-SHA-256 checksum, NSIS blockmap, and `latest.yml` metadata to the private
-`helix-installer-downloads` repository, and verifies the published asset and
-latest-release tag.
+---
 
-To publish a version from GitHub, open Actions > **Publish HELIX version**,
-choose `patch`, `minor`, or `major`, and run the workflow from `main`. It
-validates the desktop TypeScript, updates the desktop version and lockfile,
-commits and tags the release, creates GitHub-generated release notes, then
-starts and waits for the Windows installer build. The run summary links to the
-release and reports whether the installer build, checksum verification, and
-private upload succeeded.
+## Security & Execution Sandboxing
 
-Configure the `INSTALLER_REPO_TOKEN` Actions secret with a fine-grained token
-restricted to `helix-installer-downloads`, with Contents read/write access.
-The workflow can also be run manually from `main` to rebuild the current
-desktop package version. The landing download function reads the latest private
-release dynamically, so publishing a new installer does not require a landing
-redeploy. Never place the installer under `apps/landing/public`.
+HELIX implements privilege separation through `PermissionManager`:
+- **Read-Only / Low-Risk:** Inspected files, UI inspection, cursor movements.
+- **Modify:** File creation, directory management, window adjustments.
+- **System / Critical:** Command execution, destructive filesystem changes, process killing.
+- **Sandboxing & Isolation:** In Toolbox > Security, users can enable **Command Sandboxing** to execute shell and PowerShell commands with sanitized environment variables (stripping API keys and secrets), restricted execution policies, and isolated process boundaries.
 
-Installed HELIX checks for updates at startup and exposes manual checking,
-download progress, and restart-to-install in Toolbox > Updates. The public
-`installer-updates` Supabase Edge Function serves only update metadata and
-versioned HELIX installer assets; its GitHub token remains server-side. Deploy
-it with the existing `GITHUB_INSTALLER_OWNER`, `GITHUB_INSTALLER_REPO`, and
-`GITHUB_INSTALLER_TOKEN` Supabase secrets before publishing an updater-enabled
-release. Existing v0.1.0 installations do not contain updater code, so they
-must install the current Windows installer once; later versions can update
-in-app.
-
-## Desktop companions
-
-The Toolbox includes an in-memory clipboard history (up to 30 text/image
-entries) that can be paused or cleared. The browser companion can be loaded
-unpacked in Chrome or Edge from the Toolbox; it sends visible page text, links,
-and form labels to the local HELIX agent, but not form values. Clipboard entries
-and browser page snapshots are not persisted by these features.
+---
 
 ## Directory Structure
-- `apps/desktop`: Electron/React desktop application
-- `apps/landing`: Web landing page
-- `server`: Backend API/Services
-- `docs`: Documentation
-- `scripts`: Utility and setup scripts
-- `services/agent`: Python core agent logic
 
-## Documentation
-- [Environment & Config](docs/ENVIRONMENT.md)
-- [Architecture](docs/ARCHITECTURE.md)
-- [Project flow](docs/PROJECT_FLOW.md)
+```text
+Helix-Assistant/
+├── apps/
+│   ├── cli/             # Interactive TypeScript terminal shell (helix-assistant-cli)
+│   ├── desktop/         # Full Electron & React desktop application
+│   ├── desktop-tauri/   # Lightweight Tauri / Rust desktop shell
+│   └── landing/         # Marketing, scrollytelling & release distribution web app
+├── config/              # Shared runtime and environment configuration
+├── docs/                # Architecture and technical documentation
+├── scripts/             # Build, staging, and packaging automation scripts
+├── server/              # Express / Prisma backend services and telemetry API
+├── services/
+│   └── agent/           # Python agent core: perception, orchestrator, tools, AI providers
+└── tools/               # Auxiliary developer utilities and test doubles
+```
+
+---
+
+## Documentation Links
+
+- [Environment & Configuration Guide](docs/ENVIRONMENT.md)
+- [Architecture Deep Dive](docs/ARCHITECTURE.md)
+- [Project Workflow & Lifecycle](docs/PROJECT_FLOW.md)
