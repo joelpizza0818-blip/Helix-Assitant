@@ -1,62 +1,62 @@
 # HELIX
 
-HELIX es un agente de escritorio local-first para trabajar con el sistema operativo, la terminal y el contexto que el usuario decide compartir. Combina una interfaz de escritorio, un agente Python, herramientas con permisos explícitos, proveedores de IA configurables y un CLI para flujos compatibles.
+HELIX is a local-first desktop agent for working with the operating system, terminal, and context the user chooses to share. It combines a desktop shell, Python agent, explicit permission controls, configurable AI providers, and a CLI for supported workflows.
 
-> Estado: release `v0.2.6` en publicación. La compatibilidad indicada aquí distingue entre implementación, pruebas y validación manual.
+> Documentation status: `v0.2.6` release line. Compatibility statements distinguish implementation, automated evidence, and manual validation.
 
-Enlaces: [landing](https://helix-assistant.vercel.app) · [descargas](https://helix-assistant.vercel.app/download) · [capacidades](https://helix-assistant.vercel.app/features) · [docs web](https://helix-assistant.vercel.app/docs) · [releases](https://github.com/joelpizza0818-blip/Helix-Assitant/releases)
+Links: [landing](https://helix-assistant.vercel.app) · [downloads](https://helix-assistant.vercel.app/download) · [capabilities](https://helix-assistant.vercel.app/features) · [web docs](https://helix-assistant.vercel.app/docs) · [releases](https://github.com/joelpizza0818-blip/Helix-Assitant/releases)
 
-## Qué ofrece
+## Capabilities
 
-- Conversación y ejecución de tareas desde la aplicación de escritorio.
-- Herramientas de sistema, archivos, navegador, pantalla, voz, cámara y gestos según configuración, hardware y permisos.
-- Router de modelos para proveedores configurados, con validación de credenciales y fallback controlado.
-- Confirmaciones humanas para acciones de riesgo alto, sistema o críticas.
-- MCP y skills configurables, revisables antes de habilitarlos.
-- Memoria y recuperación de contexto; la Context Compression Layer reduce contexto repetido y conserva bloques recuperables bajo demanda.
-- CLI interactivo con autocompletado y compatibilidad UTF-8, CP1252 y codepage 65001.
-- HELIX Normal y HELIX Lite como shells de escritorio independientes.
+- Desktop conversation and task execution.
+- OS, file, browser, screen, voice, camera, and gesture tools when configured and available.
+- Model routing with capability filtering and controlled provider/key fallback.
+- Human confirmation for system and critical actions, including automatic modes.
+- Reviewable skills and local stdio MCP servers.
+- Memory and context retrieval; the Context Compression Layer packs large content into recoverable blocks.
+- CLI autocompletion with UTF-8, CP1252, and codepage 65001 handling.
+- Separate Normal (Electron) and Lite (Tauri) desktop shells.
 
-HELIX no concede permisos implícitos ni promete automatización universal: cada herramienta depende de la política, el proveedor, el sistema operativo, el hardware y la configuración activa.
+HELIX does not grant implicit authority or promise universal automation. Tool availability depends on policy, provider, operating system, hardware, and local configuration.
 
-## Productos y plataformas
+## Products and support matrix
 
-| Producto | Plataforma | Distribución | Soporte |
+| Product | Supported platform | Distribution | Support status |
 |---|---|---|---|
-| HELIX Normal | Windows x64, Electron | `HELIX-Setup-0.2.6.exe` | Escritorio principal |
-| HELIX Lite | Windows x64, Tauri/NSIS | `lite-v0.2.6` | Shell ligero independiente |
-| HELIX CLI | Node.js en Windows, macOS y Linux, según dependencias | `npx helix-assistant-cli` | Terminal y flujos headless compatibles |
-| Servidor | Express/Prisma en entorno configurado | servicio interno | API, tareas y actualizaciones |
-| Landing | Navegador moderno | Vercel | Web pública, docs y descargas |
+| HELIX Normal | Windows x64, Electron | `HELIX-Setup-0.2.6.exe` | Primary desktop product |
+| HELIX Lite | Windows x64, Tauri/NSIS | `lite-v0.2.6` | Independent lightweight shell |
+| HELIX CLI | Node.js on Windows, macOS, and Linux where dependencies are available | `npx helix-assistant-cli` | Terminal/headless workflows |
+| Server | Express/Prisma in its configured deployment environment | internal service | API, tasks, and update subscriptions |
+| Landing | Modern browser | Vercel | Public site, docs, and downloads |
 
-La aplicación de escritorio publicada actualmente está orientada a Windows x64. macOS y Linux no deben presentarse como instaladores de escritorio oficiales sin workflow y artefacto verificado.
+Official desktop installers are currently Windows x64. Do not describe macOS or Linux desktop installers as supported until a verified workflow and artifact exist.
 
-## Arquitectura
+## Architecture
 
 ```text
-Interfaces: Electron/React Normal · Tauri/Rust Lite · CLI TypeScript
+User interfaces: Electron/React Normal · Tauri/Rust Lite · TypeScript CLI
                                 │
-                     WebSocket local autenticado
-                     127.0.0.1:8765
+                    authenticated local WebSocket
+                    127.0.0.1:8765
                                 │
-Agente Python: orquestador ReAct · router · sesiones · permisos
-               tools · MCP · percepción · compresión de contexto
+Python agent: orchestration · model routing · tasks · tools
+              permissions · memory · MCP/skills · perception
                                 │
-       proveedores configurados / hardware local / servicios opcionales
+       configured providers · local OS/hardware · optional services
        Express · Prisma/PostgreSQL/Supabase · landing · releases
 ```
 
-Responsabilidades:
+| Area | Responsibility |
+|---|---|
+| `apps/desktop` | Electron lifecycle, preload/IPC, React renderer, Toolbox, updater, diagnostics |
+| `apps/desktop-tauri` | Lite shell and Rust bridge |
+| `apps/cli` | Interactive terminal client |
+| `services/agent` | Python runtime, orchestration, tools, perception, security |
+| `server` | Express API, Prisma, tasks, models, update subscriptions |
+| `apps/landing` | Public content, downloads, SEO, and local EN/ES UI |
+| `config` | Shared catalogs and configuration |
 
-- `apps/desktop`: Electron, preload, IPC, renderer React, Toolbox, updater y diagnóstico.
-- `apps/desktop-tauri`: shell Lite y puente Tauri; comparte renderer donde el contrato lo permite.
-- `apps/cli`: cliente de terminal y experiencia interactiva.
-- `services/agent`: runtime Python, orquestación, herramientas, percepción y seguridad.
-- `server`: API Express, Prisma, tareas, modelos y suscripciones.
-- `apps/landing`: contenido público, descargas, documentación, SEO y localización EN/ES.
-- `config`: catálogos y configuración compartida; los secretos quedan fuera del repositorio.
-
-## Instalación rápida
+## Quick start
 
 ### CLI
 
@@ -66,15 +66,15 @@ npm install --global helix-assistant-cli
 helix
 ```
 
-El CLI necesita un agente accesible y un proveedor válido para tareas que requieran IA. Los comandos dependen de skills y MCP habilitados.
+The CLI needs an accessible agent and a configured provider for AI-backed tasks. Available commands depend on enabled skills and MCP servers.
 
-### Escritorio
+### Desktop
 
-Descarga desde la [página oficial](https://helix-assistant.vercel.app/download). Verifica el checksum publicado cuando esté disponible y ejecuta el instalador en Windows x64.
+Download from the [official page](https://helix-assistant.vercel.app/download), verify the published checksum when available, and run the Windows x64 installer.
 
-### Código fuente
+### From source
 
-Requisitos recomendados: Node.js 20+, npm, Python 3.11, y herramientas nativas para la capacidad que se quiera probar. Rust es necesario para Lite.
+Recommended requirements: Node.js 20+, npm, Python 3.11, and native build tools for the capabilities being tested. Rust is required for Lite builds.
 
 ```powershell
 git clone https://github.com/joelpizza0818-blip/Helix-Assitant.git
@@ -83,6 +83,8 @@ Set-Location Helix-Assitant
 npm ci
 npm run dev:desktop
 ```
+
+Useful commands:
 
 ```powershell
 npm run dev:desktop
@@ -93,36 +95,31 @@ npm run build:landing
 npm run build:server
 ```
 
-## Configuración y secretos
+## Configuration and secrets
 
-Usa `.env` local o secretos del entorno de despliegue. Nunca subas claves, tokens, contraseñas, cookies ni material de firma.
+Use a local `.env` or the deployment secret manager. Never commit keys, tokens, passwords, cookies, or signing material.
 
-| Área | Variables | Uso |
+| Area | Variables | Purpose |
 |---|---|---|
-| DB | `DATABASE_URL`, `DIRECT_URL` | Prisma/PostgreSQL y migraciones |
-| Supabase | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` | API y landing autenticada |
-| Administración | `ADMIN_TOKEN` o `HELIX_ADMIN_TOKEN` | Operaciones protegidas y broadcast |
-| SMTP | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | Avisos de releases |
-| IA | `OPENAI_API_KEY_*`, `ANTHROPIC_API_KEY_*`, `GOOGLE_API_KEY_*` | Proveedores configurados |
-| Agente | `AGENT_WS_PORT`, `LOG_LEVEL`, `VOICE_ENABLED`, `CAMERA_ENABLED` | Transporte, logs y percepción |
+| Database | `DATABASE_URL`, `DIRECT_URL` | Prisma/PostgreSQL and migrations |
+| Supabase | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | API and authentication; service role is server-only |
+| Landing | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_API_URL` | Public/publishable web configuration |
+| Administration | `ADMIN_TOKEN` or `HELIX_ADMIN_TOKEN` | Protected operations and broadcasts |
+| SMTP | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_SECURE`, `SMTP_FROM` | Real release email delivery |
+| Providers | `OPENAI_API_KEY_*`, `ANTHROPIC_API_KEY_*`, `GOOGLE_API_KEY_*` | Configured AI providers |
+| Agent | `AGENT_WS_PORT`, `LOG_LEVEL`, `VOICE_ENABLED`, `CAMERA_ENABLED` | Runtime, logs, and perception |
 
-Consulta [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md) antes de añadir variables.
+See [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md) before adding variables.
 
-## Seguridad y permisos
+## Security and privacy
 
-HELIX clasifica operaciones como lectura, bajo riesgo, modificación, ejecución, sistema o crítica. Las acciones de sistema/críticas requieren confirmación humana; el modo automático no debe saltarse esa barrera.
+Operations are classified as read-only, low-risk, modify, execute, system, or critical. System and critical actions require human confirmation. Defenses include sanitized subprocess environments, blocked encoded/dynamic command forms, validated paths and payloads, configurable sandboxing, explicit IPC/WebSocket contracts, HTML/URL/CRLF sanitization, BCC subscriber delivery, and protected rotating logs.
 
-Incluye saneamiento de variables sensibles, bloqueo de comandos codificados y alias destructivos, validación de rutas y payloads, sandbox configurable, contratos IPC/WebSocket, sanitización HTML/URL/CRLF, BCC de suscriptores y logs administrativos protegidos.
+The core keeps work local where the capability allows it. Authentication, AI providers, downloads, Supabase, GitHub, and SMTP may transfer or store data outside the local process. Review each MCP server before enabling it and read the [privacy policy](https://helix-assistant.vercel.app/privacy).
 
-La seguridad final depende también de Windows, permisos del usuario, proveedores externos, MCP y hardware. Revisa cada servidor MCP antes de habilitarlo.
+Update subscribers are stored durably in PostgreSQL through Prisma table `update_subscribers`, with normalized email, active state, and unique deduplication. Delivery still depends on SMTP, DNS, reputation, and the release workflow.
 
-## Datos y privacidad
-
-El núcleo mantiene el trabajo local cuando la capacidad lo permite. Autenticación, proveedores externos, descargas, Supabase, GitHub y SMTP pueden transferir o almacenar datos fuera del proceso local. Consulta la [política de privacidad](https://helix-assistant.vercel.app/privacy).
-
-Las novedades se almacenan en PostgreSQL mediante Prisma en `update_subscribers`, con deduplicación por correo y estado activo. Esto no garantiza por sí solo la entrega: también dependen SMTP, DNS, reputación y el workflow de release.
-
-## Calidad y pruebas
+## Quality and testing
 
 ```powershell
 npm run lint:encoding
@@ -137,49 +134,32 @@ npm test --workspace=helix-assistant-cli
 python -m pytest services/agent/tests/ -v
 ```
 
-La evidencia debe distinguir automatizada, estática, manual, instalación, hardware y servicios externos. Un build verde no demuestra por sí solo que hardware, correo, instalación o servicios remotos funcionen.
+Evidence must be labeled as automated, static, manual, installation, hardware, or external-service evidence. A green build alone does not prove SMTP delivery, camera access, installer updates, or Search Console indexing.
 
-## Releases
+## Release process
 
-Versión de producto: `0.2.6`.
+The current product line is `0.2.6`:
 
-- `v0.2.6`: HELIX Normal/core.
-- `lite-v0.2.6`: HELIX Lite.
-- `helix-assistant-cli@0.2.6`: CLI npm.
+- `v0.2.6`: Normal/core.
+- `lite-v0.2.6`: Lite.
+- `helix-assistant-cli@0.2.6`: CLI package.
 
-Antes de publicar: sincronizar manifiestos/lockfiles, ejecutar pruebas, revisar diff, aplicar `npm run db:deploy` desde el entorno aprobado, crear tags desde commit limpio, verificar instaladores/checksums y ejecutar broadcast solo con SMTP configurado.
+Before publishing: align manifests and lockfiles, run required tests, review the diff, apply `npm run db:deploy` from the approved production environment, create tags from a clean commit, verify installers/checksums, and run broadcasts only with production SMTP configured.
 
-Workflows: calidad, multiplataforma, release Normal, release Lite, publicación CLI y capability packs.
+## Operations and troubleshooting
 
-## Operación y diagnóstico
+- Agent connection: check `127.0.0.1:8765`, logs, and WebSocket authentication.
+- Missing tool: check capabilities, skills, MCP configuration, and permissions.
+- Voice/camera failure: check Windows permissions, RDP/ICA state, model files, and device availability.
+- Missing update email: check `update_subscribers`, admin token, SMTP, rate limits, and logs.
+- Encoding CI failure: run `npm run lint:encoding` on the same commit.
+- Indexing issue: check canonical, sitemap, robots, crawlable links, browser console, and Search Console; a sitemap does not guarantee indexing.
 
-- Sin conexión del agente: revisa `127.0.0.1:8765`, logs y autenticación WebSocket.
-- Sin herramienta: revisa capabilities, skills, MCP y permisos.
-- Sin voz/cámara: revisa permisos Windows, sesión RDP/ICA, modelos empaquetados y dispositivo.
-- Sin notificación: revisa `update_subscribers`, token admin, SMTP, rate limit y logs; no reintentes a ciegas.
-- Fallo de encoding en CI: ejecuta `npm run lint:encoding` en el mismo commit.
-- Problemas de indexación: revisa canonical, sitemap, robots, enlaces HTML, consola y Search Console; sitemap no garantiza indexación.
+## Contributing
 
-## Estructura
+Read the relevant Helix-vault notes first, inspect existing contracts and consumers, make the smallest safe change, add tests, review encoding/secrets/migrations, update affected documentation, and describe limits in the pull request. Do not close work because code exists; close it when appropriate evidence exists.
 
-```text
-apps/desktop/              Electron + React Normal
-apps/desktop-tauri/        shell Lite Tauri/Rust
-apps/cli/                  CLI npm
-apps/landing/              landing, descargas y SEO
-server/                    Express + Prisma + migraciones
-services/agent/            runtime Python y herramientas
-config/                    catálogos compartidos
-scripts/                   setup, build y publicación
-docs/                      guías técnicas
-.github/workflows/         calidad y distribución
-```
-
-## Contribución
-
-Lee primero las notas pertinentes de `Helix-vault`, inspecciona consumidores y contratos, realiza el cambio mínimo, añade pruebas, revisa encoding/secretos/migraciones, actualiza documentación afectada y describe límites en el pull request. No cierres una tarea solo porque exista código: debe existir evidencia adecuada.
-
-## Documentación relacionada
+## Related documentation
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md)
@@ -187,4 +167,4 @@ Lee primero las notas pertinentes de `Helix-vault`, inspecciona consumidores y c
 - [`docs/WAKE_WORD_TRAINING.md`](docs/WAKE_WORD_TRAINING.md)
 - `Helix-vault/08 - Gobernanza y producto/`
 
-HELIX continúa en desarrollo. Los límites de plataforma, hardware, proveedores y servicios remotos deben verificarse en cada release.
+HELIX remains under active development. Platform, hardware, provider, and external-service limits must be re-verified for every release.

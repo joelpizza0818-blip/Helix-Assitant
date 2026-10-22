@@ -1,49 +1,78 @@
-# Environment Configuration
+# HELIX Environment and Configuration
 
-This document outlines how to configure the HELIX environment.
+This guide defines local development and deployment configuration. Treat environment files as secret material: `.env` must never be committed, pasted into issues, or copied into release notes.
 
 ## Setup
-Copy `.env.example` to `.env` in the root directory. The Python agent loads that root file regardless of its working directory. **WARNING: `.env` must NEVER be committed to version control.**
 
-## Provider Keys and Fallbacks
-The system supports multiple providers (OpenAI, Anthropic, Google).
-- If a provider's keys are completely empty, that provider is disabled and its models disappear from the UI.
-- **Three-key Fallback**: Each provider supports up to three keys (e.g., `OPENAI_API_KEY_1`, `OPENAI_API_KEY_2`, `OPENAI_API_KEY_3`). If Key 1 hits a rate limit, the system falls back to Key 2, then Key 3.
-- **Provider fallback**: The configured/preferred provider and model are tried first. After eligible keys/models are exhausted, fallback may use another configured provider only when one of its models satisfies every required capability. Unconfigured providers are never candidates. Cross-provider fallback can incur charges with another provider.
-- **Runtime model failures**: A confirmed `MODEL_UNAVAILABLE` response (HTTP 404) excludes that provider/model from routing for the rest of the agent process. `QUOTA_EXCEEDED` and `BILLING_EXHAUSTED` do not remove models from the registry: quota errors skip that provider/model for the rest of the current ReAct execution, while billing errors skip that key for the rest of the execution. The key remains available in later executions; rate limits still apply the key's normal cooldown.
+From the repository root:
 
-## Model Registry and Capabilities
-Models are registered with specific capabilities (vision, coding, text, etc.). The model router filters available models based on task requirements and enabled providers. The current agent registry uses Claude Sonnet 5.5 / Opus 5.5 / Haiku 4.5 and Gemini 2.5 Flash / Flash-Lite / Pro; provider availability, account access, and quota still depend on the configured API key. Check the [Anthropic model list](https://platform.claude.com/docs/en/models/overview) and [Gemini model list](https://ai.google.dev/gemini-api/docs/models) when refreshing these IDs.
+```powershell
+npm ci
+.\scripts\setup.ps1
+```
 
-## Database & Auth
-- `DATABASE_URL` and `DIRECT_URL` connect Prisma to PostgreSQL. The production server build generates Prisma Client; deploy schema changes with `npm run db:deploy --workspace=@helix/server`.
-- `HELIX_MEMORY_DATABASE_URL` is an optional, separate PostgreSQL connection for pgvector-backed conversation memory. Do not point it at the backend/service database. When enabled, conversation text is sent to the selected OpenAI or Google embedding API and stored in this database for semantic retrieval. Without it, HELIX uses local keyword retrieval and keeps conversation memory in process.
-- The landing page's GitHub login uses Supabase OAuth. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in the root `.env` or deployment environment. Vite reads the root `.env` via `envDir`; the anon key is public and must never be replaced with the service-role key.
-- Configure the GitHub OAuth app's client ID and secret in the Supabase Dashboard under Authentication → Providers → GitHub, not in client-side environment variables. Set the GitHub OAuth callback to `https://<project-ref>.supabase.co/auth/v1/callback`, and add the deployed website URL to Supabase's Site URL and allowed redirect URLs.
-- Supabase's built-in Auth SMTP is restricted to project team addresses and currently has a low send limit. Configure a custom SMTP provider before enabling public email-confirmation or password-reset flows; GitHub OAuth does not depend on email delivery.
-- The API uses `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY`; keep the service-role key server-only.
-- New Supabase Auth accounts are mirrored to Prisma's `users` table by the `supabase_auth_user_sync` migration. That migration targets Supabase PostgreSQL (it references `auth.users`); do not apply it to a generic PostgreSQL database.
-- The installer is not a public landing asset. Store `HELIX-Setup.exe` as a release asset in a private GitHub repository. Configure `GITHUB_INSTALLER_OWNER`, `GITHUB_INSTALLER_REPO`, and `GITHUB_INSTALLER_TOKEN` as Supabase Edge Function secrets. Use a fine-grained GitHub token with read/write Contents access to only that private repository because the publishing workflow uploads releases. `installer-download` checks the Supabase session, ensures a matching `users` row exists, and returns GitHub's temporary release-asset URL.
-- Desktop builds use the public `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` to start GitHub OAuth from the Profiles section. Register `helix://auth/callback` in Supabase Authentication → URL Configuration → Redirect URLs. Add `VITE_SUPABASE_URL` as a GitHub Actions repository variable and `VITE_SUPABASE_ANON_KEY` as a repository secret; this is the public anon/publishable key, never the service-role key.
-- Desktop auto-updates use the public `installer-updates` Supabase Edge Function, which exposes only the configured public release's `latest.yml` metadata and version-matched installer/blockmap assets. `installer-admin` validates the caller's Supabase Auth session, synchronizes its GitHub identity with the profile table, and checks the database-backed rank for every administrative operation. Only the master admin manages ranks and release policy; admins can create backups and submit error reports. Both functions have JWT verification disabled in `supabase/config.toml`; the Edge Function validates the caller's user JWT itself and uses its server-only service-role key to access profile and report rows.
-- Apply `supabase/migrations/20261008023000_release_policy.sql`, `supabase/migrations/20261008193000_github_user_roles.sql`, and `supabase/migrations/20261008200000_helix_profiles_and_reports.sql` to Supabase before deploying `installer-admin`, `installer-updates`, and `installer-download`. The rank/profile migrations seed `joelpizza0818-blip` as the sole `master-admin` and enforce the single-master invariant in the database. Profiles retain GitHub's immutable user ID and an assigned HELIX profile UUID; master-admin search filters by profile, GitHub ID, display name, login, and rank. Error reports contain only the admin-entered title/description and app version, not conversations or command logs. The Prisma schema and matching migration describe the release-policy tables for backend tooling; do not run both migration histories against the same database unless the matching migration has been marked/applied, since both manage the same schema objects.
-- Admin settings are shared through the release-policy table. Cross-provider model failover is enabled by default and keeps the in-flight ReAct task transcript—including completed tool results—when trying another compatible configured model. Users can turn this off in AI settings. Users can still manually check for updates if global automatic updates are disabled.
-- The landing page's download badge reads the current public version from the updater metadata. Existing v0.1.0 installations need a one-time manual install of a build containing the updater; later versions update in-app.
-- `npm run stage:windows-installer` stages the build under the ignored `apps/landing/private-downloads` directory. Publishing a stable GitHub release with a tag matching `apps/desktop/package.json` automatically rebuilds and uploads the installer and updater metadata; the staging directory must not be copied into `apps/landing/public`.
-- Deploy the Vercel project with `apps/landing` as its root directory. Its `vercel.json` rewrites direct visits to client-side routes such as `/login` and `/download` to the landing app.
+Create a local `.env` from the repository example when available. Keep production values in the deployment secret manager. The agent resolves the root environment independently of its working directory.
 
-## Desktop Agent
-- The desktop app starts its Python agent on `AGENT_WS_PORT` (default `8765`). If that port is already occupied, the app selects an available local port and connects to that instance instead.
-- Desktop preferences are saved under Electron's per-user application data directory, separately from `.env`.
-- MCP servers currently support local stdio only: configure a trusted launch command in Toolbox → MCP Servers. URL/HTTP configurations are rejected and no network connection is attempted. The Python agent uses its existing stdio client; no official MCP Python SDK is declared or installed in the agent environment. Before adding Streamable HTTP or SSE, decide and document the SSRF policy (including loopback/private-network destinations and redirects), plus authentication, timeouts, and secret-safe diagnostics. No credentials or URL values should be written to logs.
-- Text and voice requests honor the configured conversation-turn limit. With automatic compaction enabled, older turns are replaced by a short extractive summary; when disabled, only the recent sliding window is retained. This compaction does not make another model call. Skills are included when explicitly called with `@skill-name` or selected automatically from a unique, sufficiently strong trigger match. MCP and plugin tools are relevance-filtered while native tools remain available; when there are no clear external tool matches, HELIX retains its normal fallback behavior. Shell output passed back to the model is capped at 600 characters. The agent supplies the detected OS and configured shell to the model, and asks it to prefer a direct, reliable tool action for simple requests while falling back to normal reasoning when no safe shortcut applies.
-- Leave unused API key variables empty. Empty values do not enable a provider.
+## Configuration groups
 
-## Perception Config
-- **Voice**: `STT_PROVIDER=whisper_local` and `STT_MODEL=base` enable local speech recognition without an API key. The local backend uses faster-whisper on CPU with int8 quantization and preloads the model in the background after the wake-word listener starts. The first run downloads the model to the local cache; later starts still load it into memory in the background. HELIX's captured audio is 16 kHz mono PCM WAV and is passed directly to the model without FFmpeg. Other audio formats are decoded through PyAV (`av>=11,<19`). If faster-whisper is unavailable but openai-whisper is installed, HELIX logs a warning and uses that slower backend instead. The desktop defaults to `edge_tts` with the multilingual male `en-US-AndrewMultilingualNeural` voice at its standard rate. Edge TTS requires internet and sends spoken reply text to Microsoft's online speech service; if synthesis or playback fails, HELIX falls back to the local Windows speech engine. The `edge-tts` library is LGPLv3; redistributions should include its license notices. `TTS_PROVIDER=system` selects local Windows speech only. After each spoken reply, HELIX listens for a follow-up for up to 10 seconds; after that, say the wake phrase again. Speech recognition and local playback do not incur API charges; the conversation's language-model provider still uses the key configured for HELIX.
-- **Camera/Gesture**: Enabled via `CAMERA_ENABLED=true` and configured with `CAMERA_DEVICE_INDEX`, `GESTURE_SENSITIVITY`, and `VISION_PROVIDER=mediapipe`. Gesture events require confidence at or above `GESTURE_CONFIDENCE_THRESHOLD` for `GESTURE_STABILITY_FRAMES` consecutive frames, then use `GESTURE_COOLDOWN_SECONDS`; defaults are 0.8, 4 frames, and 2 seconds. Context-sensitive gestures are ignored unless the corresponding task, confirmation, or voice interaction is active. When enabled, the Python agent starts `GestureEngine`, which captures camera frames locally and publishes recognized gesture events. The selected camera must be available and OpenCV/MediaPipe must be installed in the agent environment. The bundled `services/agent/models/gesture/hand_landmarker.task` supports MediaPipe's current Tasks API; older MediaPipe versions that provide `solutions.hands` use that API. The model is from [MediaPipe's official model collection](https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker) and is distributed under the [MediaPipe license](https://github.com/google-ai-edge/mediapipe/blob/master/LICENSE). Camera and gesture preferences saved in the desktop settings take precedence over `.env`.
-- **VAD**: `webrtcvad` is optional; HELIX logs the import failure and continues with its existing energy-threshold fallback.
-- **Wake word**: `WAKE_WORD_PROVIDER=openwakeword` selects OpenWakeWord. The custom phrase `WAKE_WORD="hey helix"` needs a matching ONNX classifier at `WAKE_WORD_MODEL_PATH` (default: `services/agent/models/wakeword/hey_helix.onnx`). Voice activation starts only when this file exists; no built-in OpenWakeWord model recognizes “Hey Helix”. See the [Hey Helix model training guide](./WAKE_WORD_TRAINING.md) to generate and install it. The official automated training workflow currently supports Linux, not native Windows.
+| Group | Variables | Notes |
+|---|---|---|
+| Agent transport | `AGENT_WS_PORT`, `LOG_LEVEL`, `LOG_FILE` | Local WebSocket and diagnostics |
+| Database | `DATABASE_URL`, `DIRECT_URL` | Prisma PostgreSQL connection and migrations |
+| Supabase | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | Service-role key is server-only |
+| Landing | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_API_URL` | Only public/publishable values belong in Vite |
+| Administration | `ADMIN_TOKEN` or `HELIX_ADMIN_TOKEN` | Required for protected broadcasts |
+| SMTP | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_SECURE`, `SMTP_FROM` | Required for real update delivery |
+| Providers | `OPENAI_API_KEY_*`, `ANTHROPIC_API_KEY_*`, `GOOGLE_API_KEY_*` | Up to three keys per provider |
+| Voice | `STT_PROVIDER`, `STT_MODEL`, `TTS_PROVIDER`, `TTS_MODEL`, `VOICE_ENABLED` | Local or online speech paths |
+| Vision | `CAMERA_ENABLED`, `CAMERA_DEVICE_INDEX`, `VISION_PROVIDER` | Hardware and MediaPipe configuration |
+| Wake word | `WAKE_WORD`, `WAKE_WORD_PROVIDER`, `WAKE_WORD_MODEL_PATH`, `WAKE_WORD_THRESHOLD` | Requires a matching model file |
 
-## Execution
-Run `npm run dev:desktop` to start the desktop renderer, Electron app, and Python agent. The desktop UI communicates with the agent over a local WebSocket; task, provider, model, and settings requests use request/response messages on that connection.
+## Provider routing
+
+Empty provider keys disable that provider. Keys are tried in configured order; eligible rate limits can move to the next key. Cross-provider fallback is opt-in/configured and may incur additional charges. A model is eligible only when its registered capabilities satisfy the request.
+
+Confirmed model-unavailable responses can remove a model for the current agent process. Quota and billing failures are scoped to the current execution/key according to the router implementation; they do not silently delete the configuration.
+
+Keep model identifiers current with the provider's official documentation. Do not document a model as supported only because it exists in a catalog; verify account access and a real request.
+
+## Database and migrations
+
+The server uses Prisma with PostgreSQL/Supabase:
+
+```powershell
+npm run db:generate --workspace=@helix/server
+npm run db:deploy --workspace=@helix/server
+npx prisma migrate status --schema server/prisma/schema.prisma
+```
+
+`supabase_auth_user_sync` targets Supabase PostgreSQL because it references `auth.users`. Do not apply it to an unrelated PostgreSQL database. Prisma migrations and Supabase migration histories must not manage the same objects without an explicit ownership decision.
+
+The update subscriber table is `update_subscribers`. It stores normalized email, active state, timestamps, and an unsubscribe timestamp. Production must use PostgreSQL; the in-memory fallback exists only for isolated tests/local runs without a database.
+
+## Authentication and downloads
+
+The landing uses Supabase OAuth. Configure the GitHub provider in Supabase, set the deployed site URL and allowed redirects, and never place the OAuth client secret in Vite variables. Desktop OAuth uses the `helix://auth/callback` redirect.
+
+Installers are private release assets. The public download flow should issue a temporary asset URL only after the configured authentication and profile checks. Do not copy private installer assets into `apps/landing/public`.
+
+## Desktop runtime
+
+The desktop shell starts Python on `AGENT_WS_PORT` (default `8765`) and selects an available local port when needed. Preferences are stored in the Electron per-user data directory, not in `.env`. MCP currently supports trusted local stdio servers; URL/HTTP configurations are rejected. Before adding network MCP, document SSRF, redirects, authentication, timeouts, and secret-safe diagnostics.
+
+## Perception
+
+- Local speech uses faster-whisper when configured; the first model load may download/cache model data.
+- Edge TTS sends spoken response text to Microsoft's service; system speech stays local.
+- Camera and gestures require device access, models, OpenCV/MediaPipe, confidence, stability and cooldown settings.
+- RDP/ICA sessions may disable hardware perception gracefully.
+- `WAKE_WORD="hey helix"` requires the matching ONNX classifier; see [WAKE_WORD_TRAINING.md](./WAKE_WORD_TRAINING.md).
+
+## Secret handling checklist
+
+1. Keep `.env` ignored and outside artifacts.
+2. Use least-privilege, scoped tokens.
+3. Rotate any value exposed in logs or screenshots.
+4. Never pass provider keys into tool subprocesses.
+5. Use different credentials for local, staging, and production.
+6. Validate deployment variables before migrating or publishing.
