@@ -225,7 +225,7 @@ export default function Toolbox() {
             <input
               type="text"
               className="toolbox__search-input"
-              placeholder="🔍 Buscar ajustes..."
+              placeholder="Buscar ajustes..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />

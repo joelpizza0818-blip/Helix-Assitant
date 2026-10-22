@@ -162,7 +162,7 @@ export default function VoiceSection({ settings, onSave }: Props) {
                   style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', padding: 0, fontSize: 11 }}
                   onClick={() => handleRemoveAlias(alias)}
                 >
-                  ✕
+                  x
                 </button>
               </span>
             ))}
@@ -199,7 +199,7 @@ export default function VoiceSection({ settings, onSave }: Props) {
             onClick={() => void handleTestVoiceAudio()}
             disabled={isPlayingTestAudio}
           >
-            {isPlayingTestAudio ? 'Playing...' : '▶ Test Audio Output'}
+            {isPlayingTestAudio ? 'Playing...' : 'Test Audio Output'}
           </button>
         </div>
         {testAudioResult && <p className="text-xs text-muted" role="status">{testAudioResult}</p>}

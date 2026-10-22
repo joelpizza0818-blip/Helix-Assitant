@@ -460,7 +460,7 @@ export default function FloatingUI() {
       <div className="floating-ui__input-area">
         <input ref={fileInputRef} className="floating-ui__file-input" type="file" multiple accept={CHAT_ATTACHMENT_ACCEPT} disabled={isReadingAttachments} onChange={(event) => { void readAttachments(event.target.files); event.currentTarget.value = '' }} />
         {attachments.length > 0 && <div className="floating-ui__attachments" aria-label="Attached files">
-          {attachments.map((attachment) => <button key={`${attachment.name}-${attachment.size}`} type="button" className="floating-ui__attachment" onClick={() => setAttachments((current) => current.filter((item) => item !== attachment))} title="Remove attachment">📎 {attachment.name} ×</button>)}
+          {attachments.map((attachment) => <button key={`${attachment.name}-${attachment.size}`} type="button" className="floating-ui__attachment" onClick={() => setAttachments((current) => current.filter((item) => item !== attachment))} title="Remove attachment">{attachment.name} ×</button>)}
         </div>}
         {attachmentError && <div className="floating-ui__attachment-error" role="alert">{attachmentError}</div>}
         <div className="floating-ui__input-wrapper">

@@ -851,10 +851,9 @@ app.whenReady().then(async () => {
     app.setAsDefaultProtocolClient('helix', process.execPath, [path.resolve(process.argv[1])])
   }
 
-  // Set app user model ID and taskbar icon for Windows
+  // Set app user model ID for Windows notifications
   if (process.platform === 'win32') {
     app.setAppUserModelId('com.helix.agent')
-    app.setIcon(APP_ICON_PATH)
   }
 
   // Disable default menu

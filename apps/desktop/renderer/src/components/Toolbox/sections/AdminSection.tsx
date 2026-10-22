@@ -427,7 +427,7 @@ export default function AdminSection({ profile, onPendingReportsCount }: AdminSe
         <button type="button" className="validate-btn" disabled={!version.trim()} onClick={() => void createBackup()}>Crear registro de copia</button>
         {config.backups.map((item: AdminBackup) => (
           <p className="text-xs text-muted" key={`${item.version}-${item.createdAt}`}>
-            ✓ {item.version} · {new Date(item.createdAt).toLocaleString()}
+            {item.version} · {new Date(item.createdAt).toLocaleString()}
             {' '}<button type="button" className="validate-btn" disabled={!isMaster} onClick={() => setConfig((current) => ({ ...current, publicVersion: item.version }))}>Seleccionar</button>
           </p>
         ))}

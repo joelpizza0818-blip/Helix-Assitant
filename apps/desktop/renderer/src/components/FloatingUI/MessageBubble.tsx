@@ -50,7 +50,7 @@ export default function MessageBubble({ message, skillNames = [], agentUpdates =
               {message.attachments.map((attachment) => attachment.mime_type.startsWith('image/') ? (
                 <img key={attachment.name} className="bubble__attachment-image" src={`data:${attachment.mime_type};base64,${attachment.data_base64}`} alt={attachment.name} />
               ) : (
-                <span key={attachment.name} className="bubble__attachment-file">📎 {attachment.name}</span>
+                <span key={attachment.name} className="bubble__attachment-file">{attachment.name}</span>
               ))}
             </div>
           ) : null}

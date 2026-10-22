@@ -385,7 +385,7 @@ export default function AISection({ providers, models, settings, onSave, onRefre
       <div className="toolbox-card" style={{ marginBottom: 16 }}>
         <div className="toolbox-card__header">
           <span className="toolbox-card__title">Registered Models ({configuredModels.length})</span>
-          <button className="refresh-btn" onClick={onRefresh}>↺ Refresh Registry</button>
+          <button className="refresh-btn" onClick={onRefresh}>Refresh Registry</button>
         </div>
 
         {configuredModels.length === 0 ? (

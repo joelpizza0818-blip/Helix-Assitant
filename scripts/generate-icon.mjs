@@ -84,7 +84,7 @@ async function main() {
 
   // Save 256px PNG for tray icon
   writeFileSync(path.join(assetsDir, 'tray-icon.png'), pngBuffers[5]);
-  console.log('✅ tray-icon.png written (256×256)');
+  console.log('[OK] tray-icon.png written (256x256)');
 
   // Save 32px PNG for tray icon (better for system tray)
   const tray32 = await sharp(svgBuf, { density: 300 })
@@ -92,15 +92,15 @@ async function main() {
     .png()
     .toBuffer();
   writeFileSync(path.join(assetsDir, 'tray-icon.png'), tray32);
-  console.log('✅ tray-icon.png written (32×32)');
+  console.log('[OK] tray-icon.png written (32x32)');
 
   // Build .ico from multiple sizes
   const icoBuffer = await pngToIco(pngBuffers);
   writeFileSync(path.join(assetsDir, 'icon.ico'), icoBuffer);
-  console.log('✅ icon.ico written (multi-size: 16/32/48/64/128/256)');
+  console.log('[OK] icon.ico written (multi-size: 16/32/48/64/128/256)');
 }
 
 main().catch(err => {
-  console.error('❌ Error generating icons:', err);
+  console.error('[ERROR] Error generating icons:', err);
   process.exit(1);
 });

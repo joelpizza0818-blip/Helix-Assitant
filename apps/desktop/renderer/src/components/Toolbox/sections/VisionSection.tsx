@@ -382,7 +382,7 @@ export default function VisionSection({ settings, onSave }: Props) {
             <span className="text-xs text-muted">
               {capturedSamples.length} pose sample{capturedSamples.length === 1 ? '' : 's'} captured
               {(landmarkEvent?.hands?.length ?? 0) > 0
-                ? ` · ✓ hand detected${landmarkEvent!.hands[0].gesture ? ` (${landmarkEvent!.hands[0].gesture})` : ''}`
+                ? ` · hand detected${landmarkEvent!.hands[0].gesture ? ` (${landmarkEvent!.hands[0].gesture})` : ''}`
                 : lastValidLandmarkRef.current
                   ? ' · hand not in frame right now'
                   : ' · waiting for hand…'}
