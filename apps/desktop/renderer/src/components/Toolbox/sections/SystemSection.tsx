@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import type { HelixSettings } from '../../../types/global'
+import { playSuccessChime } from '../../../lib/soundEffects'
 import '../Toolbox.css'
 
 interface Props {
@@ -78,6 +79,41 @@ export default function SystemSection({ settings, onSave }: Props) {
             <input type="checkbox" checked={settings.start_minimized ?? true} onChange={(event) => void onSave({ start_minimized: event.target.checked })} />
             <span className="toggle__slider" />
           </label>
+        </div>
+      </div>
+
+      {/* ── Audio Feedback & Sound Effects ──────────────────────── */}
+      <div className="toolbox-card" style={{ marginBottom: 16 }}>
+        <div className="toolbox-card__header">
+          <span className="toolbox-card__title">Audio Feedback & Sound Effects</span>
+        </div>
+        <p className="text-xs text-muted" style={{ marginBottom: 12 }}>
+          Play subtle audio feedback when tasks complete successfully, errors occur, or commands finish in terminal.
+        </p>
+
+        <div className="form-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <span className="text-sm weight-medium text-bone">Enable UI Sound Effects</span>
+            <p className="text-xs text-muted">Acoustic chimes synthesized locally with zero asset overhead</p>
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button
+              type="button"
+              className="validate-btn"
+              style={{ fontSize: 11, padding: '4px 8px' }}
+              onClick={() => playSuccessChime()}
+            >
+              🔊 Test Chime
+            </button>
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={settings.sound_effects_enabled ?? true}
+                onChange={(e) => void onSave({ sound_effects_enabled: e.target.checked })}
+              />
+              <span className="toggle__slider" />
+            </label>
+          </div>
         </div>
       </div>
 

@@ -472,6 +472,7 @@ export interface HelixSettings {
   block_elevated_execution?: boolean
   sandbox_enabled?: boolean
   sandbox_mode?: 'restricted' | 'isolated' | 'windows_sandbox' | 'docker'
+  sound_effects_enabled?: boolean
   browser_engine?: 'chromium' | 'firefox' | 'webkit'
   browser_headless?: boolean
   search_provider?: 'google' | 'duckduckgo' | 'bing'
