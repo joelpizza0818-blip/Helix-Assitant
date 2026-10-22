@@ -53,27 +53,29 @@ type Section =
 interface NavItem {
   id: Section
   label: string
+  category: string
+  keywords?: string
   icon: React.ReactNode
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: 'ai',       label: 'AI & Models',   icon: <NavIcon d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" /> },
-  { id: 'voice',    label: 'Voice & Calls', icon: <NavIcon d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" /> },
-  { id: 'vision',   label: 'Vision & Hands',icon: <NavIcon d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z" /> },
-  { id: 'computer', label: 'Computer OS',   icon: <NavIcon d="M2 3h20v14H2z M8 21h8 M12 17v4" /> },
-  { id: 'system',   label: 'System Shell',  icon: <NavIcon d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2v-4M9 21H5a2 2 0 0 1-2-2v-4m0 0h18" /> },
-  { id: 'web',      label: 'Web & Browser', icon: <NavIcon d="M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2z M2 12h20 M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20" /> },
-  { id: 'memory',   label: 'Memory & RAG',  icon: <NavIcon d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" /> },
-  { id: 'security', label: 'Zero-Trust',    icon: <NavIcon d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /> },
-  { id: 'startup',  label: 'Startup & Tray',icon: <NavIcon d="M5 3l14 9-14 9V3z" /> },
-  { id: 'skills',   label: 'Skills',        icon: <NavIcon d="M12 3v18m-9-9h18M5.6 5.6l12.8 12.8m0-12.8L5.6 18.4" /> },
-  { id: 'mcp',      label: 'MCP Servers',   icon: <NavIcon d="M12 3v18m-9-9h18M5 5l14 14m0-14L5 19" /> },
-  { id: 'clipboard', label: 'Clipboard', icon: <NavIcon d="M8 4h8l1 2h3v15H4V6h3l1-2zm0 4h8m-8 4h8m-8 4h5" /> },
-  { id: 'browser-companion', label: 'Browser Companion', icon: <NavIcon d="M3 4h18v15H3zM3 9h18m-9 10v3m-4 0h8" /> },
-  { id: 'updates', label: 'Updates', icon: <NavIcon d="M20 7v5h-5M4 17v-5h5m-3.5-3A7 7 0 0 1 18 6l2 2M4 16l2 2a7 7 0 0 0 12.5-3" /> },
-  { id: 'capabilities', label: 'Capabilities', icon: <NavIcon d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6l8-4zm0 5v6m-3 0h6" /> },
-  { id: 'profiles', label: 'Perfil', icon: <NavIcon d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2m8-10a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" /> },
-  { id: 'admin', label: 'Admin', icon: <NavIcon d="M12 2l8 4v5c0 5-3.5 9-8 11-4.5-2-8-6-8-11V6l8-4zm0 6v5m0 3h.01" /> },
+  { id: 'ai',       category: 'Intelligence', label: 'AI & Models',   keywords: 'openai anthropic gemini api keys models ollama deepseek', icon: <NavIcon d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" /> },
+  { id: 'skills',   category: 'Intelligence', label: 'Skills',        keywords: 'prompts triggers automated workflows tools', icon: <NavIcon d="M12 3v18m-9-9h18M5.6 5.6l12.8 12.8m0-12.8L5.6 18.4" /> },
+  { id: 'mcp',      category: 'Intelligence', label: 'MCP Servers',   keywords: 'model context protocol tools servers stdio', icon: <NavIcon d="M12 3v18m-9-9h18M5 5l14 14m0-14L5 19" /> },
+  { id: 'memory',   category: 'Intelligence', label: 'Memory & RAG',  keywords: 'context pgvector memory long term history', icon: <NavIcon d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" /> },
+  { id: 'voice',    category: 'Perception', label: 'Voice & Calls', keywords: 'microphone speech whisper wake word edge tts audio', icon: <NavIcon d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" /> },
+  { id: 'vision',   category: 'Perception', label: 'Vision & Hands',keywords: 'camera mediapipe gesture screen detection', icon: <NavIcon d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z" /> },
+  { id: 'computer', category: 'Perception', label: 'Computer OS',   keywords: 'keyboard mouse screen capture click display', icon: <NavIcon d="M2 3h20v14H2z M8 21h8 M12 17v4" /> },
+  { id: 'system',   category: 'Perception', label: 'System Shell',  keywords: 'terminal powershell cmd wsl bash execution', icon: <NavIcon d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2v-4M9 21H5a2 2 0 0 1-2-2v-4m0 0h18" /> },
+  { id: 'web',      category: 'Perception', label: 'Web & Browser', keywords: 'chromium headless search duckduckgo bing google', icon: <NavIcon d="M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2z M2 12h20 M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20" /> },
+  { id: 'security', category: 'Security & System', label: 'Zero-Trust',    keywords: 'permissions sandbox isolation protected paths policies', icon: <NavIcon d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /> },
+  { id: 'startup',  category: 'Security & System', label: 'Startup & Tray',keywords: 'windows startup minimize tray background', icon: <NavIcon d="M5 3l14 9-14 9V3z" /> },
+  { id: 'clipboard',category: 'Security & System', label: 'Clipboard', keywords: 'history monitor copy paste', icon: <NavIcon d="M8 4h8l1 2h3v15H4V6h3l1-2zm0 4h8m-8 4h8m-8 4h5" /> },
+  { id: 'browser-companion', category: 'Security & System', label: 'Browser Companion', keywords: 'chrome edge extension bridge', icon: <NavIcon d="M3 4h18v15H3zM3 9h18m-9 10v3m-4 0h8" /> },
+  { id: 'capabilities', category: 'Security & System', label: 'Capabilities', keywords: 'packs extensions plugins download', icon: <NavIcon d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6l8-4zm0 5v6m-3 0h6" /> },
+  { id: 'profiles', category: 'Operations', label: 'Perfil', keywords: 'github login user rank account', icon: <NavIcon d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2m8-10a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" /> },
+  { id: 'updates', category: 'Operations', label: 'Updates', keywords: 'installer version check update nsis tauri', icon: <NavIcon d="M20 7v5h-5M4 17v-5h5m-3.5-3A7 7 0 0 1 18 6l2 2M4 16l2 2a7 7 0 0 0 12.5-3" /> },
+  { id: 'admin', category: 'Operations', label: 'Admin Logs', keywords: 'logs streaming diagnostics errors buffer ring', icon: <NavIcon d="M12 2l8 4v5c0 5-3.5 9-8 11-4.5-2-8-6-8-11V6l8-4zm0 6v5m0 3h.01" /> },
 ]
 
 function NavIcon({ d }: { d: string }) {
@@ -86,6 +88,7 @@ function NavIcon({ d }: { d: string }) {
 
 export default function Toolbox() {
   const [activeSection, setActiveSection] = useState<Section>('ai')
+  const [searchQuery, setSearchQuery] = useState('')
   const [profile, setProfile] = useState<HelixProfile | null>(null)
   const [profileBusy, setProfileBusy] = useState(false)
   const [oauthPending, setOauthPending] = useState(false)
@@ -218,24 +221,55 @@ export default function Toolbox() {
       <div className="toolbox__layout">
         {/* ── Sidebar ────────────────────────────── */}
         <nav className="toolbox__sidebar">
-          {NAV_ITEMS.filter((item) => (
-            (item.id !== 'admin' || isAdmin)
-            && (item.id !== 'capabilities' || import.meta.env.DEV || '__TAURI_INTERNALS__' in window)
-          )).map((item) => (
-            <button
-              key={item.id}
-              className={`toolbox__nav-item ${activeSection === item.id ? 'toolbox__nav-item--active' : ''}`}
-              onClick={() => setActiveSection(item.id)}
-            >
-              <span className="toolbox__nav-icon">{item.icon}</span>
-              <span className="toolbox__nav-label">{item.label}</span>
-              {item.id === 'admin' && isMaster && pendingReportsCount > 0 && (
-                <span className="toolbox__nav-badge" aria-label={`${pendingReportsCount} reportes pendientes`}>
-                  {pendingReportsCount > 99 ? '99+' : pendingReportsCount}
-                </span>
-              )}
-            </button>
-          ))}
+          <div className="toolbox__search-box">
+            <input
+              type="text"
+              className="toolbox__search-input"
+              placeholder="🔍 Buscar ajustes..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+          {(() => {
+            const isProviderConnected = providers.some((p) => p.keys.some((k) => k.health === 'healthy'))
+            const filtered = NAV_ITEMS.filter((item) => {
+              const allowed = (item.id !== 'admin' || isAdmin)
+                && (item.id !== 'capabilities' || import.meta.env.DEV || '__TAURI_INTERNALS__' in window)
+              if (!allowed) return false
+              if (!searchQuery.trim()) return true
+              const q = searchQuery.toLowerCase()
+              return item.label.toLowerCase().includes(q) || (item.keywords && item.keywords.toLowerCase().includes(q))
+            })
+
+            let lastCat = ''
+            return filtered.map((item) => {
+              const showCat = !searchQuery.trim() && item.category !== lastCat
+              if (showCat) lastCat = item.category
+              return (
+                <React.Fragment key={item.id}>
+                  {showCat && <div className="toolbox__nav-category">{item.category}</div>}
+                  <button
+                    className={`toolbox__nav-item ${activeSection === item.id ? 'toolbox__nav-item--active' : ''}`}
+                    onClick={() => setActiveSection(item.id)}
+                  >
+                    <span className="toolbox__nav-icon">{item.icon}</span>
+                    <span className="toolbox__nav-label">{item.label}</span>
+                    {item.id === 'ai' && (
+                      <span
+                        className={`toolbox__nav-status-dot ${isProviderConnected ? 'toolbox__nav-status-dot--connected' : 'toolbox__nav-status-dot--unconfigured'}`}
+                        title={isProviderConnected ? 'Proveedor conectado' : 'Sin proveedor activo'}
+                      />
+                    )}
+                    {item.id === 'admin' && isMaster && pendingReportsCount > 0 && (
+                      <span className="toolbox__nav-badge" aria-label={`${pendingReportsCount} reportes pendientes`}>
+                        {pendingReportsCount > 99 ? '99+' : pendingReportsCount}
+                      </span>
+                    )}
+                  </button>
+                </React.Fragment>
+              )
+            })
+          })()}
         </nav>
 
         {/* ── Content Area with Real Components ── */}

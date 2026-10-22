@@ -669,3 +669,54 @@ textarea.form-input {
 .cost-badge--medium { color: var(--secondary); }
 .cost-badge--high { color: var(--orange); }
 .cost-badge--premium { color: var(--chalk); }
+
+
+/* ── Interactive Settings Search & Categories ────────────────────────────── */
+.toolbox__search-box {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--carbon);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.toolbox__search-input {
+  width: 100%;
+  background: var(--canvas);
+  border: 1px solid var(--border);
+  color: var(--bone);
+  font-size: 11px;
+  padding: 5px 8px;
+  border-radius: var(--radius-btn);
+  outline: none;
+}
+
+.toolbox__search-input:focus {
+  border-color: var(--orange);
+}
+
+.toolbox__nav-category {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  padding: 10px 14px 4px;
+  font-weight: 600;
+}
+
+.toolbox__nav-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-left: auto;
+}
+
+.toolbox__nav-status-dot--connected {
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green);
+}
+
+.toolbox__nav-status-dot--unconfigured {
+  background: var(--muted);
+}
