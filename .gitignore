@@ -21,6 +21,7 @@ venv/
 # Electron & Apps
 /apps/desktop/out/
 /apps/desktop/dist/
+/apps/desktop/dist-electron/
 /apps/desktop/.pyinstaller-work/
 /apps/desktop/.pyinstaller-spec/
 /apps/desktop/capability-config.json
@@ -54,8 +55,10 @@ tests/*
 !tests/promptfoo/*.py
 !tests/promptfoo/*.yaml
 tests/promptfoo/eval-results*.json
-tools/
+/tools/
 AGENTS.md
 
 .kiro
 .hypothesis
+
+scratch*.py
