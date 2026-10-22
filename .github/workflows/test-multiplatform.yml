@@ -63,6 +63,8 @@ jobs:
 
       - name: Run native Windows and macOS tests
         if: matrix.os != 'ubuntu-latest'
+        env:
+          PYTHONPATH: .
         run: python -m pytest services/agent/tests/ -v --tb=short --junitxml=test-results/agent-${{ runner.os }}.xml
 
       - name: Upload platform test report
