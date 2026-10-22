@@ -3,6 +3,8 @@ import { supabaseAdmin } from '../lib/supabase';
 import { prisma } from '../lib/prisma';
 import { AuthenticatedRequest } from '../types';
 
+export { requireAdminAuth } from './adminAuth';
+
 export const requireAuth = async (
   req: AuthenticatedRequest,
   res: Response,

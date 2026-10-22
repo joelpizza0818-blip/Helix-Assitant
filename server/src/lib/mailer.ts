@@ -43,15 +43,40 @@ export function getMailerTransporter(): Transporter {
   return transporterInstance;
 }
 
-export function generateVersionUpdateHtml(payload: VersionUpdatePayload): string {
-  const downloadUrl = payload.downloadUrl || 'https://helix-assistant.dev/download';
-  const releaseDate = payload.releaseDate || new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+export function escapeHtml(str: string): string {
+  if (!str) return '';
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
-  const changesList = payload.changes
+export function sanitizeUrl(url?: string): string {
+  if (!url) return 'https://helix-assistant.dev/download';
+  const trimmed = url.trim();
+  // Allow only absolute http and https protocols to prevent javascript: or data: URIs
+  if (/^https?:\/\/[^\s"'>]+$/i.test(trimmed)) {
+    return escapeHtml(trimmed);
+  }
+  return 'https://helix-assistant.dev/download';
+}
+
+export function generateVersionUpdateHtml(payload: VersionUpdatePayload): string {
+  const safeVersion = escapeHtml(payload.version);
+  const safeTitle = escapeHtml(payload.title);
+  const safeDownloadUrl = sanitizeUrl(payload.downloadUrl);
+  const rawReleaseDate =
+    payload.releaseDate ||
+    new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const safeReleaseDate = escapeHtml(rawReleaseDate);
+
+  const changesList = (payload.changes || [])
     .map(
       (c) =>
         `<li style="margin-bottom: 10px; color: #d4d4d4; font-size: 14px; line-height: 1.5;">
-          <span style="color: #ff9f1c; margin-right: 8px;">●</span>${c}
+          <span style="color: #ff9f1c; margin-right: 8px;">●</span>${escapeHtml(c)}
         </li>`
     )
     .join('');
@@ -62,7 +87,7 @@ export function generateVersionUpdateHtml(payload: VersionUpdatePayload): string
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>New HELIX Release v${payload.version}</title>
+  <title>New HELIX Release v${safeVersion}</title>
 </head>
 <body style="margin: 0; padding: 0; background-color: #050505; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #f5f5f5;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #050505; padding: 40px 16px;">
@@ -76,10 +101,10 @@ export function generateVersionUpdateHtml(payload: VersionUpdatePayload): string
                 OFFICIAL HELIX UPDATE
               </div>
               <h1 style="margin: 0; font-size: 24px; color: #ffffff; font-weight: 600; letter-spacing: -0.5px;">
-                HELIX v${payload.version} is now available
+                HELIX v${safeVersion} is now available
               </h1>
               <div style="font-size: 13px; color: #888888; margin-top: 4px;">
-                ${releaseDate} · ${payload.title}
+                ${safeReleaseDate} · ${safeTitle}
               </div>
             </td>
           </tr>
@@ -107,8 +132,8 @@ export function generateVersionUpdateHtml(payload: VersionUpdatePayload): string
               <table cellpadding="0" cellspacing="0" style="margin: 0 auto;">
                 <tr>
                   <td align="center" style="border-radius: 999px; background-color: #ff9f1c;">
-                    <a href="${downloadUrl}" target="_blank" style="display: inline-block; padding: 14px 32px; font-size: 14px; font-weight: 600; color: #000000; text-decoration: none; border-radius: 999px; letter-spacing: -0.2px;">
-                      Download Update v${payload.version} →
+                    <a href="${safeDownloadUrl}" target="_blank" style="display: inline-block; padding: 14px 32px; font-size: 14px; font-weight: 600; color: #000000; text-decoration: none; border-radius: 999px; letter-spacing: -0.2px;">
+                      Download Update v${safeVersion} →
                     </a>
                   </td>
                 </tr>
@@ -139,7 +164,7 @@ export function generateVersionUpdateHtml(payload: VersionUpdatePayload): string
 export async function sendVersionUpdateEmail(
   recipients: string[],
   payload: VersionUpdatePayload
-): Promise<{ success: boolean; messageId?: string; sentCount: number; error?: string }> {
+): Promise<{ success: boolean; messageId?: string; sentCount: number; error?: string; rawMessage?: string }> {
   try {
     const transporter = getMailerTransporter();
     const from = process.env.SMTP_FROM || 'HELIX Updates <updates@helix-assistant.dev>';
@@ -147,7 +172,8 @@ export async function sendVersionUpdateEmail(
 
     const info = await transporter.sendMail({
       from,
-      to: recipients.join(', '),
+      to: from || 'HELIX Subscribers <updates@helix-assistant.dev>',
+      bcc: recipients,
       subject: `New HELIX Release v${payload.version}: ${payload.title}`,
       text: `HELIX v${payload.version} is now available.\n\n${payload.title}\n\nWhat's new:\n${payload.changes.map((c) => `- ${c}`).join('\n')}\n\nDownload the update at: ${payload.downloadUrl || 'https://helix-assistant.dev/download'}`,
       html,
@@ -158,6 +184,7 @@ export async function sendVersionUpdateEmail(
       success: true,
       messageId: info.messageId,
       sentCount: recipients.length,
+      rawMessage: info.message ? info.message.toString() : undefined,
     };
   } catch (error: any) {
     logger.error('[Mailer] Error sending version update email:', error);

@@ -27,3 +27,15 @@ export const authRateLimiter = rateLimit({
     },
   },
 });
+
+export const broadcastRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60, // max 60 broadcast requests per 15 mins per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: 'Too many broadcast requests, please try again later.',
+  },
+});
+
