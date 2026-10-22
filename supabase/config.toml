@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.installer-lite-updates]
 verify_jwt = false
+
+[functions.release-subscribe]
+verify_jwt = false

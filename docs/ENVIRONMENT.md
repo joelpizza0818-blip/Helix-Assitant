@@ -20,7 +20,7 @@ Create a local `.env` from the repository example when available. Keep productio
 | Agent transport | `AGENT_WS_PORT`, `LOG_LEVEL`, `LOG_FILE` | Local WebSocket and diagnostics |
 | Database | `DATABASE_URL`, `DIRECT_URL` | Prisma PostgreSQL connection and migrations |
 | Supabase | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | Service-role key is server-only |
-| Landing | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_API_URL` | Only public/publishable values belong in Vite |
+| Landing | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_API_URL`, `VITE_RELEASE_SUBSCRIPTION_URL` | Only public/publishable values belong in Vite; the subscription URL may point to the public Supabase Edge Function, while `VITE_API_URL` must never be a production `localhost` value |
 | Administration | `ADMIN_TOKEN` or `HELIX_ADMIN_TOKEN` | Required for protected broadcasts |
 | SMTP | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_SECURE`, `SMTP_FROM` | Required for real update delivery |
 | Providers | `OPENAI_API_KEY_*`, `ANTHROPIC_API_KEY_*`, `GOOGLE_API_KEY_*` | Up to three keys per provider |

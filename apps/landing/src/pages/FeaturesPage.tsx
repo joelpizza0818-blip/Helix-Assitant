@@ -3,6 +3,10 @@ import { Link } from 'react-router-dom';
 import { HelixLogo } from '../components/HelixLogo/HelixLogo';
 import './FeaturesPage.css';
 
+const configuredApiUrl = (import.meta.env.VITE_API_URL ?? '').trim().replace(/\/+$/, '');
+const apiBaseUrl = configuredApiUrl || (import.meta.env.DEV ? 'http://localhost:3001' : '');
+const releaseSubscriptionUrl = (import.meta.env.VITE_RELEASE_SUBSCRIPTION_URL ?? '').trim().replace(/\/+$/, '');
+
 interface Release {
   version: string;
   tag?: string;
@@ -160,19 +164,25 @@ export function FeaturesPage() {
     setNotifyStatus('loading');
     setNotifyMessage('');
     try {
-      const res = await fetch('/api/updates/subscribe', {
+      const endpoint = releaseSubscriptionUrl || (apiBaseUrl ? `${apiBaseUrl}/api/updates/subscribe` : '/api/updates/subscribe');
+      if (!endpoint) {
+        throw new Error('Release update service is not configured for this deployment.');
+      }
+
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: notifyEmail }),
       });
-      const data = await res.json();
-      if (res.ok && data.success) {
+      const contentType = res.headers.get('content-type') ?? '';
+      const data = contentType.includes('application/json') ? await res.json() : null;
+      if (res.ok && data?.success) {
         setNotifyStatus('success');
         setNotifyMessage('Email submitted to the release-update service.');
         setNotifyEmail('');
       } else {
         setNotifyStatus('error');
-        setNotifyMessage(data.error || 'Could not register the subscription.');
+        setNotifyMessage(data?.error || 'Could not register the subscription.');
       }
     } catch (error: unknown) {
       console.error('Could not register for HELIX release updates.', error);
