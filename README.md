@@ -47,7 +47,7 @@ HELIX provides three specialized shells sharing the same local Python perception
 
 | Shell | Target Audience | Primary Strengths | Install / Run Command |
 |---|---|---|---|
-| **HELIX Normal (Electron)** | Daily desktop automation & Power users | Full feature set, embedded local models, live Toolbox, visual Admin diagnostics | `HELIX-Setup-0.2.4.exe` (Windows x64) |
+| **HELIX Normal (Electron)** | Daily desktop automation & Power users | Full feature set, embedded local models, live Toolbox, visual Admin diagnostics | `HELIX-Setup-0.2.5.exe` (Windows x64) |
 | **HELIX Lite (Tauri)** | Low-spec machines & Minimalists | Extremely fast startup, ~15MB binary, minimal idle memory consumption | `HELIX-Lite-Setup.exe` (Windows x64) |
 | **HELIX CLI** | Developers & Headless / Remote environments | Interactive terminal REPL, zero-overhead GUI, runs anywhere Node is available | `npx helix-assistant-cli` |
 
@@ -57,7 +57,7 @@ HELIX provides three specialized shells sharing the same local Python perception
 
 To maintain coherence across packages in this monorepo, version numbers follow a strictly defined hierarchy:
 
-1. **Global Product Release Version (`v0.2.4`)**:
+1. **Global Product Release Version (`v0.2.5`)**:
    - Represents the user-facing release of HELIX.
    - Tagged in Git as `vX.Y.Z` (Electron & core) and `lite-vX.Y.Z` (Tauri Lite).
    - Mirrored in `apps/desktop/package.json`, `apps/cli/package.json`, and `apps/desktop-tauri/src-tauri/tauri.conf.json`.

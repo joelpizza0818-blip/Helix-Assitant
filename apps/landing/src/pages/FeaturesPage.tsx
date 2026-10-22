@@ -36,11 +36,25 @@ function cleanMarkdownChanges(body: string): string[] {
 
 const DEFAULT_RELEASES: Release[] = [
   {
-    version: '0.2.4',
+    version: '0.2.5',
     tag: 'LATEST CONFIRMED RELEASE',
     date: 'October 2026',
+    title: 'HELIX v0.2.5 — Seguridad Robusta, Aislamiento & UX Mejorada',
+    editions: ['Normal', 'Lite', 'CLI'],
+    changes: [
+      'Blindaje de seguridad en ejecución de comandos con aislamiento de subprocesos y sandboxes en Toolbox.',
+      'Protección estricta contra inyección HTML, XSS y timing attacks en difusión de actualizaciones del servidor.',
+      'Modularización de componentes del agente y desacoplamiento de dependencias de runtime.',
+      'Buscador interactivo en tiempo real de ajustes y categorización visual en Toolbox.',
+      'Efectos de sonido hápticos con Web Audio API sintetizado para acciones del sistema.',
+      'Renderizador Markdown limpio en CLI con soporte de modo --plain y estabilización multi-SO en CI/CD.',
+    ],
+  },
+  {
+    version: '0.2.4',
+    date: 'October 2026',
     title: 'HELIX v0.2.4 — Percepción & Admin Logs',
-    editions: ['Normal'],
+    editions: ['Normal', 'Lite', 'CLI'],
     changes: [
       'Empaquetado integral y resolución dinámica de modelos de IA (MediaPipe HandLandmarker y OpenWakeWord).',
       'Nuevo subsistema de Registros del Sistema (Admin Logs) con consola interactiva en tiempo real para administradores.',
