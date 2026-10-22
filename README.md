@@ -2,7 +2,7 @@
 
 HELIX is a local-first desktop agent for working with the operating system, terminal, and context the user chooses to share. It combines a desktop shell, Python agent, explicit permission controls, configurable AI providers, and a CLI for supported workflows.
 
-> Documentation status: `v0.2.6` release line. Compatibility statements distinguish implementation, automated evidence, and manual validation.
+> Documentation status: `v0.2.7` release line. Compatibility statements distinguish implementation, automated evidence, and manual validation.
 
 Links: [landing](https://helix-assistant.vercel.app) · [downloads](https://helix-assistant.vercel.app/download) · [capabilities](https://helix-assistant.vercel.app/features) · [web docs](https://helix-assistant.vercel.app/docs) · [releases](https://github.com/joelpizza0818-blip/Helix-Assitant/releases)
 
@@ -23,8 +23,8 @@ HELIX does not grant implicit authority or promise universal automation. Tool av
 
 | Product | Supported platform | Distribution | Support status |
 |---|---|---|---|
-| HELIX Normal | Windows x64, Electron | `HELIX-Setup-0.2.6.exe` | Primary desktop product |
-| HELIX Lite | Windows x64, Tauri/NSIS | `lite-v0.2.6` | Independent lightweight shell |
+| HELIX Normal | Windows x64, Electron | `HELIX-Setup-0.2.7.exe` | Primary desktop product |
+| HELIX Lite | Windows x64, Tauri/NSIS | `lite-v0.2.7` | Independent lightweight shell |
 | HELIX CLI | Node.js on Windows, macOS, and Linux where dependencies are available | `npx helix-assistant-cli` | Terminal/headless workflows |
 | Server | Express/Prisma in its configured deployment environment | internal service | API, tasks, and update subscriptions |
 | Landing | Modern browser | Vercel | Public site, docs, and downloads |
@@ -138,11 +138,11 @@ Evidence must be labeled as automated, static, manual, installation, hardware, o
 
 ## Release process
 
-The current product line is `0.2.6`:
+The current product line is `0.2.7`:
 
-- `v0.2.6`: Normal/core.
-- `lite-v0.2.6`: Lite.
-- `helix-assistant-cli@0.2.6`: CLI package.
+- `v0.2.7`: Normal/core.
+- `lite-v0.2.7`: Lite.
+- `helix-assistant-cli@0.2.7`: CLI package.
 
 Before publishing: align manifests and lockfiles, run required tests, review the diff, apply `npm run db:deploy` from the approved production environment, create tags from a clean commit, verify installers/checksums, and run broadcasts only with production SMTP configured.
 

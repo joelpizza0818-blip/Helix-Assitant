@@ -25,6 +25,9 @@ class VoiceEngine:
         self.key_manager = key_manager
         self.state_manager = state_manager
         self.enabled = config.get('VOICE_ENABLED', 'false').lower() == 'true'
+        self.response_enabled = self._as_bool(
+            config.get('VOICE_RESPONSE_ENABLED', 'false')
+        )
         self.state = VoiceState.IDLE
         self._is_active = False
         self._audio_device = None
@@ -33,9 +36,11 @@ class VoiceEngine:
         self._stt_warmup_task = None
         self._conversation_id = None
         self._conversation_history = []
+        self._response_subscribed = False
+        self._spoken_response_task_ids = set()
         self.configure_memory(config.get("MEMORY_CONTEXT_LIMIT", 20))
-        
-        if not self.enabled:
+
+        if not self.enabled and not self.response_enabled:
             logger.info("VoiceEngine is disabled in config.")
             return
             
@@ -89,25 +94,47 @@ class VoiceEngine:
         
         self._subscriptions = []
 
+    @staticmethod
+    def _as_bool(value) -> bool:
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
     def _subscribe_events(self) -> None:
-        self._subscriptions = [
-            asyncio.create_task(
-                self.event_bus.subscribe("VOICE_WAKE", self._handle_wake_event)
-            ),
-            asyncio.create_task(
-                self.event_bus.subscribe(
-                    "ORCHESTRATION_COMPLETED", self._handle_response_event
-                )
-            ),
-            asyncio.create_task(
-                self.event_bus.subscribe(
-                    "ORCHESTRATION_FAILED", self._handle_response_event
-                )
-            ),
-            asyncio.create_task(
-                self.event_bus.subscribe("VOICE_STOP", self._handle_stop_event)
-            ),
-        ]
+        subscriptions = []
+        if self.enabled:
+            subscriptions.extend([
+                asyncio.create_task(
+                    self.event_bus.subscribe("VOICE_WAKE", self._handle_wake_event)
+                ),
+                asyncio.create_task(
+                    self.event_bus.subscribe("VOICE_STOP", self._handle_stop_event)
+                ),
+            ])
+        if self.enabled or self.response_enabled:
+            subscriptions.extend([
+                asyncio.create_task(
+                    self.event_bus.subscribe(
+                        "ORCHESTRATION_COMPLETED", self._handle_response_event
+                    )
+                ),
+                asyncio.create_task(
+                    self.event_bus.subscribe(
+                        "ORCHESTRATION_FAILED", self._handle_response_event
+                    )
+                ),
+            ])
+        self._subscriptions = subscriptions
+
+    async def start_response(self) -> None:
+        """Enable response-only TTS without starting microphone or wake-word input."""
+        if not self.response_enabled or self._response_subscribed:
+            return
+        if not self._subscriptions:
+            self._subscribe_events()
+        await asyncio.gather(*self._subscriptions)
+        self._response_subscribed = True
+        logger.info("Voice response enabled without microphone input.")
 
     async def start(self):
         if not self.enabled or self._is_active:
@@ -210,10 +237,12 @@ class VoiceEngine:
             except asyncio.CancelledError:
                 pass
             self._wake_monitor_task = None
-        await self.wake_detector.stop()
+        if hasattr(self, "wake_detector"):
+            await self.wake_detector.stop()
         if self.state_manager:
             await self.state_manager.update_state(voice_active=False)
-        await self.event_bus.unsubscribe("VOICE_WAKE", self._handle_wake_event)
+        if hasattr(self, "wake_detector"):
+            await self.event_bus.unsubscribe("VOICE_WAKE", self._handle_wake_event)
         await self.event_bus.unsubscribe(
             "ORCHESTRATION_COMPLETED", self._handle_response_event
         )
@@ -225,6 +254,7 @@ class VoiceEngine:
             if not subscription.done():
                 subscription.cancel()
         self._subscriptions = []
+        self._response_subscribed = False
         if self._task:
             self._task.cancel()
             try:
@@ -232,6 +262,17 @@ class VoiceEngine:
             except asyncio.CancelledError:
                 pass
         logger.info("VoiceEngine stopped.")
+
+    async def set_response_enabled(self, enabled: bool) -> None:
+        enabled = bool(enabled)
+        if enabled == self.response_enabled:
+            return
+        self.response_enabled = enabled
+        self.config["VOICE_RESPONSE_ENABLED"] = enabled
+        if enabled:
+            await self.start_response()
+        elif not self._is_active:
+            await self.stop()
 
     def is_active(self) -> bool:
         return self._is_active
@@ -595,11 +636,20 @@ class VoiceEngine:
         await self._end_conversation()
 
     async def _handle_response_event(self, _event_name: str, payload: dict):
-        if (
-            payload.get("input_source") != "voice"
-            or payload.get("conversation_id") != self._conversation_id
-            or self.state != VoiceState.WAITING_RESPONSE
-        ):
+        input_source = payload.get("input_source")
+        if input_source == "voice":
+            if (
+                payload.get("conversation_id") != getattr(self, "_conversation_id", None)
+                or getattr(self, "state", None) != VoiceState.WAITING_RESPONSE
+            ):
+                return
+        elif not getattr(self, "response_enabled", False):
+            return
+        task_id = payload.get("task_id")
+        if task_id and task_id in getattr(self, "_spoken_response_task_ids", set()):
+            return
+
+        if input_source not in {"voice", "text", None}:
             return
 
         response = (
@@ -609,12 +659,16 @@ class VoiceEngine:
         )
         if not isinstance(response, str) or not response.strip():
             logger.error("Voice conversation completed without a speakable response.")
-            await self._end_conversation()
             return
 
         response = response.strip()
-        self._conversation_history.append({"role": "assistant", "content": response})
-        self._trim_conversation_history()
+        if input_source == "voice":
+            self._conversation_history.append({"role": "assistant", "content": response})
+            self._trim_conversation_history()
+        if task_id and not hasattr(self, "_spoken_response_task_ids"):
+            self._spoken_response_task_ids = set()
+        if task_id:
+            self._spoken_response_task_ids.add(task_id)
         self.state = VoiceState.SPEAKING
         logger.info(
             "TTS_STARTED provider=%s characters=%d conversation_id=%s",
@@ -633,11 +687,14 @@ class VoiceEngine:
             getattr(self.tts, "provider", "unknown"),
         )
 
-        if self._is_active:
-            self.state = VoiceState.LISTENING
-            self._task = asyncio.create_task(self._handle_interaction(initial=False))
+        if input_source == "voice":
+            if getattr(self, "_is_active", False):
+                self.state = VoiceState.LISTENING
+                self._task = asyncio.create_task(self._handle_interaction(initial=False))
+            else:
+                await self._end_conversation()
         else:
-            await self._end_conversation()
+            self.state = VoiceState.IDLE
 
     async def _end_conversation(self):
         self._conversation_id = None

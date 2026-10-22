@@ -742,6 +742,9 @@ async def main():
                     env_dict = {
                         **dict(os.environ),
                         "VOICE_ENABLED": "true",
+                        "VOICE_RESPONSE_ENABLED": str(
+                            payload.get("voice_response_enabled", True)
+                        ).lower(),
                         "WAKE_WORD": payload.get("wake_word", "hey helix"),
                         "WAKE_WORD_ALIASES": payload.get("custom_wake_words", []),
                         "WAKE_WORD_PROVIDER": payload.get(

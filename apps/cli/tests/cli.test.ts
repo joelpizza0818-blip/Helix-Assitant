@@ -3,6 +3,10 @@ import assert from 'node:assert/strict';
 import { Autocompleter, SLASH_COMMANDS } from '../src/ui/autocomplete';
 import { formatSkill, formatMcp, highlightMentions, ORANGE } from '../src/ui/colors';
 import { getAsciiLogo, getStatusBar, getVoiceIndicator } from '../src/ui/banner';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { discoverUserSkillNames } from '../src/skills/user-skill-discovery';
 
 test('Autocompleter suggests slash commands', () => {
   const completer = new Autocompleter();
@@ -66,6 +70,42 @@ test('Autocompleter handles @skills and #mcps autocompletion', () => {
   // Test /skill sub-command
   const [skillSub] = completer.completer('/skill web');
   assert.deepEqual(skillSub, ['/skill web-search']);
+});
+
+test('User skill discovery is shallow, dynamic, and metadata-only', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'helix-cli-skills-'));
+  try {
+    fs.mkdirSync(path.join(root, 'meeting-notes'));
+    fs.writeFileSync(
+      path.join(root, 'meeting-notes', 'SKILL.md'),
+      '---\nname: meeting-notes\n---\nSECRET_INSTRUCTIONS_SHOULD_NOT_BE_READ',
+      'utf8',
+    );
+    fs.mkdirSync(path.join(root, 'not-a-skill.txt'));
+    fs.mkdirSync(path.join(root, 'nested', 'hidden-skill'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'nested', 'hidden-skill', 'SKILL.md'), 'secret', 'utf8');
+    fs.writeFileSync(path.join(root, 'README.md'), 'not a skill', 'utf8');
+
+    assert.deepEqual(discoverUserSkillNames(root), ['meeting-notes']);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Autocomplete merges default/remote skills with newly-created user skills', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'helix-cli-refresh-'));
+  try {
+    const completer = new Autocompleter(undefined, root);
+    (completer as any).remoteSkills = ['coding'];
+    (completer as any).skills = ['coding'];
+    fs.mkdirSync(path.join(root, 'custom-review'));
+    fs.writeFileSync(path.join(root, 'custom-review', 'SKILL.md'), '# user skill', 'utf8');
+
+    const [matches] = completer.completer('@custom');
+    assert.deepEqual(matches, ['@custom-review ']);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('Colors: formatSkill applies strong orange formatting', () => {

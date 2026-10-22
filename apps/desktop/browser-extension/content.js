@@ -48,6 +48,27 @@ function publishSnapshot(force = false) {
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === 'HELIX_BROWSER_CONTROL') {
+    try {
+      const element = message.selector ? document.querySelector(message.selector) : null
+      if (message.action === 'click' && element instanceof HTMLElement) element.click()
+      else if (message.action === 'type' && (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)) {
+        element.focus()
+        element.value = String(message.text ?? '')
+        element.dispatchEvent(new Event('input', { bubbles: true }))
+        element.dispatchEvent(new Event('change', { bubbles: true }))
+      } else if (message.action === 'scroll') {
+        window.scrollBy({ top: message.direction === 'up' ? -Math.abs(message.amount || 600) : Math.abs(message.amount || 600), behavior: 'smooth' })
+      } else if (message.action === 'snapshot') {
+        sendResponse(visiblePageSnapshot())
+        return true
+      }
+      sendResponse({ ok: true })
+    } catch (error) {
+      sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) })
+    }
+    return true
+  }
   if (message?.type !== 'HELIX_REFRESH_PAGE') return
   const snapshot = visiblePageSnapshot()
   sendResponse(snapshot)

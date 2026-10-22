@@ -40,6 +40,7 @@ DEFAULT_SETTINGS = {
     "wake_word_threshold": 0.5,
     "voice_tts_provider": "edge_tts",
     "voice_tts_voice": "en-US-AndrewMultilingualNeural",
+    "voice_response_enabled": True,
     "vad_threshold": 250,
     "mcp_servers": [],
     "camera_enabled": False,
@@ -69,7 +70,7 @@ DEFAULT_SETTINGS = {
     "continuous_screen_vision_enabled": False,
     "continuous_screen_vision_interval_ms": DEFAULT_SCREEN_VISION_INTERVAL_MS,
     "complex_workflows_enabled": False,
-    "subagents_enabled": False,
+    "subagents_enabled": True,
     "ocr_engine": "local",
     "mouse_move_duration_ms": 200,
     "keystroke_delay_ms": 30,
@@ -481,11 +482,7 @@ class DesktopRequestHandler:
             elif "permissions_mode" not in saved and "permission_mode" in saved:
                 settings["permissions_mode"] = saved["permission_mode"]
         self._apply_runtime_settings(settings)
-        settings["subagents_available"] = (
-            self.key_manager.get_distinct_configured_credential_count() >= 2
-        )
-        if not settings["subagents_available"]:
-            settings["subagents_enabled"] = False
+        settings["subagents_available"] = True
         return settings
 
     def _apply_runtime_settings(self, settings: dict) -> None:
@@ -823,13 +820,6 @@ class DesktopRequestHandler:
         if "subagents_enabled" in settings:
             if not isinstance(settings["subagents_enabled"], bool):
                 raise ValueError("subagents_enabled must be a boolean")
-            if (
-                settings["subagents_enabled"]
-                and self.key_manager.get_distinct_configured_credential_count() < 2
-            ):
-                raise ValueError(
-                    "Subagent delegation requires at least two distinct configured credentials."
-                )
         if "mcp_servers" in settings:
             servers = settings["mcp_servers"]
             if not isinstance(servers, list):
@@ -888,11 +878,7 @@ class DesktopRequestHandler:
             endpoint.pop("api_key", None)
         merged = self.get_settings()
         merged.update(incoming)
-        merged["subagents_available"] = (
-            self.key_manager.get_distinct_configured_credential_count() >= 2
-        )
-        if not merged["subagents_available"]:
-            merged["subagents_enabled"] = False
+        merged["subagents_available"] = True
         merged["custom_endpoints"] = self._redact_custom_endpoint_keys(
             merged.get("custom_endpoints", [])
         )

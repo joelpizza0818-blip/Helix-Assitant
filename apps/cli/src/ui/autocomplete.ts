@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import type { AgentClient } from '../client/agent-client';
 import { formatSkill, formatMcp, ORANGE, CYAN, MAGENTA, DIM } from './colors';
+import { discoverUserSkillNames, getUserSkillsDirectory } from '../skills/user-skill-discovery';
 
 export interface CommandDefinition {
   command: string;
@@ -28,16 +29,29 @@ export const SLASH_COMMANDS: CommandDefinition[] = [
 
 export class Autocompleter {
   private skills: string[] = [];
+  private remoteSkills: string[] = [];
+  private localSkills: string[] = [];
   private mcpTools: string[] = [];
+  private readonly userSkillsDirectory: string;
 
-  constructor(private client?: AgentClient) {}
+  constructor(private client?: AgentClient, userSkillsDirectory = getUserSkillsDirectory()) {
+    this.userSkillsDirectory = userSkillsDirectory;
+    this.refreshLocalSkills();
+  }
+
+  private refreshLocalSkills(): void {
+    this.localSkills = discoverUserSkillNames(this.userSkillsDirectory);
+    const baseSkills = this.client ? this.remoteSkills : this.skills;
+    this.skills = [...new Set([...baseSkills, ...this.localSkills])]
+      .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  }
 
   public async refreshSuggestions(): Promise<void> {
     if (!this.client || !this.client.connected) return;
     try {
       const skills = await this.client.getSkills();
       if (skills) {
-        this.skills = skills.map((s) => s.name);
+        this.remoteSkills = skills.map((s) => s.name);
       }
     } catch {
       // Ignored if client is offline
@@ -60,6 +74,8 @@ export class Autocompleter {
     } catch {
       // Ignored
     }
+
+    this.refreshLocalSkills();
   }
 
   public getSkills(): string[] {
@@ -75,6 +91,9 @@ export class Autocompleter {
    * (line: string) => [string[], string]
    */
   public completer(line: string): [string[], string] {
+    // A skill may be created by another HELIX surface while the REPL is open.
+    // Keep Tab completion current without exposing the skill file contents.
+    this.refreshLocalSkills();
     const trimmed = line.trimStart();
 
     // 1. Skill sub-arguments for /skill <name>

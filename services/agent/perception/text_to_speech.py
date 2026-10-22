@@ -8,6 +8,8 @@ from typing import List
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_EDGE_VOICE = "en-US-AndrewMultilingualNeural"
+
 @dataclass
 class VoiceInfo:
     id: str
@@ -19,7 +21,9 @@ class TextToSpeech:
         self.provider = provider
         self.model = model
         self.api_key = api_key
-        self.voice_id = voice_id
+        self.voice_id = voice_id or (
+            DEFAULT_EDGE_VOICE if provider == "edge_tts" else None
+        )
         
         if (self.provider in ['openai', 'elevenlabs']) and not self.api_key:
             logger.warning(f"{self.provider} key not available, falling back to system TTS")
@@ -184,7 +188,12 @@ class TextToSpeech:
             import pyttsx3
             engine = pyttsx3.init()
             if self.voice_id:
-                engine.setProperty('voice', self.voice_id)
+                try:
+                    engine.setProperty('voice', self.voice_id)
+                except Exception:
+                    logger.warning(
+                        "Configured system voice is unavailable; using the Windows default voice."
+                    )
             engine.say(text)
             engine.runAndWait()
         else:

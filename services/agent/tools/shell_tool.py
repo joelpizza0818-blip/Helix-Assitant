@@ -5,6 +5,7 @@ import platform
 import shutil
 import time
 import re
+import subprocess
 from typing import Any, Dict, Optional
 from dataclasses import dataclass
 from .base_tool import BaseTool, ToolResult
@@ -58,6 +59,16 @@ class ShellTool(BaseTool):
             self.block_elevated_execution = settings['block_elevated_execution']
         if isinstance(settings.get('sandbox_enabled'), bool):
             self.sandbox_enabled = settings['sandbox_enabled']
+
+    @staticmethod
+    def _startupinfo():
+        """Hide helper console windows while preserving interactive output pipes."""
+        if os.name != "nt":
+            return None
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = subprocess.SW_HIDE
+        return startupinfo
         if settings.get('sandbox_mode') in {'restricted', 'isolated', 'windows_sandbox', 'docker'}:
             self.sandbox_mode = settings['sandbox_mode']
 
@@ -264,6 +275,7 @@ class ShellTool(BaseTool):
                 *cmd_args,
                 cwd=working_dir,
                 env=env,
+                startupinfo=self._startupinfo(),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )

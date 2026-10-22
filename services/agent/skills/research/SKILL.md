@@ -1,7 +1,7 @@
 ---
 name: research
-description: For web research, information gathering, summarization.
-version: 1.0.0
+description: Investigate external or unfamiliar topics using targeted authoritative sources, cross-checking, dates, citations, and explicit uncertainty.
+version: 2.0.0
 triggers:
   - research
   - search
@@ -21,21 +21,24 @@ dependencies: []
 
 # Research Skill
 
-Use this skill when the user asks for information that requires web searching or looking up external knowledge.
+Use when the answer requires current, niche, or externally verifiable information. Convert the request into specific questions, time scope, geography, and decision criteria.
 
-## Instructions
-1. Identify the core query and formulate effective search terms.
-2. Use `search_web` to find relevant sources.
-3. Read multiple sources if needed using `read_url_content` to cross-verify facts.
-4. Synthesize the findings into a clear, concise summary.
-5. Provide citations or links to the sources used.
+## Procedure
 
-## Safety Guidelines
-- Do not trust unverified sources for critical information.
-- Avoid passing PII or sensitive data in search queries.
+1. Search authoritative primary sources first: official docs, laws, papers, datasets, filings, or direct statements.
+2. Use secondary sources for context and compare material claims across independent sources.
+3. Check publication date, event date, version, authorship, methodology, and conflicts of interest.
+4. Map each material claim to a source; never rely on search snippets alone.
+5. Synthesize only supported conclusions and label inference, disagreement, outdated material, and missing evidence.
+6. Provide direct links or citations near supported claims.
+
+## Safety
+
+Do not send secrets or unnecessary PII in searches. For medical, legal, financial, security, or current-policy topics, verify authoritative current sources and state limitations. Never invent citations.
 
 ## Examples
-- User: "research the latest developments in quantum computing"
-  Agent: uses `search_web` with query "latest quantum computing developments", reads articles, and summarizes findings.
-- User: "who is the CEO of OpenAI?"
-  Agent: uses `search_web` to quickly look up current leadership.
+
+- User: "What changed in this API?"
+  Agent: compares official versioned release notes and documentation and cites each material change.
+- User: "Investigate this company."
+  Agent: separates confirmed facts, reported claims, and inference with dates and source quality.

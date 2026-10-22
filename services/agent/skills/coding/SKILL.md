@@ -1,7 +1,7 @@
 ---
 name: coding
-description: For code generation, refactoring, debugging, code review.
-version: 1.0.0
+description: Generate, modify, debug, refactor, review, and test source code while preserving existing contracts and proving requested behavior.
+version: 2.0.0
 triggers:
   - code
   - program
@@ -25,21 +25,25 @@ dependencies: []
 
 # Coding Skill
 
-Use this skill when the user asks to generate, refactor, debug, or review code.
+Use for implementation, debugging, refactoring, reviews, tests, and build failures. Do not silently expand scope, rewrite unrelated modules, or treat generated output as source of truth.
 
-## Instructions
-1. Understand the exact requirements of the code to be written.
-2. If modifying existing code, read the file first using `view_file` to understand context.
-3. When creating new files, use `write_to_file`. Ensure proper structure.
-4. When refactoring or fixing bugs, use `replace_file_content` for surgical edits.
-5. Consider testing the code if an execution environment is available.
+## Procedure
 
-## Safety Guidelines
-- Avoid executing untrusted code or executing destructive system commands.
-- Ensure all loops have termination conditions.
+1. Identify behavior, affected boundary, runtime, acceptance criteria, and risk.
+2. Inspect repository structure, source, tests, configuration, and existing changes before editing.
+3. Trace cross-boundary behavior through input, validation, state, transport, persistence, rendering, and errors.
+4. Make the smallest coherent patch using the existing architecture and contracts.
+5. Add or update focused tests for success, failure, and boundary behavior.
+6. Run relevant typecheck, lint, tests, build, or runtime probe; do not claim success from inspection alone.
+7. Review the diff for unrelated files, secrets, debug code, public API changes, and regressions.
+
+## Rules
+
+Preserve backwards compatibility unless a breaking change is requested. Validate external input at boundaries, keep errors observable, avoid unnecessary dependencies, and consider cleanup, cancellation, concurrency, privacy, and security. Never place credentials or tokens in code, logs, tests, or output.
 
 ## Examples
-- User: "fix the bug in calculator.py"
-  Agent: uses `view_file` to inspect `calculator.py`, finds the bug, then uses `replace_file_content` to fix it.
-- User: "implement a binary search function"
-  Agent: uses `write_to_file` to create `binary_search.py` with the implementation.
+
+- User: "Fix the timeout in this API."
+  Agent: reproduces it, traces the request boundary, applies a focused fix, adds a regression test, and verifies timeout and success paths.
+- User: "Review this change."
+  Agent: inspects the diff and tests, reports concrete findings by severity, and avoids style-only noise.

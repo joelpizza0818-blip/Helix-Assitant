@@ -26,7 +26,10 @@ class IntentMatcher:
             matched_triggers = []
             for trigger in skill.triggers:
                 normalized_trigger = trigger.strip().casefold()
-                if normalized_trigger and re.search(
+                # Ignore accidental one-character YAML values. They create
+                # broad matches (for example the article "a") and can make a
+                # newly added skill shadow a more specific capability.
+                if len(normalized_trigger) >= 2 and re.search(
                     rf"(?<!\w){re.escape(normalized_trigger)}(?!\w)",
                     user_input_lower,
                 ):

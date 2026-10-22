@@ -435,6 +435,7 @@ export interface HelixSettings {
   voice_stt_provider?: string
   voice_tts_provider?: string
   voice_tts_voice?: string
+  voice_response_enabled?: boolean
   vad_threshold?: number
   mcp_servers?: MCPServerConfig[]
   camera_enabled: boolean
@@ -475,10 +476,6 @@ export interface HelixSettings {
   sandbox_enabled?: boolean
   sandbox_mode?: 'restricted' | 'isolated' | 'windows_sandbox' | 'docker'
   sound_effects_enabled?: boolean
-  mascot_enabled?: boolean
-  mascot_character?: 'kitsune' | 'corvus'
-  mascot_scale?: number
-  mascot_sound_enabled?: boolean
   browser_engine?: 'chromium' | 'firefox' | 'webkit'
   browser_headless?: boolean
   search_provider?: 'google' | 'duckduckgo' | 'bing'

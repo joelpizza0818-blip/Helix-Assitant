@@ -6,6 +6,7 @@ import path from 'path'
 export const BROWSER_EXTENSION_PORT = 47831
 const MAX_BODY_BYTES = 500_000
 const MAX_PAGE_TEXT_LENGTH = 80_000
+const CONTROL_TIMEOUT_MS = 30_000
 
 export interface BrowserPageSnapshot {
   title: string
@@ -25,6 +26,16 @@ export interface BrowserExtensionInfo {
   error: string | null
 }
 
+export interface BrowserControlRequest {
+  action: 'open_session' | 'navigate' | 'click' | 'type' | 'scroll' | 'snapshot' | 'close'
+  session_id?: string
+  url?: string
+  selector?: string
+  text?: string
+  direction?: 'up' | 'down' | 'left' | 'right'
+  amount?: number
+}
+
 function isExtensionOrigin(origin: string | undefined): origin is string {
   return Boolean(origin && /^chrome-extension:\/\/[a-p]{32}$/.test(origin))
 }
@@ -32,6 +43,10 @@ function isExtensionOrigin(origin: string | undefined): origin is string {
 function sendJson(response: ServerResponse, status: number, body: Record<string, unknown>): void {
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' })
   response.end(JSON.stringify(body))
+}
+
+function isLocalAgentRequest(origin: string | undefined): boolean {
+  return !origin || origin === 'null'
 }
 
 function validPageSnapshot(value: unknown): value is BrowserPageSnapshot {
@@ -91,6 +106,13 @@ export class BrowserExtensionBridge {
   private token = ''
   private startupError: string | null = null
   private lastPage: BrowserExtensionInfo['lastPage'] = null
+  private readonly pendingCommands = new Map<string, {
+    request: BrowserControlRequest
+    resolve: (value: unknown) => void
+    reject: (error: Error) => void
+    timeout: NodeJS.Timeout
+  }>()
+  private readonly commandQueue: Array<{ id: string; request: BrowserControlRequest }> = []
 
   constructor(
     private readonly tokenPath: string,
@@ -147,6 +169,12 @@ export class BrowserExtensionBridge {
   }
 
   async close(): Promise<void> {
+    for (const pending of this.pendingCommands.values()) {
+      clearTimeout(pending.timeout)
+      pending.reject(new Error('Browser companion is shutting down.'))
+    }
+    this.pendingCommands.clear()
+    this.commandQueue.length = 0
     if (!this.server?.listening) return
     const server = this.server
     this.server = null
@@ -157,14 +185,14 @@ export class BrowserExtensionBridge {
 
   private async handleRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const origin = request.headers.origin
-    if (!isExtensionOrigin(origin)) {
+    if (!isExtensionOrigin(origin) && !isLocalAgentRequest(origin)) {
       sendJson(response, 403, { error: 'Only a Chrome or Edge extension can use this endpoint.' })
       return
     }
 
-    response.setHeader('Access-Control-Allow-Origin', origin)
+    response.setHeader('Access-Control-Allow-Origin', origin ?? 'null')
     response.setHeader('Vary', 'Origin')
-    response.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
+    response.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
     response.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type')
 
     if (request.method === 'OPTIONS') {
@@ -172,11 +200,6 @@ export class BrowserExtensionBridge {
       response.end()
       return
     }
-    if (request.method !== 'POST' || request.url !== '/page') {
-      sendJson(response, 404, { error: 'Not found.' })
-      return
-    }
-
     const authorization = request.headers.authorization
     const suppliedToken = typeof authorization === 'string'
       ? authorization.replace(/^Bearer\s+/i, '')
@@ -188,26 +211,68 @@ export class BrowserExtensionBridge {
       return
     }
 
-    try {
-      const chunks: Buffer[] = []
-      let receivedBytes = 0
-      let tooLarge = false
-      for await (const chunk of request) {
-        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
-        receivedBytes += buffer.length
-        if (receivedBytes > MAX_BODY_BYTES) {
-          tooLarge = true
-          chunks.length = 0
-          continue
-        }
-        if (!tooLarge) chunks.push(buffer)
+    if (request.method === 'GET' && request.url === '/commands') {
+      if (!isExtensionOrigin(origin)) {
+        sendJson(response, 403, { error: 'Only the paired browser extension can poll commands.' })
+        return
       }
-      if (tooLarge) {
-        sendJson(response, 413, { error: 'Page snapshot exceeds the size limit.' })
+      sendJson(response, 200, { commands: this.commandQueue.splice(0, 20) })
+      return
+    }
+
+    const commandResultMatch = request.url?.match(/^\/commands\/([a-zA-Z0-9_-]+)$/)
+    if (request.method === 'POST' && commandResultMatch) {
+      if (!isExtensionOrigin(origin)) {
+        sendJson(response, 403, { error: 'Only the paired browser extension can submit command results.' })
+        return
+      }
+      try {
+        const body = await this.readJson(request, 100_000)
+        const pending = this.pendingCommands.get(commandResultMatch[1])
+        if (!pending) {
+          sendJson(response, 404, { error: 'Command is no longer pending.' })
+          return
+        }
+        clearTimeout(pending.timeout)
+        this.pendingCommands.delete(commandResultMatch[1])
+        const resultBody = body && typeof body === 'object'
+          ? body as Record<string, unknown>
+          : null
+        if (resultBody?.ok === false) {
+          pending.reject(new Error(typeof resultBody.error === 'string' ? resultBody.error : 'Browser command failed.'))
+        } else {
+          pending.resolve(resultBody && 'result' in resultBody ? resultBody.result : body)
+        }
+        sendJson(response, 200, { accepted: true })
+      } catch (error) {
+        sendJson(response, 400, { error: error instanceof Error ? error.message : String(error) })
+      }
+      return
+    }
+
+    if (request.method !== 'POST' || request.url !== '/page' && request.url !== '/control') {
+      sendJson(response, 404, { error: 'Not found.' })
+      return
+    }
+
+    try {
+      const body = await this.readJson(request, MAX_BODY_BYTES)
+      if (request.url === '/control') {
+        if (!isLocalAgentRequest(origin)) {
+          sendJson(response, 403, { error: 'Only the local HELIX agent can submit control commands.' })
+          return
+        }
+        const control = body as BrowserControlRequest
+        if (!this.validControlRequest(control)) {
+          sendJson(response, 400, { error: 'Invalid browser control request.' })
+          return
+        }
+        const result = await this.enqueueControl(control)
+        sendJson(response, 200, { ok: true, result })
         return
       }
 
-      const snapshot: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+      const snapshot: unknown = body
       if (!validPageSnapshot(snapshot)) {
         sendJson(response, 400, { error: 'Invalid browser page snapshot.' })
         return
@@ -228,5 +293,45 @@ export class BrowserExtensionBridge {
       const message = error instanceof Error ? error.message : String(error)
       sendJson(response, 400, { error: `Could not process browser page snapshot: ${message}` })
     }
+  }
+
+  private async readJson(request: IncomingMessage, maxBytes: number): Promise<unknown> {
+    const chunks: Buffer[] = []
+    let receivedBytes = 0
+    for await (const chunk of request) {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+      receivedBytes += buffer.length
+      if (receivedBytes > maxBytes) throw new Error('Request body exceeds the size limit.')
+      chunks.push(buffer)
+    }
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'))
+  }
+
+  private validControlRequest(value: unknown): value is BrowserControlRequest {
+    if (!value || typeof value !== 'object') return false
+    const request = value as Record<string, unknown>
+    if (!['open_session', 'navigate', 'click', 'type', 'scroll', 'snapshot', 'close'].includes(String(request.action))) return false
+    if (request.session_id !== undefined && (typeof request.session_id !== 'string' || request.session_id.length > 80)) return false
+    if (request.url !== undefined) {
+      if (typeof request.url !== 'string' || request.url.length > 4096) return false
+      try { if (!['http:', 'https:'].includes(new URL(request.url).protocol)) return false } catch { return false }
+    }
+    for (const key of ['selector', 'text']) {
+      if (request[key] !== undefined && (typeof request[key] !== 'string' || request[key].length > 2000)) return false
+    }
+    if (request.direction !== undefined && !['up', 'down', 'left', 'right'].includes(String(request.direction))) return false
+    return request.amount === undefined || (typeof request.amount === 'number' && Number.isInteger(request.amount) && request.amount > 0 && request.amount <= 5000)
+  }
+
+  private enqueueControl(request: BrowserControlRequest): Promise<unknown> {
+    const id = `cmd_${Date.now()}_${randomBytes(6).toString('hex')}`
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pendingCommands.delete(id)
+        reject(new Error('Timed out waiting for the browser extension.'))
+      }, CONTROL_TIMEOUT_MS)
+      this.pendingCommands.set(id, { request, resolve, reject, timeout })
+      this.commandQueue.push({ id, request })
+    })
   }
 }

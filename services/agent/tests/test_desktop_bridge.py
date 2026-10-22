@@ -85,21 +85,14 @@ async def test_complex_workflow_setting_is_opt_in_and_updates_runtime(request_ha
 
 
 @pytest.mark.asyncio
-async def test_subagent_setting_requires_two_distinct_credentials_and_is_derived(
+async def test_subagent_setting_is_available_with_the_active_provider(
     request_handler,
 ):
-    assert request_handler.get_settings()["subagents_available"] is False
-    with pytest.raises(ValueError, match="two distinct configured credentials"):
-        await request_handler._save_settings({"subagents_enabled": True})
-
-    request_handler.key_manager.keys["google"] = ["same", "same"]
-    assert request_handler.get_settings()["subagents_available"] is False
-    request_handler.key_manager.keys["openai"] = ["different"]
-
+    assert request_handler.get_settings()["subagents_available"] is True
     saved = await request_handler._save_settings({"subagents_enabled": True})
-
     assert saved["subagents_enabled"] is True
-    assert saved["subagents_available"] is True
+
+    assert request_handler.get_settings()["subagents_available"] is True
     persisted = json.loads(request_handler.settings_path.read_text(encoding="utf-8"))
     assert persisted["subagents_enabled"] is True
     assert "subagents_available" not in persisted

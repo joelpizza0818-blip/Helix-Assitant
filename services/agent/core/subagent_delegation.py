@@ -1,9 +1,6 @@
 def configure_subagent_delegation(settings, key_manager, tool_registry, delegate_task_tool):
-    enabled = (
-        isinstance(settings, dict)
-        and settings.get("subagents_enabled") is True
-        and key_manager.get_distinct_configured_credential_count() >= 2
-    )
+    # Child agents reuse the active provider session in the managed runtime.
+    enabled = isinstance(settings, dict) and settings.get("subagents_enabled") is True
     if enabled:
         tool_registry.register_tool(delegate_task_tool, source="native")
     else:

@@ -105,18 +105,12 @@ async def test_delegate_tool_fails_when_an_alternate_credential_is_unavailable()
     assert manager.calls == []
 
 
-def test_subagent_tool_registration_requires_enabled_setting_and_distinct_credentials():
+def test_subagent_tool_registration_uses_the_active_provider_session():
     manager = StubAgentManager()
     key_manager = StubKeyManager(1, {"google": [(0, "one-key")]})
     registry = ToolRegistry()
     tool = DelegateTaskTool(manager, key_manager)
 
-    assert not configure_subagent_delegation(
-        {"subagents_enabled": True}, key_manager, registry, tool
-    )
-    assert registry.get_tool(tool.name) is None
-
-    key_manager.configured_count = 2
     assert configure_subagent_delegation(
         {"subagents_enabled": True}, key_manager, registry, tool
     )

@@ -87,6 +87,18 @@ export default function VoiceSection({ settings, onSave }: Props) {
           </label>
         </div>
 
+        <div className="toolbox-card__header" style={{ marginTop: 10 }}>
+          <span className="toolbox-card__title">Speak assistant replies</span>
+          <label className="toggle">
+            <input
+              type="checkbox"
+              checked={settings.voice_response_enabled ?? true}
+              onChange={(e) => onSave({ voice_response_enabled: e.target.checked })}
+            />
+            <span className="toggle__slider" />
+          </label>
+        </div>
+
         <div className="form-row">
           <label className="form-label">Primary Activation Preset</label>
           <select
