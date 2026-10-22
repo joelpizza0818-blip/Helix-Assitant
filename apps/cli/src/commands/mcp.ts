@@ -3,6 +3,16 @@ import chalk from 'chalk';
 import type { AgentClient } from '../client/agent-client';
 import type { McpServerConfig } from '../client/types';
 import { formatMcp, CYAN_BOLD, GREEN, RED, YELLOW, GRAY, BOLD, DIM } from '../ui/colors';
+import { MCP_DEFAULTS } from '../config/mcp-defaults';
+
+export function handleMcpDefaults(): void {
+  console.log(`\n${BOLD('📦 MCPs recomendados (catálogo, no activados automáticamente):')}\n`);
+  for (const item of MCP_DEFAULTS) {
+    console.log(`  ${CYAN_BOLD('◈')} ${formatMcp(item.id)} — ${item.label}`);
+    console.log(`    ${DIM(item.purpose)} | ${item.activation} | ${item.privacy}`);
+  }
+  console.log(DIM('\nActiva cada MCP individualmente con consentimiento y alcance explícito.\n'));
+}
 
 export async function handleListMcp(client: AgentClient): Promise<void> {
   console.log(`\n${BOLD('🔌 Servidores y Herramientas MCP:')}\n`);

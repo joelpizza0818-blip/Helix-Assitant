@@ -21,7 +21,7 @@ import {
 } from './colors';
 import { handleConfigApiKey, handleShowApiKey } from '../commands/apikey';
 import { handleCreateSkill, handleListSkills } from '../commands/skills';
-import { handleCreateMcp, handleListMcp } from '../commands/mcp';
+import { handleCreateMcp, handleListMcp, handleMcpDefaults } from '../commands/mcp';
 import { handleMicrophoneCommand } from '../commands/mic';
 import { handleBrowserCommand } from '../commands/browser';
 import type { ConfirmationRequest } from '../client/types';
@@ -360,7 +360,8 @@ export class HelixRepl {
           break;
 
         case '/mcp':
-          await handleListMcp(this.client);
+          if (args?.trim().toLowerCase() === 'defaults') handleMcpDefaults();
+          else await handleListMcp(this.client);
           break;
 
         case '/create-mcp':

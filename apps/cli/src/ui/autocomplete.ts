@@ -12,7 +12,7 @@ export interface CommandDefinition {
 export const SLASH_COMMANDS: CommandDefinition[] = [
   { command: '/create-skill', description: 'Crear una nueva skill interactiva para HELIX' },
   { command: '/skill', description: 'Listar o inspeccionar skills registradas', usage: '/skill [nombre]' },
-  { command: '/mcp', description: 'Listar servidores MCP y sus herramientas' },
+  { command: '/mcp', description: 'Listar servidores MCP y sus herramientas', usage: '/mcp [defaults]' },
   { command: '/create-mcp', description: 'Registrar y configurar un nuevo servidor MCP' },
   { command: '/browser', description: 'Ver estado del navegador web o abrir URLs', usage: '/browser [open <url>]' },
   { command: '/config-apikey', description: 'Configurador interactivo de API Keys (OpenAI, Anthropic, Gemini, etc.)' },
