@@ -1,5 +1,6 @@
 import json
 import asyncio
+import ctypes
 import logging
 import os
 import shlex
@@ -35,6 +36,28 @@ def safe_mcp_diagnostic(value: str, limit: int = 240) -> str:
     return text[:limit]
 
 
+def _windows_short_path(value: str) -> str:
+    """Return an 8.3 path when Windows exposes one, otherwise keep the path."""
+    if os.name != "nt":
+        return value
+    try:
+        get_short_path = ctypes.windll.kernel32.GetShortPathNameW
+        get_short_path.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint32]
+        get_short_path.restype = ctypes.c_uint32
+        size = 512
+        while size <= 32768:
+            buffer = ctypes.create_unicode_buffer(size)
+            length = get_short_path(value, buffer, size)
+            if length == 0:
+                return value
+            if length < size:
+                return buffer.value
+            size *= 2
+    except (AttributeError, OSError):
+        return value
+    return value
+
+
 class MCPClient:
     def __init__(self, server_command: str = None, server_url: str = None):
         if server_url is not None:
@@ -68,9 +91,9 @@ class MCPClient:
                         command_args = [
                             os.environ.get("COMSPEC", "cmd.exe"),
                             "/d",
-                            "/s",
                             "/c",
-                            subprocess.list2cmdline([executable, *args[1:]]),
+                            _windows_short_path(executable),
+                            *args[1:],
                         ]
                 self.process = await asyncio.create_subprocess_exec(
                     *command_args,
@@ -145,7 +168,8 @@ class MCPClient:
     async def initialize(self) -> dict:
         return await self._send_request(MCP_INITIALIZE, {
             "protocolVersion": "2.0",
-            "clientInfo": {"name": "helix-mcp-client", "version": "1.0.0"}
+            "clientInfo": {"name": "helix-mcp-client", "version": "1.0.0"},
+            "capabilities": {},
         })
 
     async def list_tools(self) -> List[MCPToolDefinition]:
