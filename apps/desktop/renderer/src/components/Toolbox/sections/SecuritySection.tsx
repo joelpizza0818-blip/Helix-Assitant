@@ -91,6 +91,51 @@ export default function SecuritySection({ settings, onSave }: Props) {
         </select>
       </div>
 
+      {/* ── Command Sandboxing & Isolation ───────────────────── */}
+      <div className="toolbox-card">
+        <div className="toolbox-card__header">
+          <span className="toolbox-card__title">Command Sandboxing & Isolation</span>
+        </div>
+        <p className="text-xs text-muted" style={{ marginBottom: 12 }}>
+          Execute system commands in an isolated sandbox with sanitized environment variables, stripped sensitive credentials/tokens, clean system PATH, and restricted execution privileges.
+        </p>
+
+        <div className="form-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div>
+            <label className="form-label" style={{ marginBottom: 2 }}>Enable Command Sandboxing</label>
+            <p className="text-xs text-muted">Isolate shell, cmd, and terminal executions from the host system environment</p>
+          </div>
+          <label className="toggle">
+            <input
+              type="checkbox"
+              checked={settings.sandbox_enabled ?? false}
+              onChange={(e) => void onSave({ sandbox_enabled: e.target.checked })}
+            />
+            <span className="toggle__slider" />
+          </label>
+        </div>
+
+        <div className="form-row">
+          <label className="form-label" htmlFor="sandbox-mode">
+            Sandbox Isolation Mode
+          </label>
+          <select
+            id="sandbox-mode"
+            className="form-input"
+            value={settings.sandbox_mode || 'restricted'}
+            disabled={!settings.sandbox_enabled}
+            onChange={(e) => void onSave({
+              sandbox_mode: e.target.value as HelixSettings['sandbox_mode']
+            })}
+          >
+            <option value="restricted">Restricted Environment — Process isolation & sanitized environment (Default)</option>
+            <option value="isolated">Isolated Subprocess — Clean system PATH & cleared environment variables</option>
+            <option value="windows_sandbox">Windows Sandbox — Disposable lightweight Hyper-V container</option>
+            <option value="docker">Docker Container — Isolated containerized environment</option>
+          </select>
+        </div>
+      </div>
+
       {/* ── Permission Hierarchy ──────────────────────────────── */}
       <div className="toolbox-card">
         <div className="toolbox-card__header">

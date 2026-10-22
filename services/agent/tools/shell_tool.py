@@ -23,6 +23,8 @@ class ShellTool(BaseTool):
         self.default_shell_type = 'powershell' if os.name == "nt" else "bash"
         self.default_timeout = 30
         self.block_elevated_execution = True
+        self.sandbox_enabled = False
+        self.sandbox_mode = 'restricted'
 
     def configure(self, settings: Dict[str, Any]) -> None:
         shell_type = settings.get('shell_type', self.default_shell_type)
@@ -53,6 +55,25 @@ class ShellTool(BaseTool):
             self.default_timeout = max(5, min(300, int(timeout)))
         if isinstance(settings.get('block_elevated_execution'), bool):
             self.block_elevated_execution = settings['block_elevated_execution']
+        if isinstance(settings.get('sandbox_enabled'), bool):
+            self.sandbox_enabled = settings['sandbox_enabled']
+        if settings.get('sandbox_mode') in {'restricted', 'isolated', 'windows_sandbox', 'docker'}:
+            self.sandbox_mode = settings['sandbox_mode']
+
+    def _create_sandboxed_env(self) -> Dict[str, str]:
+        safe_keys = {
+            'SYSTEMROOT', 'SYSTEMDRIVE', 'WINDIR', 'COMSPEC', 'PATHEXT',
+            'PATH', 'TEMP', 'TMP', 'USERPROFILE', 'HOME', 'LANG', 'LC_ALL'
+        }
+        clean_env = {
+            k: v for k, v in os.environ.items()
+            if k.upper() in safe_keys and not any(
+                secret in k.upper() for secret in ('KEY', 'TOKEN', 'SECRET', 'PASS', 'AUTH')
+            )
+        }
+        clean_env['HELIX_SANDBOX'] = '1'
+        clean_env['HELIX_SANDBOX_MODE'] = self.sandbox_mode
+        return clean_env
 
     @property
     def name(self) -> str:
@@ -147,17 +168,31 @@ class ShellTool(BaseTool):
         }
 
     def validate_command(self, command: str) -> bool:
+        cmd_lower = command.lower()
         if self.block_elevated_execution and re.search(
             r"(?:start-process\s+.*-verb\s+runas|\brunas\b|\bsudo\b|\bdoas\b)",
-            command,
-            re.IGNORECASE,
+            cmd_lower,
         ):
+            return False
+        # Block encoded command execution vectors (-enc, -encodedcommand, etc.)
+        if re.search(r'(?:-|/)(?:e|enc|encodedcommand)\b', cmd_lower):
+            return False
+        # Block dynamic evaluation
+        if re.search(r'\b(?:iex|invoke-expression)\b', cmd_lower):
             return False
         return True
 
     async def execute_command(self, command: str, working_dir: Optional[str] = None, timeout: int = 30, shell_type: Optional[str] = None) -> ShellResult:
         start_time = time.time()
         try:
+            if not self.validate_command(command):
+                return ShellResult(
+                    stdout="",
+                    stderr="Execution blocked: Command rejected by security policy (prohibited elevated, encoded, or dynamic execution).",
+                    exit_code=-1,
+                    execution_time_ms=0.0
+                )
+
             shell_type = shell_type or self.default_shell_type
             if shell_type == 'cmd':
                 if os.name != "nt":
@@ -167,7 +202,10 @@ class ShellTool(BaseTool):
                 executable = shutil.which("pwsh") or shutil.which("powershell.exe")
                 if not executable:
                     raise OSError("PowerShell is not installed or not on PATH.")
-                cmd_args = [executable, '-NoProfile', '-NonInteractive', '-Command', command]
+                if self.sandbox_enabled:
+                    cmd_args = [executable, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Restricted', '-Command', command]
+                else:
+                    cmd_args = [executable, '-NoProfile', '-NonInteractive', '-Command', command]
             elif shell_type == 'wsl':
                 executable = shutil.which("wsl.exe") if os.name == "nt" else None
                 if not executable:
@@ -181,9 +219,12 @@ class ShellTool(BaseTool):
             else:
                 raise ValueError(f"Unsupported shell type: {shell_type}")
                 
+            env = self._create_sandboxed_env() if self.sandbox_enabled else None
+
             process = await asyncio.create_subprocess_exec(
                 *cmd_args,
                 cwd=working_dir,
+                env=env,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )

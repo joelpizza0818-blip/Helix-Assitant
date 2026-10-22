@@ -4,8 +4,10 @@ from .shell_tool import ShellTool, ShellResult
 
 class PowerShellTool(ShellTool):
     DANGEROUS_PATTERNS = [
-        r'Remove-Item\s+-Recurse', r'Format-Volume', r'Stop-Process',
-        r'Set-ExecutionPolicy', r'Invoke-Expression'
+        r'Remove-Item\s+.*(?:-recurse|-r\b)', r'\bri\s+.*(?:-recurse|-r\b)',
+        r'Format-Volume', r'Stop-Process',
+        r'Set-ExecutionPolicy', r'Invoke-Expression', r'\biex\b',
+        r'(?:-|/)(?:e|enc|encodedcommand)\b',
     ]
 
     @property
@@ -20,6 +22,8 @@ class PowerShellTool(ShellTool):
         )
 
     def validate_command(self, command: str) -> bool:
+        if not super().validate_command(command):
+            return False
         cmd_lower = command.lower()
         for pattern in self.DANGEROUS_PATTERNS:
             if re.search(pattern.lower(), cmd_lower):

@@ -470,6 +470,8 @@ export interface HelixSettings {
   shell_type?: 'powershell' | 'cmd' | 'wsl'
   shell_timeout_seconds?: number
   block_elevated_execution?: boolean
+  sandbox_enabled?: boolean
+  sandbox_mode?: 'restricted' | 'isolated' | 'windows_sandbox' | 'docker'
   browser_engine?: 'chromium' | 'firefox' | 'webkit'
   browser_headless?: boolean
   search_provider?: 'google' | 'duckduckgo' | 'bing'

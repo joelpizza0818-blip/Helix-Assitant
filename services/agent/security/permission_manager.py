@@ -1,6 +1,7 @@
 import logging
+import re
 from enum import Enum, auto
-from typing import Dict, List
+from typing import Dict, List, Optional
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,6 +28,14 @@ class RiskEvaluation:
     level: PermissionLevel
     requires_confirmation: bool
     reason: str
+
+
+@dataclass(frozen=True)
+class CommandInspectionResult:
+    is_safe: bool
+    risk_level: PermissionLevel
+    violation_reason: Optional[str] = None
+
 
 class EventBus: # simple stub since not provided
     @staticmethod
@@ -149,21 +158,106 @@ class PermissionManager:
         if protected and level.value < PermissionLevel.CRITICAL.value:
             level = PermissionLevel.CRITICAL
 
-        if self.mode is PermissionMode.ALWAYS_ASK:
+        if level.value >= PermissionLevel.SYSTEM.value:
+            requires = True
+            reason = f"Explicit interactive confirmation is mandatory for {level.name} level operations in all approval modes."
+        elif self.mode is PermissionMode.ALWAYS_ASK:
             requires = True
             reason = "Always Ask mode requires approval for every tool action."
         elif self.mode is PermissionMode.AUTO_APPROVE:
-            requires = level.value >= PermissionLevel.SYSTEM.value
-            reason = "Auto Approve mode permits non-system actions; system and critical actions remain gated."
+            requires = False
+            reason = "Auto Approve mode permits non-system actions without interactive confirmation."
         else:
             requires = level.value >= PermissionLevel.MODIFY.value
             reason = "Smart Approval gates modifications, protected resources, and destructive actions."
         return RiskEvaluation(level, requires, reason)
 
-    @staticmethod
-    def _infer_level(tool_name: str, params: dict) -> PermissionLevel:
+    @classmethod
+    def inspect_command(cls, command: str) -> CommandInspectionResult:
+        if not command or not isinstance(command, str):
+            return CommandInspectionResult(is_safe=True, risk_level=PermissionLevel.LOW_RISK)
+
+        cmd = command.strip()
+        cmd_lower = cmd.lower()
+
+        # 1. Encoded command bypasses (-EncodedCommand, -enc, etc.)
+        if re.search(r'(?:-|/)(?:e|enc|encodedcommand)\b', cmd_lower):
+            return CommandInspectionResult(
+                is_safe=False,
+                risk_level=PermissionLevel.CRITICAL,
+                violation_reason="Encoded command execution is blocked as a high-risk bypass vector."
+            )
+
+        # 2. Dynamic execution / memory evaluation
+        if re.search(r'\b(?:iex|invoke-expression)\b', cmd_lower) or re.search(r'&\s*\(?get-command', cmd_lower):
+            return CommandInspectionResult(
+                is_safe=False,
+                risk_level=PermissionLevel.CRITICAL,
+                violation_reason="Dynamic command evaluation (IEX / Invoke-Expression) is blocked."
+            )
+
+        # 3. Destructive operations (format, rm -rf, del /f /s /q, Remove-Item -r, etc.)
+        critical_patterns = [
+            r'format(?:-volume|\.com|\s+[a-z]:)',
+            r'remove-item\s+.*(?:-recurse|-r\b)',
+            r'\bri\s+.*(?:-recurse|-r\b)',
+            r'\brmdir\s+.*(?:/s|--recursive)',
+            r'\bdel\s+.*(?:/f|/s|/q)',
+            r'\brm\s+-[a-z]*r[a-z]*f?',
+            r'\bdiskpart\b',
+            r'\bfdisk\b',
+            r'\bmkfs\b',
+            r'\bdd\s+if=',
+            r'drop\s+(?:database|table)',
+        ]
+        for pat in critical_patterns:
+            if re.search(pat, cmd_lower):
+                return CommandInspectionResult(
+                    is_safe=False,
+                    risk_level=PermissionLevel.CRITICAL,
+                    violation_reason=f"Destructive pattern matched: {pat}"
+                )
+
+        # 4. System / Process termination & policy modification
+        system_patterns = [
+            r'\bstop-process\b',
+            r'\btaskkill\b',
+            r'\bset-executionpolicy\b',
+            r'\btakeown\b',
+            r'\bicacls\b',
+            r'\breg\s+(?:add|delete)',
+            r'\bchmod\s+(?:-R\s+)?777\b',
+            r'\bchown\b',
+            r'\bkill\s+-9\b',
+        ]
+        for pat in system_patterns:
+            if re.search(pat, cmd_lower):
+                return CommandInspectionResult(
+                    is_safe=False,
+                    risk_level=PermissionLevel.SYSTEM,
+                    violation_reason=f"System modification pattern matched: {pat}"
+                )
+
+        # 5. Elevation / privilege escalation
+        if re.search(r'(?:start-process\s+.*-verb\s+runas|\brunas\b|\bsudo\b|\bdoas\b)', cmd_lower):
+            return CommandInspectionResult(
+                is_safe=False,
+                risk_level=PermissionLevel.CRITICAL,
+                violation_reason="Privilege elevation command detected."
+            )
+
+        return CommandInspectionResult(is_safe=True, risk_level=PermissionLevel.EXECUTE)
+
+    @classmethod
+    def _infer_level(cls, tool_name: str, params: dict) -> PermissionLevel:
         name = tool_name.casefold()
         operation = str(params.get("operation", "")).casefold()
+        command = params.get("command")
+        if isinstance(command, str) and command.strip():
+            inspection = cls.inspect_command(command)
+            if inspection.risk_level in (PermissionLevel.CRITICAL, PermissionLevel.SYSTEM):
+                return inspection.risk_level
+
         if any(token in name or token in operation for token in ("delete", "kill", "format", "terminate")):
             return PermissionLevel.CRITICAL
         if any(token in name or token in operation for token in ("write", "append", "move", "copy", "create", "resize")):
