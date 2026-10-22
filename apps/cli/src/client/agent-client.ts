@@ -319,6 +319,10 @@ export class AgentClient extends EventEmitter {
     return this.request<HelixSettings>('GET_SETTINGS', {});
   }
 
+  public async getCapabilities(): Promise<Record<string, unknown>> {
+    return this.request<Record<string, unknown>>('GET_CAPABILITIES', {});
+  }
+
   public async saveSettings(settings: Partial<HelixSettings>): Promise<HelixSettings> {
     return this.request<HelixSettings>('SAVE_SETTINGS', { settings });
   }

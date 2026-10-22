@@ -180,6 +180,7 @@ class DesktopRequestHandler:
             "GET_PROVIDERS": self._get_providers,
             "GET_MODELS": lambda: self._get_models(payload.get("requirements") or {}),
             "GET_SETTINGS": self._get_settings,
+            "GET_CAPABILITIES": self._get_capabilities,
             "SAVE_SETTINGS": lambda: self._save_settings(payload.get("settings")),
             "TEST_TTS": lambda: self._test_tts(payload),
             "GET_MEMORY_STATUS": self._get_memory_status,
@@ -750,6 +751,19 @@ class DesktopRequestHandler:
         if self.mcp_status_provider is None:
             return servers
         return self.mcp_status_provider(servers)
+
+    async def _get_capabilities(self) -> dict:
+        settings = self.get_settings()
+        return {
+            "subagents_enabled": bool(settings.get("subagents_enabled", True)),
+            "subagents_available": bool(settings.get("subagents_available", True)),
+            "sandbox_enabled": bool(settings.get("sandbox_enabled", False)),
+            "sandbox_mode": settings.get("sandbox_mode", "restricted"),
+            "browser_engine": settings.get("browser_engine", "chromium"),
+            "browser_headless": settings.get("browser_headless", True),
+            "voice_enabled": bool(settings.get("voice_enabled", True)),
+            "voice_response_enabled": bool(settings.get("voice_response_enabled", True)),
+        }
 
     async def _save_skill(self, raw_skill: dict) -> dict:
         if self.skill_registry is None:

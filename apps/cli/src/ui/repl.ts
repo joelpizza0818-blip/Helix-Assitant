@@ -26,6 +26,7 @@ import { handleMicrophoneCommand } from '../commands/mic';
 import { handleBrowserCommand } from '../commands/browser';
 import type { ConfirmationRequest } from '../client/types';
 import { formatTerminalMarkdown } from './markdown';
+import { handleCapabilities, handleProviders, handleSettings } from '../commands/diagnostics';
 
 export interface ReplOptions {
   wsUrl: string;
@@ -395,6 +396,18 @@ export class HelixRepl {
 
         case '/status':
           await this._handleStatus();
+          break;
+
+        case '/providers':
+          await handleProviders(this.client);
+          break;
+
+        case '/capabilities':
+          await handleCapabilities(this.client);
+          break;
+
+        case '/settings':
+          await handleSettings(this.client);
           break;
 
         case '/stop':
