@@ -241,6 +241,8 @@ export interface TaskDefinition {
   error: string | null
   parent_id?: string | null
   role?: string | null
+  name?: string | null
+  function?: string | null
   task_type?: string
   model_requests?: ModelRequestEvent[]
   progress: number
@@ -473,6 +475,10 @@ export interface HelixSettings {
   sandbox_enabled?: boolean
   sandbox_mode?: 'restricted' | 'isolated' | 'windows_sandbox' | 'docker'
   sound_effects_enabled?: boolean
+  mascot_enabled?: boolean
+  mascot_character?: 'kitsune' | 'corvus'
+  mascot_scale?: number
+  mascot_sound_enabled?: boolean
   browser_engine?: 'chromium' | 'firefox' | 'webkit'
   browser_headless?: boolean
   search_provider?: 'google' | 'duckduckgo' | 'bing'

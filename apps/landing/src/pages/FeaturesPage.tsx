@@ -36,10 +36,10 @@ function cleanMarkdownChanges(body: string): string[] {
 
 const DEFAULT_RELEASES: Release[] = [
   {
-    version: '0.2.5',
+    version: '0.2.6',
     tag: 'LATEST CONFIRMED RELEASE',
     date: 'October 2026',
-    title: 'HELIX v0.2.5 — Seguridad Robusta, Aislamiento & UX Mejorada',
+    title: 'HELIX v0.2.6 — Persistencia, localización & UX mejorada',
     editions: ['Normal', 'Lite', 'CLI'],
     changes: [
       'Blindaje de seguridad en ejecución de comandos con aislamiento de subprocesos y sandboxes en Toolbox.',

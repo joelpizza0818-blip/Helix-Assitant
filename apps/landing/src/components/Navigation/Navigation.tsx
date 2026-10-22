@@ -2,12 +2,14 @@ import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { HelixLogo } from '../HelixLogo/HelixLogo';
+import { useLocale } from '../../hooks/useLocale';
 import './Navigation.css';
 
 export function Navigation() {
   const location = useLocation();
   const isHome = location.pathname === '/';
   const { user } = useAuth();
+  const { locale, setLocale } = useLocale();
 
   return (
     <nav className="nav">
@@ -19,17 +21,18 @@ export function Navigation() {
         </div>
         
         <div className="nav-center">
-          <a href={isHome ? '#features' : '/#features'} className="nav-link">Capabilities</a>
-          <Link to="/features" className="nav-link">What's New</Link>
-          <a href={isHome ? '#router' : '/#router'} className="nav-link">Model Router</a>
-          <a href={isHome ? '#security' : '/#security'} className="nav-link">Security controls</a>
+          <a href={isHome ? '#features' : '/#features'} className="nav-link">{locale === 'es' ? 'Capacidades' : 'Capabilities'}</a>
+          <Link to="/features" className="nav-link">{locale === 'es' ? 'Novedades' : "What's New"}</Link>
+          <a href={isHome ? '#router' : '/#router'} className="nav-link">{locale === 'es' ? 'Router de modelos' : 'Model Router'}</a>
+          <a href={isHome ? '#security' : '/#security'} className="nav-link">{locale === 'es' ? 'Controles de seguridad' : 'Security controls'}</a>
           <Link to="/docs" className="nav-link">Docs</Link>
         </div>
         
         <div className="nav-right">
-          {!user && <Link to="/login" className="btn-ghost">Log in</Link>}
+          <button type="button" className="btn-ghost nav-language" aria-label="Select language" onClick={() => setLocale(locale === 'en' ? 'es' : 'en')}>{locale.toUpperCase()}</button>
+          {!user && <Link to="/login" className="btn-ghost">{locale === 'es' ? 'Entrar' : 'Log in'}</Link>}
           <Link to="/download" className="btn-primary nav-cta">
-            Download for Windows
+            {locale === 'es' ? 'Descargar para Windows' : 'Download for Windows'}
           </Link>
         </div>
       </div>

@@ -3,28 +3,32 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>HELIX - AI Desktop Assistant for Windows</title>
+    <title>HELIX — Local-first AI desktop agent</title>
     
     <!-- Primary SEO Meta Tags -->
-    <meta name="title" content="HELIX - AI Desktop Assistant for Windows" />
-    <meta name="description" content="HELIX is a Windows desktop agent with a local Python core, optional voice and screen context, approval-gated tools, and configurable AI providers." />
-    <meta name="keywords" content="HELIX, AI Desktop Agent, Windows AI, Desktop Assistant, Local Agent, Voice Assistant, Tauri AI" />
+    <meta name="title" content="HELIX — Local-first AI desktop agent" />
+    <meta name="description" content="HELIX is a local-first desktop agent with a Python core, optional voice and screen context, approval-gated tools, and a CLI for supported workflows." />
+    <meta name="keywords" content="HELIX, local-first AI agent, desktop automation, Windows AI, CLI agent, voice assistant" />
     <meta name="robots" content="index, follow" />
     <meta name="author" content="HELIX Project" />
+    <link rel="canonical" href="https://helix-assistant.vercel.app/" />
+    <link rel="alternate" hreflang="en" href="https://helix-assistant.vercel.app/" />
+    <link rel="alternate" hreflang="es" href="https://helix-assistant.vercel.app/?lang=es" />
+    <link rel="alternate" hreflang="x-default" href="https://helix-assistant.vercel.app/" />
     <meta name="google-site-verification" content="d2ea5c11894633c0" />
 
     <!-- Open Graph / Facebook / LinkedIn / Discord -->
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://helix-assistant.vercel.app/" />
-    <meta property="og:title" content="HELIX - AI Desktop Assistant for Windows" />
-    <meta property="og:description" content="Windows desktop agent with a local Python core, optional voice and screen context, and configurable AI providers." />
+    <meta property="og:title" content="HELIX — Local-first AI desktop agent" />
+    <meta property="og:description" content="A local-first desktop agent with approval-gated tools, optional voice and screen context, and a supported CLI." />
     <meta property="og:image" content="https://helix-assistant.vercel.app/favicon.svg" />
 
     <!-- Twitter / X -->
     <meta property="twitter:card" content="summary_large_image" />
     <meta property="twitter:url" content="https://helix-assistant.vercel.app/" />
-    <meta property="twitter:title" content="HELIX - AI Desktop Assistant for Windows" />
-    <meta property="twitter:description" content="Windows desktop agent with a local Python core, optional voice and screen context, and configurable AI providers." />
+    <meta property="twitter:title" content="HELIX — Local-first AI desktop agent" />
+    <meta property="twitter:description" content="A local-first desktop agent with approval-gated tools, optional voice and screen context, and a supported CLI." />
     <meta property="twitter:image" content="https://helix-assistant.vercel.app/favicon.svg" />
 
     <!-- Structured Data (JSON-LD) for Google Rich Snippets -->
@@ -33,9 +37,9 @@
       "@context": "https://schema.org",
       "@type": "SoftwareApplication",
       "name": "HELIX",
-      "operatingSystem": "Windows 10, Windows 11",
+      "operatingSystem": "Windows 10, Windows 11 (desktop); macOS and Linux (CLI)",
       "applicationCategory": "BusinessApplication, DeveloperApplication",
-      "description": "Windows desktop agent with a local Python core, optional voice and screen context, approval-gated tools, and configurable AI providers.",
+      "description": "Local-first desktop agent with a Python core, optional voice and screen context, approval-gated tools, and a supported CLI.",
       "url": "https://helix-assistant.vercel.app/"
     }
     </script>
@@ -45,64 +49,13 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Geist:wght@400;500&family=Inter:wght@400;500&display=swap" rel="stylesheet">
 
-    <!-- Google Translate auto-detect widget -->
-    <script type="text/javascript">
-      function googleTranslateElementInit() {
-        new google.translate.TranslateElement({
-          pageLanguage: 'en',
-          autoDisplay: true,
-          layout: google.translate.TranslateElement.InlineLayout.HORIZONTAL,
-          multilanguagePage: false
-        }, 'google_translate_element');
-      }
-    </script>
-    <script type="text/javascript" src="https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
-
-    <!-- Hide Google Translate bar and style the widget minimally -->
-    <style>
-      .goog-te-banner-frame { display: none !important; }
-      body { top: 0 !important; }
-      #google_translate_element {
-        position: fixed;
-        bottom: 16px;
-        right: 16px;
-        z-index: 9999;
-        background: rgba(20, 20, 20, 0.85);
-        backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 10px;
-        padding: 6px 10px;
-        font-size: 12px;
-      }
-      #google_translate_element .goog-te-gadget {
-        font-size: 0;
-        color: transparent;
-      }
-      #google_translate_element .goog-te-gadget > span {
-        display: none !important;
-      }
-      #google_translate_element select.goog-te-combo {
-        background: transparent;
-        color: #ccc;
-        border: none;
-        font-size: 12px;
-        font-family: 'Inter', sans-serif;
-        outline: none;
-        cursor: pointer;
-        padding: 2px 4px;
-      }
-      .goog-te-gadget-icon { display: none !important; }
-      .goog-tooltip, .goog-tooltip:hover { display: none !important; }
-      .goog-text-highlight { background: none !important; box-shadow: none !important; }
-    </style>
   </head>
   <body>
-    <div id="google_translate_element"></div>
     <div id="root">
       <!-- Pre-rendered semantic structure for Search Engine Bots (replaced upon client React hydration) -->
       <header style="padding: 24px; text-align: center;">
-        <h1>HELIX &mdash; AI Desktop Assistant for Windows</h1>
-        <p>A Windows desktop agent with a local Python core, voice and vision context, approval-gated tools, and configurable AI providers.</p>
+        <h1>HELIX &mdash; Local-first AI desktop agent</h1>
+        <p>A desktop agent with a local Python core, optional voice and screen context, approval-gated tools, and a supported CLI.</p>
         <nav style="margin-top: 16px; display: flex; gap: 16px; justify-content: center; flex-wrap: wrap;">
           <a href="/download">Download HELIX for Windows</a>
           <a href="/features">Features &amp; Architecture</a>

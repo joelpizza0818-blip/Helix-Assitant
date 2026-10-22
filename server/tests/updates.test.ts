@@ -519,7 +519,7 @@ test('sanitizeUrl helper permits http/https and blocks javascript and dangerous 
 });
 
 test('sendVersionUpdateEmail sends version update email with Nodemailer and uses BCC to protect subscriber PII', async () => {
-  const recipients = ['user1@test.local', 'user2@test.local'];
+  const recipients = ['user1@example.invalid', 'user2@example.invalid'];
   const result = await sendVersionUpdateEmail(recipients, {
     version: '0.2.0',
     title: 'Stagger transitions, HELIX Lite & Privacy Gates',
@@ -540,12 +540,12 @@ test('sendVersionUpdateEmail sends version update email with Nodemailer and uses
   // The To line itself must not expose the user addresses
   const toLineMatch = raw.match(/^To:[^\r\n]+/m);
   assert.ok(toLineMatch, 'Should have a To: line in raw message');
-  assert.ok(!toLineMatch[0].includes('user1@test.local'), 'To: header must not leak user1');
-  assert.ok(!toLineMatch[0].includes('user2@test.local'), 'To: header must not leak user2');
+  assert.ok(!toLineMatch[0].includes('user1@example.invalid'), 'To: header must not leak user1');
+  assert.ok(!toLineMatch[0].includes('user2@example.invalid'), 'To: header must not leak user2');
 
   // Verify that recipients are present in Bcc
-  assert.ok(raw.includes('user1@test.local'));
-  assert.ok(raw.includes('user2@test.local'));
+  assert.ok(raw.includes('user1@example.invalid'));
+  assert.ok(raw.includes('user2@example.invalid'));
 });
 
 test('requireAdminAuth implements timing-safe SHA-256 comparison immune to token length leakage', async () => {

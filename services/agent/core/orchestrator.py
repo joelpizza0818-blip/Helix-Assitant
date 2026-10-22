@@ -26,6 +26,13 @@ except ImportError:
     from core.planner import Plan
     from core.runtime_context import describe_runtime_os, get_runtime_command_context
     from perception.screen_observation_policy import screen_observation_scope
+try:
+    from services.agent.core.context_compression import get_ccl, close_ccl
+    from services.agent.tools.context_retrieve_tool import ContextRetrieveTool
+except ImportError:
+    from core.context_compression import get_ccl, close_ccl
+    from tools.context_retrieve_tool import ContextRetrieveTool
+
 
 logger = logging.getLogger(__name__)
 _SCREEN_OBSERVATION_INTENT = re.compile(
@@ -386,6 +393,12 @@ class Orchestrator:
         self.continuous_screen_context_provider = None
         self._active_execution_ids = set()
         self._execution_lock = asyncio.Lock()
+        # Register CCL context-retrieval tool so the model can hydrate compressed blocks.
+        try:
+            if tool_registry is not None and not tool_registry.get_tool("context_retrieve"):
+                tool_registry.register_tool(ContextRetrieveTool(session_id="orchestrator"))
+        except Exception:
+            pass  # Non-fatal: CCL tool unavailable in test environments
 
     async def _execute_workflow_plan(
         self,
@@ -623,6 +636,16 @@ class Orchestrator:
         
         context = context or {}
 
+        # CCL blocks are scoped to the active task. Keep retrieval on the same
+        # session instead of using the registration-time placeholder session.
+        context_retrieve = (
+            self.tool_registry.get_tool("context_retrieve")
+            if self.tool_registry is not None
+            else None
+        )
+        if context_retrieve is not None and hasattr(context_retrieve, "_session_id"):
+            context_retrieve._session_id = task_id
+
         if context.get("input_source") in {"voice", "text"}:
             input_source = context["input_source"]
             fast_answer = _fast_os_answer(description, self.tool_registry)
@@ -674,6 +697,15 @@ class Orchestrator:
                 turn_limit=memory_turn_limit,
                 auto_compaction=auto_compaction,
             )
+            # Additionally compress older tail via CCL for large histories.
+            _session_ccl = get_ccl(task_id)
+            if len(history) > memory_turn_limit * 2:
+                _hist_dicts = [{'role': m['role'], 'content': m['content']} for m in history
+                               if isinstance(m, dict) and m.get('role') in {'user', 'assistant'}
+                               and isinstance(m.get('content'), str)]
+                _, _ccl_header = _session_ccl.compress_conversation_tail(_hist_dicts)
+                if _ccl_header:
+                    history_summary = (_ccl_header + ' | ' + history_summary).strip(' |')
             runtime_command_context = get_runtime_command_context(self.tool_registry)
             messages = [
                 ChatMessage(
@@ -805,14 +837,17 @@ class Orchestrator:
                         ))
                     else:
                         text_content = _extract_attachment_text(name, mime_type, raw)
-                        attachment_notes.append(
-                            f"File {name} ({mime_type}):\n{text_content[:120000]}"
-                        )
+                        raw_note = f"File {name} ({mime_type}):\n{text_content[:120000]}"
+                        attachment_notes.append(raw_note)
                 if attachment_notes:
+                    # Compress the combined attachment text with CCL if large.
+                    combined_notes = "\n\n".join(attachment_notes)
+                    _ccl = get_ccl(task_id)
+                    packed_notes, _ = _ccl.compress_tool_output("attachments", combined_notes)
                     messages.append(ChatMessage(
                         role="user",
                         content="The user attached these readable files. Use their contents as source material:\n\n"
-                        + "\n\n".join(attachment_notes),
+                        + packed_notes,
                     ))
             screen_vision_enabled = (
                 on_demand_screen_context_enabled

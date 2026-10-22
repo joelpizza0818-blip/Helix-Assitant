@@ -23,6 +23,33 @@ function CanonicalManager() {
     link.setAttribute('href', `https://helix-assistant.vercel.app${cleanPath}`);
   }, [location.pathname]);
 
+  useEffect(() => {
+    const titles: Record<string, string> = {
+      '/': 'HELIX — Local-first AI desktop agent',
+      '/features': 'HELIX capabilities and releases',
+      '/whats-new': 'What’s new in HELIX',
+      '/download': 'Download HELIX',
+      '/docs': 'HELIX documentation',
+      '/privacy': 'HELIX privacy and security',
+    };
+    const descriptions: Record<string, string> = {
+      '/': 'A local-first desktop agent with approval-gated tools, optional voice and screen context, and a supported CLI.',
+      '/features': 'Explore HELIX capabilities, architecture, releases, and the controls that keep actions reviewable.',
+      '/whats-new': 'See the latest HELIX releases and changes.',
+      '/download': 'Choose the supported HELIX desktop installer for Windows or use the CLI on macOS and Linux.',
+      '/docs': 'Read HELIX setup, usage, architecture, and security documentation.',
+      '/privacy': 'Understand how HELIX handles local data, accounts, and update notifications.',
+    };
+    document.title = titles[location.pathname] ?? 'HELIX — Local-first AI desktop agent';
+    let description = document.querySelector<HTMLMetaElement>('meta[name="description"]');
+    if (!description) {
+      description = document.createElement('meta');
+      description.name = 'description';
+      document.head.appendChild(description);
+    }
+    description.content = descriptions[location.pathname] ?? descriptions['/'];
+  }, [location.pathname]);
+
   return null;
 }
 

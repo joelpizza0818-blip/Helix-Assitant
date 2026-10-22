@@ -99,6 +99,47 @@ async def test_bash_command_uses_bash_command_interpreter(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_default_shell_delegates_to_native_os_adapter(monkeypatch):
+    adapter = SimpleNamespace(
+        execute_command=lambda command: {
+            "stdout": f"adapter:{command}",
+            "stderr": "",
+            "exit_code": 0,
+        }
+    )
+    monkeypatch.setattr(shell_tool_module, "get_os_adapter", lambda: adapter)
+    create_process = AsyncMock()
+    monkeypatch.setattr(shell_tool_module.asyncio, "create_subprocess_exec", create_process)
+
+    tool = ShellTool()
+    result = await tool.execute_command("echo adapter")
+
+    assert result.stdout == "adapter:echo adapter"
+    assert result.exit_code == 0
+    create_process.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_shell_tool_keeps_subprocess_path_for_sandbox(monkeypatch):
+    process = SimpleNamespace(
+        communicate=AsyncMock(return_value=(b"sandbox", b"")),
+        returncode=0,
+    )
+    create_process = AsyncMock(return_value=process)
+    monkeypatch.setattr(shell_tool_module.asyncio, "create_subprocess_exec", create_process)
+    monkeypatch.setattr(shell_tool_module.shutil, "which", lambda name: "/usr/bin/bash" if name == "bash" else None)
+    adapter = SimpleNamespace(execute_command=AsyncMock())
+    monkeypatch.setattr(shell_tool_module, "get_os_adapter", lambda: adapter)
+
+    tool = ShellTool()
+    tool.configure({"sandbox_enabled": True, "shell_type": "bash"})
+    result = await tool.execute_command("echo sandbox")
+
+    assert result.stdout == "sandbox"
+    adapter.execute_command.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_windows_cmd_is_not_run_on_non_windows_os(monkeypatch):
     if os.name == "nt":
         pytest.skip("This check applies only to non-Windows hosts.")

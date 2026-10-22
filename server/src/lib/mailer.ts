@@ -22,7 +22,8 @@ export function getMailerTransporter(): Transporter {
   const pass = process.env.SMTP_PASS;
   const secure = process.env.SMTP_SECURE === 'true' || port === 465;
 
-  if (host && user && pass) {
+  const isTestRuntime = process.env.NODE_ENV === 'test' || process.execArgv.includes('--test') || Boolean(process.env.NODE_TEST_CONTEXT);
+  if (!isTestRuntime && host && user && pass) {
     transporterInstance = nodemailer.createTransport({
       host,
       port,

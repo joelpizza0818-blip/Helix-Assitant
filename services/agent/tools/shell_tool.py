@@ -8,6 +8,7 @@ import re
 from typing import Any, Dict, Optional
 from dataclasses import dataclass
 from .base_tool import BaseTool, ToolResult
+from services.agent.os.factory import get_os_adapter
 
 logger = logging.getLogger(__name__)
 
@@ -182,6 +183,41 @@ class ShellTool(BaseTool):
             return False
         return True
 
+    def _can_use_os_adapter(
+        self,
+        shell_type: str,
+        working_dir: Optional[str],
+        timeout: int,
+    ) -> bool:
+        """Use the native OS contract only for its unmodified default path.
+
+        The adapter API is synchronous and intentionally has no working-directory,
+        custom-timeout, or environment parameters. Those cases continue through
+        the hardened subprocess path below so callers do not lose those controls.
+        """
+        return (
+            not self.sandbox_enabled
+            and shell_type == self.default_shell_type
+            and working_dir is None
+            and timeout == 30
+        )
+
+    async def _execute_via_os_adapter(self, command: str) -> ShellResult:
+        start_time = time.time()
+        try:
+            result = await asyncio.to_thread(get_os_adapter().execute_command, command)
+            stdout = str(result.get("stdout", ""))
+            stderr = str(result.get("stderr", ""))
+            exit_code = int(result.get("exit_code", result.get("returncode", -1)))
+        except Exception as error:
+            stdout, stderr, exit_code = "", str(error), -1
+        return ShellResult(
+            stdout=stdout,
+            stderr=stderr,
+            exit_code=exit_code,
+            execution_time_ms=(time.time() - start_time) * 1000,
+        )
+
     async def execute_command(self, command: str, working_dir: Optional[str] = None, timeout: int = 30, shell_type: Optional[str] = None) -> ShellResult:
         start_time = time.time()
         try:
@@ -194,6 +230,9 @@ class ShellTool(BaseTool):
                 )
 
             shell_type = shell_type or self.default_shell_type
+            if self._can_use_os_adapter(shell_type, working_dir, timeout):
+                return await self._execute_via_os_adapter(command)
+
             if shell_type == 'cmd':
                 if os.name != "nt":
                     raise OSError("Windows CMD is not available on this operating system.")

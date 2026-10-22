@@ -152,3 +152,74 @@
 
 .task-status-summary__status--succeeded { color: var(--green); }
 .task-status-summary__status--failed { color: var(--red); }
+
+
+/* ── Subagent Process Cards in Collapsible Summary ── */
+.task-status-summary__subagents {
+  background: rgba(255, 122, 0, 0.04);
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 122, 0, 0.2);
+  margin-bottom: 8px;
+}
+
+.subagent-process-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.subagent-process-card {
+  background: var(--carbon);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.subagent-process-card__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.subagent-process-card__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--orange);
+  animation: pulse 1.2s infinite;
+  flex-shrink: 0;
+}
+
+.subagent-process-card__name {
+  font-weight: 600;
+  color: var(--bone);
+  font-size: 11px;
+}
+
+.subagent-process-card__badge {
+  font-size: 9px;
+  background: rgba(255, 122, 0, 0.15);
+  color: var(--orange);
+  border: 1px solid rgba(255, 122, 0, 0.3);
+  padding: 1px 5px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  font-family: var(--font-mono);
+}
+
+.subagent-process-card__status {
+  margin-left: auto;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.subagent-process-card__func {
+  margin: 4px 0 0;
+  font-size: 10.5px;
+  color: var(--secondary);
+  line-height: 1.35;
+}

@@ -293,7 +293,7 @@ export default function FloatingUI() {
   const activeTask = tasks.find((t) => t.status === 'running') ?? tasks.find((t) => t.status === 'queued')
 
   return (
-    <div className="floating-ui">
+        <div className="floating-ui">
       {/* ── Header ─────────────────────────────── */}
       <div className="floating-ui__header" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
         <div className="floating-ui__brand">
@@ -451,6 +451,7 @@ export default function FloatingUI() {
           runningCount={runningTasks.length}
           activeDescription={activeTask?.current_action ?? activeTask?.description ?? null}
           activeTask={activeTask}
+          runningTasks={runningTasks}
           expanded={showTaskSummary}
           onClick={() => setShowTaskSummary(toggleSummaryExpanded)}
         />

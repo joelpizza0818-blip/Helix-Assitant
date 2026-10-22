@@ -4,11 +4,43 @@ import { sendVersionUpdateEmail, VersionUpdatePayload } from '../lib/mailer';
 import { logger } from '../lib/logger';
 import { requireAdminAuth } from '../middleware/adminAuth';
 import { broadcastRateLimiter } from '../middleware/rateLimiter';
+import { prisma } from '../lib/prisma';
 
 export const updatesRouter = Router();
 
-// In-memory subscriber list with persistent deduplication (or can be connected to Supabase/Prisma)
+// Kept only for isolated tests/local development without DATABASE_URL.
 const subscribersSet = new Set<string>();
+
+const isTestRuntime = process.env.NODE_ENV === 'test' || process.execArgv.includes('--test') || Boolean(process.env.NODE_TEST_CONTEXT);
+const usePersistentStore = () => !isTestRuntime && (process.env.NODE_ENV === 'production' || Boolean(process.env.DATABASE_URL));
+
+async function addSubscriber(email: string): Promise<number> {
+  if (!usePersistentStore()) {
+    subscribersSet.add(email);
+    return subscribersSet.size;
+  }
+
+  await prisma.updateSubscriber.upsert({
+    where: { email },
+    create: { email, isActive: true },
+    update: { isActive: true, unsubscribedAt: null },
+  });
+  return prisma.updateSubscriber.count({ where: { isActive: true } });
+}
+
+async function getActiveSubscribers(): Promise<string[]> {
+  if (!usePersistentStore()) return Array.from(subscribersSet);
+  const rows = await prisma.updateSubscriber.findMany({
+    where: { isActive: true },
+    select: { email: true },
+  });
+  return rows.map(({ email }) => email);
+}
+
+async function getSubscriberCount(): Promise<number> {
+  if (!usePersistentStore()) return subscribersSet.size;
+  return prisma.updateSubscriber.count({ where: { isActive: true } });
+}
 
 export function _resetSubscribersForTesting(): void {
   subscribersSet.clear();
@@ -53,17 +85,17 @@ const BroadcastSchema = z.object({
 });
 
 // POST /api/updates/subscribe
-updatesRouter.post('/subscribe', (req: Request, res: Response) => {
+updatesRouter.post('/subscribe', async (req: Request, res: Response) => {
   try {
     const { email } = SubscribeSchema.parse(req.body);
     const normalized = email.toLowerCase().trim();
-    subscribersSet.add(normalized);
-    logger.info(`[Updates] Subscriber registered (Total: ${subscribersSet.size})`);
+    const totalSubscribers = await addSubscriber(normalized);
+    logger.info(`[Updates] Subscriber registered (Total: ${totalSubscribers})`);
 
     return res.status(200).json({
       success: true,
       message: 'Subscription request accepted by the update service.',
-      totalSubscribers: subscribersSet.size,
+      totalSubscribers,
     });
   } catch (error: any) {
     if (error instanceof z.ZodError) {
@@ -87,7 +119,7 @@ updatesRouter.post(
   async (req: Request, res: Response) => {
     try {
       const data = BroadcastSchema.parse(req.body);
-      const targetRecipients = Array.from(subscribersSet);
+      const targetRecipients = await getActiveSubscribers();
 
       if (targetRecipients.length === 0) {
         return res.status(400).json({
@@ -135,9 +167,11 @@ updatesRouter.post(
 );
 
 // GET /api/updates/subscribers/count
-updatesRouter.get('/subscribers/count', (_req: Request, res: Response) => {
-  return res.status(200).json({
-    success: true,
-    count: subscribersSet.size,
-  });
+updatesRouter.get('/subscribers/count', async (_req: Request, res: Response) => {
+  try {
+    return res.status(200).json({ success: true, count: await getSubscriberCount() });
+  } catch (error) {
+    logger.error('[Updates] Unable to read subscriber count:', error);
+    return res.status(503).json({ success: false, error: 'Subscriber store unavailable' });
+  }
 });

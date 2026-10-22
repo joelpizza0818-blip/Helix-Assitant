@@ -86,9 +86,67 @@ function NavIcon({ d }: { d: string }) {
   )
 }
 
+const CATEGORY_METADATA: Record<string, { label: string; icon: React.ReactNode }> = {
+  Intelligence: {
+    label: 'Intelligence',
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 2a6 6 0 0 1 6 6c0 2.22-1.21 4.16-3 5.2V17a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1v-3.8C7.21 12.16 6 10.22 6 8a6 6 0 0 1 6-6z" />
+        <path d="M9 21h6" />
+      </svg>
+    ),
+  },
+  Perception: {
+    label: 'Perception',
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z" />
+        <circle cx="12" cy="12" r="3" />
+      </svg>
+    ),
+  },
+  'Security & System': {
+    label: 'Security & System',
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      </svg>
+    ),
+  },
+  Operations: {
+    label: 'Operations',
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83-2.83l-.06-.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+      </svg>
+    ),
+  },
+};
+
+
 export default function Toolbox() {
   const [activeSection, setActiveSection] = useState<Section>('ai')
   const [searchQuery, setSearchQuery] = useState('')
+
+  const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem('helix_toolbox_collapsed_cats');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return {};
+  });
+
+  const toggleCategory = (cat: string) => {
+    setCollapsedCategories((prev) => {
+      const next = { ...prev, [cat]: !prev[cat] };
+      try {
+        localStorage.setItem('helix_toolbox_collapsed_cats', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
+
   const [profile, setProfile] = useState<HelixProfile | null>(null)
   const [profileBusy, setProfileBusy] = useState(false)
   const [oauthPending, setOauthPending] = useState(false)
@@ -221,54 +279,113 @@ export default function Toolbox() {
       <div className="toolbox__layout">
         {/* ── Sidebar ────────────────────────────── */}
         <nav className="toolbox__sidebar">
-          <div className="toolbox__search-box">
-            <input
-              type="text"
-              className="toolbox__search-input"
-              placeholder="Buscar ajustes..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
+                    <div className="toolbox__search-box">
+            <div className="toolbox__search-wrapper">
+              <svg className="toolbox__search-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+              <input
+                type="text"
+                className="toolbox__search-input"
+                placeholder="Buscar ajustes..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  className="toolbox__search-clear"
+                  onClick={() => setSearchQuery('')}
+                  aria-label="Limpiar búsqueda"
+                >
+                  ×
+                </button>
+              )}
+            </div>
           </div>
-          {(() => {
-            const isProviderConnected = providers.some((p) => p.keys.some((k) => k.health === 'healthy'))
+                    {(() => {
+            const isProviderConnected = providers.some((p) => p.keys.some((k) => k.health === 'healthy'));
+            const isSearching = Boolean(searchQuery.trim());
+            const q = searchQuery.toLowerCase().trim();
+
             const filtered = NAV_ITEMS.filter((item) => {
               const allowed = (item.id !== 'admin' || isAdmin)
-                && (item.id !== 'capabilities' || import.meta.env.DEV || '__TAURI_INTERNALS__' in window)
-              if (!allowed) return false
-              if (!searchQuery.trim()) return true
-              const q = searchQuery.toLowerCase()
-              return item.label.toLowerCase().includes(q) || (item.keywords && item.keywords.toLowerCase().includes(q))
-            })
+                && (item.id !== 'capabilities' || import.meta.env.DEV || '__TAURI_INTERNALS__' in window);
+              if (!allowed) return false;
+              if (!isSearching) return true;
+              return item.label.toLowerCase().includes(q) || (item.keywords && item.keywords.toLowerCase().includes(q));
+            });
 
-            let lastCat = ''
-            return filtered.map((item) => {
-              const showCat = !searchQuery.trim() && item.category !== lastCat
-              if (showCat) lastCat = item.category
+            const categories = Array.from(new Set(filtered.map((item) => item.category)));
+
+            return categories.map((cat) => {
+              const catItems = filtered.filter((item) => item.category === cat);
+              const isCollapsed = !isSearching && Boolean(collapsedCategories[cat]);
+              const meta = CATEGORY_METADATA[cat] ?? {
+                label: cat,
+                icon: (
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                ),
+              };
+
               return (
-                <React.Fragment key={item.id}>
-                  {showCat && <div className="toolbox__nav-category">{item.category}</div>}
+                <div key={cat} className="toolbox__nav-module">
                   <button
-                    className={`toolbox__nav-item ${activeSection === item.id ? 'toolbox__nav-item--active' : ''}`}
-                    onClick={() => setActiveSection(item.id)}
+                    type="button"
+                    className="toolbox__nav-category-header"
+                    onClick={() => toggleCategory(cat)}
+                    aria-expanded={!isCollapsed}
+                    title={`${isCollapsed ? 'Desplegar' : 'Plegar'} módulo ${meta.label}`}
                   >
-                    <span className="toolbox__nav-icon">{item.icon}</span>
-                    <span className="toolbox__nav-label">{item.label}</span>
-                    {item.id === 'ai' && (
-                      <span
-                        className={`toolbox__nav-status-dot ${isProviderConnected ? 'toolbox__nav-status-dot--connected' : 'toolbox__nav-status-dot--unconfigured'}`}
-                        title={isProviderConnected ? 'Proveedor conectado' : 'Sin proveedor activo'}
-                      />
-                    )}
-                    {item.id === 'admin' && isMaster && pendingReportsCount > 0 && (
-                      <span className="toolbox__nav-badge" aria-label={`${pendingReportsCount} reportes pendientes`}>
-                        {pendingReportsCount > 99 ? '99+' : pendingReportsCount}
-                      </span>
-                    )}
+                    <span className="toolbox__nav-category-icon">{meta.icon}</span>
+                    <span className="toolbox__nav-category-title">{meta.label}</span>
+                    <span className="toolbox__nav-category-count">{catItems.length}</span>
+                    <svg
+                      className={`toolbox__nav-category-chevron ${isCollapsed ? 'toolbox__nav-category-chevron--collapsed' : ''}`}
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <polyline points="6 9 12 15 18 9" />
+                    </svg>
                   </button>
-                </React.Fragment>
-              )
-            })
+
+                  {!isCollapsed && (
+                    <div className="toolbox__nav-items-group">
+                      {catItems.map((item) => (
+                        <button
+                          key={item.id}
+                          className={`toolbox__nav-item ${activeSection === item.id ? 'toolbox__nav-item--active' : ''}`}
+                          onClick={() => setActiveSection(item.id)}
+                        >
+                          <span className="toolbox__nav-icon">{item.icon}</span>
+                          <span className="toolbox__nav-label">{item.label}</span>
+                          {item.id === 'ai' && (
+                            <span
+                              className={`toolbox__nav-status-dot ${isProviderConnected ? 'toolbox__nav-status-dot--connected' : 'toolbox__nav-status-dot--unconfigured'}`}
+                              title={isProviderConnected ? 'Proveedor conectado' : 'Sin proveedor activo'}
+                            />
+                          )}
+                          {item.id === 'admin' && isMaster && pendingReportsCount > 0 && (
+                            <span className="toolbox__nav-badge" aria-label={`${pendingReportsCount} reportes pendientes`}>
+                              {pendingReportsCount > 99 ? '99+' : pendingReportsCount}
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            });
           })()}
         </nav>
 
