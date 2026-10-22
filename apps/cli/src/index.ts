@@ -73,14 +73,16 @@ const program = new Command();
 program
   .name('helix')
   .description('HELIX - Interactive Terminal CLI for Windows AI Desktop Agent')
-  .version('0.1.0')
+  .version('0.2.4')
   .option('-u, --ws-url <url>', 'URL del servidor WebSocket del agente', getWsUrl())
   .option('-t, --token <token>', 'Token de autenticación WebSocket de HELIX', getWsToken())
+  .option('--plain', 'Desactivar formato enriquecido de Markdown y mostrar texto plano sin asteriscos')
   .action(async (options) => {
     // Default action: start interactive chat REPL
     const repl = new HelixRepl({
       wsUrl: options.wsUrl || getWsUrl(),
       wsToken: options.token || getWsToken(),
+      plain: Boolean(options.plain),
     });
     await repl.start();
   });
@@ -93,6 +95,7 @@ program
     const repl = new HelixRepl({
       wsUrl: opts.wsUrl || getWsUrl(),
       wsToken: opts.token || getWsToken(),
+      plain: Boolean(opts.plain),
     });
     await repl.start();
   });

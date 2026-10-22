@@ -25,10 +25,12 @@ import { handleCreateMcp, handleListMcp } from '../commands/mcp';
 import { handleMicrophoneCommand } from '../commands/mic';
 import { handleBrowserCommand } from '../commands/browser';
 import type { ConfirmationRequest } from '../client/types';
+import { formatTerminalMarkdown } from './markdown';
 
 export interface ReplOptions {
   wsUrl: string;
   wsToken?: string;
+  plain?: boolean;
 }
 
 export class HelixRepl {
@@ -43,9 +45,11 @@ export class HelixRepl {
   private activeTaskId: string | null = null;
   private activeTasksCount: number = 0;
   private isProcessingPrompt: boolean = false;
+  private plain: boolean = false;
 
   constructor(private options: ReplOptions) {
     this.conversationId = `cli_conv_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    this.plain = Boolean(options.plain);
     this.client = new AgentClient({
       wsUrl: options.wsUrl,
       wsToken: options.wsToken,
@@ -182,8 +186,9 @@ export class HelixRepl {
       console.log('');
       console.log(`  ${chalk.hex('#FF8C00').bold('⬡ HELIX')}${modelBadge}`);
 
-      // Content with subtle left border
-      const contentLines = content.trim().split('\n');
+      // Content with subtle left border and clean Markdown formatting
+      const formatted = formatTerminalMarkdown(content, this.plain);
+      const contentLines = formatted.trim().split('\n');
       for (const line of contentLines) {
         console.log(`  ${chalk.gray('│')} ${line}`);
       }

@@ -185,3 +185,23 @@ test('CLI: run with piped UTF-8 Spanish text with BOM is decoded cleanly', async
   });
 });
 
+
+
+test('Markdown: formatTerminalMarkdown parses bold, headers and bullets cleanly', async () => {
+  const { formatTerminalMarkdown } = await import('../src/ui/markdown');
+  const raw = '# Resumen\n\nAquí hay **texto importante** y un *detalle*:\n* Primer punto\n* Segundo punto\n`código`';
+
+  // Rich format
+  const formatted = formatTerminalMarkdown(raw);
+  assert.ok(!formatted.includes('**texto importante**'));
+  assert.ok(formatted.includes('texto importante'));
+  assert.ok(formatted.includes('• Primer punto'));
+
+  // Plain format
+  const plain = formatTerminalMarkdown(raw, true);
+  assert.ok(!plain.includes('**'));
+  assert.ok(!plain.includes('* Primer punto'));
+  assert.ok(plain.includes('- Primer punto'));
+  assert.ok(plain.includes('texto importante'));
+  assert.ok(plain.includes('RESUMEN'));
+});
