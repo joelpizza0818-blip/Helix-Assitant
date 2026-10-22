@@ -15,6 +15,15 @@ export const DownloadPage: React.FC = () => {
   const [liteReleaseError, setLiteReleaseError] = useState(false);
   const [litePrivacyOpen, setLitePrivacyOpen] = useState(false);
   const [selectedOS, setSelectedOS] = useState<'windows' | 'macos' | 'linux'>('windows');
+  const [cliCopied, setCliCopied] = useState(false);
+
+  const handleCopyCli = () => {
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText('npx helix-assistant-cli');
+      setCliCopied(true);
+      setTimeout(() => setCliCopied(false), 2000);
+    }
+  };
 
   useEffect(() => {
     const controller = new AbortController();
@@ -199,13 +208,13 @@ export const DownloadPage: React.FC = () => {
                   </>
                 ) : selectedOS === 'macos' ? (
                   <span className="download-note">
-                    No macOS desktop installer is published. The source repository is available for developers.
+                    No macOS desktop installer is published. You can run the interactive CLI via <code>npx helix-assistant-cli</code> or build from source.
                     {' '}
                     <a href="https://github.com/joelpizza0818-blip/Helix-Assitant" target="_blank" rel="noreferrer">View source</a>
                   </span>
                 ) : (
                   <span className="download-note">
-                    No Linux desktop installer is published. The source repository is available for developers.
+                    No Linux desktop installer is published. You can run the interactive CLI via <code>npx helix-assistant-cli</code> or build from source.
                     {' '}
                     <a href="https://github.com/joelpizza0818-blip/Helix-Assitant" target="_blank" rel="noreferrer">View source</a>
                   </span>
@@ -332,7 +341,7 @@ export const DownloadPage: React.FC = () => {
             <div className="download-source-header">
               <span className="download-section-eyebrow">DEVELOPER CLI · NPM PACKAGE</span>
               <h3>Try HELIX CLI instantly with npx</h3>
-              <p>The CLI is published on npm. No install needed — run it directly with npx:</p>
+              <p>The CLI is published on npm as <code>helix-assistant-cli</code>. No install needed — run it directly with npx:</p>
             </div>
 
             <div className="download-terminal-card">
@@ -341,13 +350,21 @@ export const DownloadPage: React.FC = () => {
                   <i /><i /><i />
                 </span>
                 <span className="download-terminal-title">Terminal / Command Prompt / PowerShell</span>
+                <button
+                  type="button"
+                  className="download-copy-btn"
+                  onClick={handleCopyCli}
+                  aria-label="Copy CLI command"
+                >
+                  {cliCopied ? 'Copied!' : 'Copy npx command'}
+                </button>
               </div>
               <pre className="download-code-block">
                 <code>{`# Run directly without installing (requires Node.js 18+)
-npx @helix/cli
+npx helix-assistant-cli
 
 # Or install globally
-npm install -g @helix/cli
+npm install -g helix-assistant-cli
 helix`}</code>
               </pre>
             </div>

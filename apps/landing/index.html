@@ -12,7 +12,6 @@
     <meta name="robots" content="index, follow" />
     <meta name="author" content="HELIX Project" />
     <meta name="google-site-verification" content="d2ea5c11894633c0" />
-    <link rel="canonical" href="https://helix-assistant.vercel.app/" />
 
     <!-- Open Graph / Facebook / LinkedIn / Discord -->
     <meta property="og:type" content="website" />
@@ -57,7 +56,7 @@
         }, 'google_translate_element');
       }
     </script>
-    <script type="text/javascript" src="https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
+    <script type="text/javascript" src="https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
 
     <!-- Hide Google Translate bar and style the widget minimally -->
     <style>
@@ -99,7 +98,35 @@
   </head>
   <body>
     <div id="google_translate_element"></div>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Pre-rendered semantic structure for Search Engine Bots (replaced upon client React hydration) -->
+      <header style="padding: 24px; text-align: center;">
+        <h1>HELIX &mdash; AI Desktop Assistant for Windows</h1>
+        <p>A Windows desktop agent with a local Python core, voice and vision context, approval-gated tools, and configurable AI providers.</p>
+        <nav style="margin-top: 16px; display: flex; gap: 16px; justify-content: center; flex-wrap: wrap;">
+          <a href="/download">Download HELIX for Windows</a>
+          <a href="/features">Features &amp; Architecture</a>
+          <a href="/docs">Documentation &amp; Setup</a>
+          <a href="/privacy">Privacy &amp; Security Policy</a>
+        </nav>
+      </header>
+      <main style="max-width: 800px; margin: 0 auto; padding: 24px;">
+        <section>
+          <h2>Intelligent Desktop Automation</h2>
+          <p>HELIX combines a native Windows shell, local Python intelligence, and optional voice wake word and gesture recognition. Automate routine workflows, interact via CLI terminal or desktop UI, and keep sensitive keys and data strictly on your device.</p>
+        </section>
+        <section>
+          <h2>Editions: Normal &amp; Lite</h2>
+          <p>Download HELIX Normal (Electron + bundled Python environment) or HELIX Lite (Tauri shell) with seamless auto-updates and approval controls.</p>
+          <p><a href="/download">Go to Downloads</a></p>
+        </section>
+      </main>
+    </div>
+    <noscript>
+      <div style="padding: 24px; text-align: center; color: #fff; background: #111;">
+        <p>JavaScript is required for the full interactive HELIX experience. You can still access: <a href="/download" style="color: #4da6ff;">Downloads</a> | <a href="/features" style="color: #4da6ff;">Features</a> | <a href="/docs" style="color: #4da6ff;">Documentation</a> | <a href="/privacy" style="color: #4da6ff;">Privacy Policy</a>.</p>
+      </div>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
