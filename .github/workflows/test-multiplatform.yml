@@ -51,6 +51,8 @@ jobs:
           docker build -f Dockerfile.test-linux -t helix-test-linux .
           docker run --rm \
             -v "$PWD/services/agent:/app/services/agent" \
+            -v "$PWD/apps:/app/apps" \
+            -v "$PWD/.github:/app/.github" \
             -v "$PWD/config:/app/config" \
             -v "$PWD/test-results:/app/test-results" \
             -e DISPLAY=:99 \

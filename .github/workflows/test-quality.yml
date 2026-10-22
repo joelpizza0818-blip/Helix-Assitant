@@ -7,6 +7,7 @@ on:
       - 'apps/landing/**'
       - 'apps/desktop/**'
       - 'apps/desktop-tauri/**'
+      - 'apps/cli/**'
       - 'server/**'
       - 'tests/k6/**'
       - 'tests/promptfoo/**'
@@ -19,6 +20,7 @@ on:
       - 'apps/landing/**'
       - 'apps/desktop/**'
       - 'apps/desktop-tauri/**'
+      - 'apps/cli/**'
       - 'server/**'
       - 'tests/k6/**'
       - 'tests/promptfoo/**'
@@ -53,7 +55,9 @@ jobs:
         run: npm run lint:encoding
 
       - name: Run CLI unit tests
-        run: npm test --workspace=apps/cli
+        run: |
+          npm run build --workspace=apps/cli
+          npm test --workspace=apps/cli
 
       - name: Run desktop unit tests
         run: npm test --workspace=@helix/desktop

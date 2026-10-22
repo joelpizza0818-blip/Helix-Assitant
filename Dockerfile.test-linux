@@ -25,6 +25,8 @@ RUN pip install --no-cache-dir -r requirements-linux.txt
 
 # Copiar el código del agente
 COPY services/agent/ /app/services/agent/
+COPY apps/ /app/apps/
+COPY .github/ /app/.github/
 
 # Ejecutar tests con servidor virtual X11 (xvfb)
 CMD ["xvfb-run", "-a", "python", "-m", "pytest", "services/agent/tests/", "-v", "--tb=short"]

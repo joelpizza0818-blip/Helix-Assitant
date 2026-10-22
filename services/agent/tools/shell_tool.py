@@ -270,14 +270,15 @@ class ShellTool(BaseTool):
                 
             env = self._create_sandboxed_env() if self.sandbox_enabled else None
 
-            process = await asyncio.create_subprocess_exec(
-                *cmd_args,
-                cwd=working_dir,
-                env=env,
-                startupinfo=self._startupinfo(),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
+            process_kwargs = {
+                "cwd": working_dir,
+                "env": env,
+                "stdout": asyncio.subprocess.PIPE,
+                "stderr": asyncio.subprocess.PIPE,
+            }
+            if os.name == "nt":
+                process_kwargs["startupinfo"] = self._startupinfo()
+            process = await asyncio.create_subprocess_exec(*cmd_args, **process_kwargs)
             
             try:
                 stdout_bytes, stderr_bytes = await asyncio.wait_for(process.communicate(), timeout=timeout)
