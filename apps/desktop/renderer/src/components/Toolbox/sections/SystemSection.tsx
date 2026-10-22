@@ -82,6 +82,51 @@ export default function SystemSection({ settings, onSave }: Props) {
         </div>
       </div>
 
+      {/* ── Command Sandboxing & Isolation ──────────────────────── */}
+      <div className="toolbox-card" style={{ marginBottom: 16 }}>
+        <div className="toolbox-card__header">
+          <span className="toolbox-card__title">Command Sandboxing & Isolation</span>
+        </div>
+        <p className="text-xs text-muted" style={{ marginBottom: 12 }}>
+          Execute shell commands in an isolated environment with sanitized variables, stripped credentials, clean PATH, and restricted privileges.
+        </p>
+
+        <div className="form-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div>
+            <label className="form-label" style={{ marginBottom: 2 }}>Enable Command Sandboxing</label>
+            <p className="text-xs text-muted">Isolate shell, cmd, and terminal executions from the host environment</p>
+          </div>
+          <label className="toggle">
+            <input
+              type="checkbox"
+              checked={settings.sandbox_enabled ?? false}
+              onChange={(e) => void onSave({ sandbox_enabled: e.target.checked })}
+            />
+            <span className="toggle__slider" />
+          </label>
+        </div>
+
+        <div className="form-row">
+          <label className="form-label" htmlFor="system-sandbox-mode">
+            Sandbox Isolation Mode
+          </label>
+          <select
+            id="system-sandbox-mode"
+            className="form-input"
+            value={settings.sandbox_mode || 'restricted'}
+            disabled={!settings.sandbox_enabled}
+            onChange={(e) => void onSave({
+              sandbox_mode: e.target.value as HelixSettings['sandbox_mode']
+            })}
+          >
+            <option value="restricted">Restricted Environment — Process isolation & sanitized environment (Default)</option>
+            <option value="isolated">Isolated Subprocess — Clean system PATH & cleared environment variables</option>
+            <option value="windows_sandbox">Windows Sandbox — Disposable lightweight Hyper-V container</option>
+            <option value="docker">Docker Container — Isolated containerized environment</option>
+          </select>
+        </div>
+      </div>
+
       {/* ── Audio Feedback & Sound Effects ──────────────────────── */}
       <div className="toolbox-card" style={{ marginBottom: 16 }}>
         <div className="toolbox-card__header">
@@ -103,7 +148,7 @@ export default function SystemSection({ settings, onSave }: Props) {
               style={{ fontSize: 11, padding: '4px 8px' }}
               onClick={() => playSuccessChime()}
             >
-              🔊 Test Chime
+              Test Chime
             </button>
             <label className="toggle">
               <input
