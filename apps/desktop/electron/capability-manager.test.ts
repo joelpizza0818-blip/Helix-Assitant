@@ -31,12 +31,12 @@ function makeManifest(
   overrides: Partial<CapabilityPackManifest> = {},
 ): CapabilityPackManifest {
   const unsigned: Omit<CapabilityPackManifest, 'signature'> = {
-    arch: process.arch as CapabilityPackManifest['arch'],
+    arch: 'x64' as const,
     capability: 'vision',
     coreVersionRange: '*',
     format: 'python-plugin',
     id: 'vision',
-    platform: process.platform as CapabilityPackManifest['platform'],
+    platform: 'win32' as const,
     requiredForComplete: false,
     sha256: 'a'.repeat(64),
     sizeBytes: 4,
@@ -46,6 +46,10 @@ function makeManifest(
   }
   const signature = sign(null, Buffer.from(canonicalJson(unsigned), 'utf8'), privateKey).toString('base64')
   return { ...unsigned, signature }
+}
+
+function testManagerOptions(publicKey?: string) {
+  return { publicKey, platform: 'win32' as const, arch: 'x64' as const }
 }
 
 test('rejects unsigned or unsafe capability manifests', () => {
@@ -78,7 +82,7 @@ test('drops cached manifests whose signatures no longer verify', async () => {
       manifests: [manifest],
     }))
 
-    const manager = new CapabilityManager(root, '0.1.9', { publicKey })
+    const manager = new CapabilityManager(root, '0.1.9', testManagerOptions(publicKey))
     await manager.load()
 
     assert.equal(manager.getProfile(), 'progressive')
@@ -93,7 +97,7 @@ test('persists progressive profile and reports signed catalog entries as missing
   try {
     const keys = generateKeyPairSync('ed25519')
     const publicKey = publicKeyBase64(keys.publicKey)
-    const manager = new CapabilityManager(root, '0.1.9', { publicKey })
+    const manager = new CapabilityManager(root, '0.1.9', testManagerOptions(publicKey))
     const signed = makeManifest(keys.privateKey)
     assert.equal(verifyPackManifest(signed, publicKey), true)
     await manager.load()
@@ -113,7 +117,7 @@ test('marks packs outside the signed core version range as incompatible', async 
   try {
     const keys = generateKeyPairSync('ed25519')
     const publicKey = publicKeyBase64(keys.publicKey)
-    const manager = new CapabilityManager(root, '0.1.9', { publicKey })
+    const manager = new CapabilityManager(root, '0.1.9', testManagerOptions(publicKey))
     const manifest = makeManifest(keys.privateKey, { coreVersionRange: '^2.0.0' })
     manager.registerManifest(manifest)
     assert.equal((await manager.setProfile('progressive')).packs[0].status, 'incompatible')
@@ -127,7 +131,7 @@ test('does not treat a complete profile as proof that a capability pack is insta
   try {
     const keys = generateKeyPairSync('ed25519')
     const publicKey = publicKeyBase64(keys.publicKey)
-    const manager = new CapabilityManager(root, '0.1.9', { publicKey })
+    const manager = new CapabilityManager(root, '0.1.9', testManagerOptions(publicKey))
     await manager.load()
     await manager.setProfile('complete')
     assert.equal(manager.isPackInstalled('vision'), false)
@@ -142,11 +146,11 @@ test('does not treat a complete profile as proof that a capability pack is insta
 test('complete release builds reject progressive selection and normalize saved profiles', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'helix-capability-release-'))
   try {
-    const developmentManager = new CapabilityManager(root, '0.1.9')
+    const developmentManager = new CapabilityManager(root, '0.1.9', testManagerOptions())
     await developmentManager.load()
     await developmentManager.setProfile('progressive')
 
-    const releaseManager = new CapabilityManager(root, '0.1.9', { progressiveEnabled: false })
+    const releaseManager = new CapabilityManager(root, '0.1.9', { ...testManagerOptions(), progressiveEnabled: false })
     await releaseManager.load()
     assert.equal(releaseManager.getProfile(), 'complete')
     await assert.rejects(releaseManager.setProfile('progressive'), /not enabled in this build/i)
@@ -170,7 +174,7 @@ test('coalesces simultaneous installs and reuses the verified installed pack', a
       sizeBytes: bytes.length,
       sha256: createHash('sha256').update(bytes).digest('hex'),
     })
-    const manager = new CapabilityManager(root, '0.1.9', { publicKey })
+    const manager = new CapabilityManager(root, '0.1.9', testManagerOptions(publicKey))
     await manager.load()
     await manager.setProfile('progressive')
     let downloadCount = 0
@@ -215,7 +219,7 @@ test('cancels an in-flight install and removes its staged file', async () => {
       sizeBytes: bytes.length,
       sha256: createHash('sha256').update(bytes).digest('hex'),
     })
-    const manager = new CapabilityManager(root, '0.1.9', { publicKey })
+    const manager = new CapabilityManager(root, '0.1.9', testManagerOptions(publicKey))
     await manager.load()
     await manager.setProfile('progressive')
     let signal: AbortSignal | undefined

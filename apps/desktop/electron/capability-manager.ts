@@ -52,6 +52,8 @@ interface CapabilityManagerOptions {
   manifestUrl?: string
   progressiveEnabled?: boolean
   onProgress?: (progress: CapabilityDownloadProgress) => void
+  platform?: CapabilityPackManifest['platform']
+  arch?: CapabilityPackManifest['arch']
 }
 
 interface ActiveCapabilityDownload {
@@ -189,6 +191,8 @@ export class CapabilityManager {
   private readonly coreVersion: string
   private readonly progressiveEnabled: boolean
   private readonly onProgress?: (progress: CapabilityDownloadProgress) => void
+  private readonly runtimePlatform: CapabilityPackManifest['platform']
+  private readonly runtimeArch: CapabilityPackManifest['arch']
   private state: PersistedState = { profile: 'complete', manifests: [] }
   private activeDownloads = new Map<string, ActiveCapabilityDownload>()
 
@@ -204,6 +208,8 @@ export class CapabilityManager {
     this.coreVersion = coreVersion
     this.progressiveEnabled = options.progressiveEnabled ?? true
     this.onProgress = options.onProgress
+    this.runtimePlatform = options.platform ?? (process.platform as CapabilityPackManifest['platform'])
+    this.runtimeArch = options.arch ?? (process.arch as CapabilityPackManifest['arch'])
   }
 
   async load(): Promise<void> {
@@ -480,8 +486,8 @@ export class CapabilityManager {
   }
 
   private isCompatible(manifest: CapabilityPackManifest): boolean {
-    return manifest.platform === process.platform
-      && manifest.arch === process.arch
+    return manifest.platform === this.runtimePlatform
+      && manifest.arch === this.runtimeArch
       && satisfiesCoreVersion(this.coreVersion, manifest.coreVersionRange)
   }
 
