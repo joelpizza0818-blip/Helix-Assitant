@@ -13,7 +13,7 @@
     "dev:all": "vite",
     "build": "node ../../scripts/write-capability-config.mjs && tsc -p tsconfig.main.json && vite build && electron-builder --publish never",
     "preview": "vite preview",
-    "test": "cross-env TS_NODE_PROJECT=tsconfig.test.json node --test --require ts-node/register renderer/src/components/FloatingUI/mentionAutocomplete.test.ts renderer/src/components/FloatingUI/skillMentions.test.ts renderer/src/components/FloatingUI/floatingInputBehavior.test.ts renderer/src/components/FloatingUI/taskExecutionSummary.test.ts renderer/src/components/FloatingUI/attachmentFiles.test.ts renderer/src/components/Toolbox/sections/MCPSection.test.ts renderer/src/components/Toolbox/sections/ComputerSection.test.ts renderer/src/hooks/conversationHistory.test.ts electron/websocket-auth.test.ts electron/capability-manager.test.ts electron/media-permissions.test.ts",
+    "test": "cross-env TS_NODE_PROJECT=tsconfig.test.json node --test --test-force-exit --require ts-node/register renderer/src/components/FloatingUI/mentionAutocomplete.test.ts renderer/src/components/FloatingUI/skillMentions.test.ts renderer/src/components/FloatingUI/floatingInputBehavior.test.ts renderer/src/components/FloatingUI/taskExecutionSummary.test.ts renderer/src/components/FloatingUI/attachmentFiles.test.ts renderer/src/components/Toolbox/sections/MCPSection.test.ts renderer/src/components/Toolbox/sections/ComputerSection.test.ts renderer/src/hooks/conversationHistory.test.ts electron/websocket-auth.test.ts electron/capability-manager.test.ts electron/media-permissions.test.ts",
     "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit"
   },
   "dependencies": {
