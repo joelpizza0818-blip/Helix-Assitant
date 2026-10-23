@@ -38,6 +38,11 @@ class HelixVaultServer:
             if path.is_file() and ".obsidian" not in path.parts
         )
 
+    @staticmethod
+    def _relative(path: Path, root: Path) -> str:
+        """Expose portable MCP paths regardless of the host OS."""
+        return path.relative_to(root).as_posix()
+
     def tools(self) -> list[dict]:
         return [
             {
@@ -67,7 +72,7 @@ class HelixVaultServer:
 
     def call(self, name: str, arguments: dict) -> dict:
         if name == "list_notes":
-            return {"notes": [str(path.relative_to(self.root)) for path in self._notes()]}
+            return {"notes": [self._relative(path, self.root) for path in self._notes()]}
         if name == "search_notes":
             query = str(arguments.get("query", "")).strip().casefold()
             if not query:
@@ -76,7 +81,7 @@ class HelixVaultServer:
             for path in self._notes():
                 text = path.read_text(encoding="utf-8", errors="replace")
                 if query in path.name.casefold() or query in text.casefold():
-                    matches.append({"path": str(path.relative_to(self.root)), "preview": text[:500]})
+                    matches.append({"path": self._relative(path, self.root), "preview": text[:500]})
                 if len(matches) >= MAX_RESULTS:
                     break
             return {"matches": matches}
@@ -85,7 +90,7 @@ class HelixVaultServer:
             if path.suffix.casefold() != ".md" or not path.is_file():
                 raise ValueError("Only existing Markdown notes can be read")
             return {
-                "path": str(path.relative_to(self.root)),
+                "path": self._relative(path, self.root),
                 "content": path.read_text(encoding="utf-8", errors="replace")[:MAX_NOTE_CHARS],
             }
         raise ValueError(f"Unknown tool: {name}")

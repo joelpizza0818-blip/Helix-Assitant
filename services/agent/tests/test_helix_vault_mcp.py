@@ -8,9 +8,9 @@ def test_vault_mcp_is_read_only_and_scoped(tmp_path):
     server = HelixVaultServer(tmp_path)
 
     listed = server.call("list_notes", {})
-    assert listed["notes"] == ["04 - Desarrollo\\Tarea.md"]
+    assert listed["notes"] == ["04 - Desarrollo/Tarea.md"]
     searched = server.call("search_notes", {"query": "sandbox"})
-    assert searched["matches"][0]["path"] == "04 - Desarrollo\\Tarea.md"
+    assert searched["matches"][0]["path"] == "04 - Desarrollo/Tarea.md"
     assert "MCP" in server.call("read_note", {"path": "04 - Desarrollo/Tarea.md"})["content"]
 
     try:
