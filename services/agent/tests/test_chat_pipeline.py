@@ -412,6 +412,53 @@ def test_react_loop_passes_candidate_key_and_named_tools():
     assert provider.tool_call.await_args.args[1][0]["name"] == "lookup"
 
 
+def test_react_loop_retries_empty_tool_response_without_tools():
+    from services.agent.core.react_loop import ReActLoop
+
+    candidate = RouteCandidate(
+        provider_id="google",
+        model_id="gemini-test",
+        key_slot=0,
+        score=1,
+        fallback_available=False,
+    )
+    provider = SimpleNamespace(
+        tool_call=AsyncMock(return_value=ChatResponse(
+            content="", model="gemini-test", provider="google", usage=None, finish_reason="stop"
+        )),
+        chat=AsyncMock(return_value=ChatResponse(
+            content="Recovered response.", model="gemini-test", provider="google", usage=None, finish_reason="stop"
+        )),
+    )
+
+    class Fallback:
+        async def execute_with_fallback(self, call, _requirements, context):
+            return await call(candidate, context)
+
+    tool_registry = SimpleNamespace(get_tool_schemas=lambda: [{
+        "name": "lookup",
+        "description": "Look something up.",
+        "parameters": {"type": "object", "properties": {}},
+    }])
+    loop = ReActLoop(
+        provider_registry=SimpleNamespace(get_provider=lambda _provider: provider),
+        model_router=None,
+        fallback_manager=Fallback(),
+        tool_registry=tool_registry,
+        key_manager=SimpleNamespace(get_key=lambda _provider, _slot: "test-key"),
+        event_bus=SimpleNamespace(publish=AsyncMock()),
+        role_config=SimpleNamespace(
+            get_assignment=lambda _role: SimpleNamespace(requirements=TaskRequirements())
+        ),
+    )
+
+    response = asyncio.run(loop.execute([ChatMessage(role="user", content="Hi")]))
+
+    assert response.content == "Recovered response."
+    assert provider.tool_call.await_count == 1
+    assert provider.chat.await_count == 1
+
+
 def test_shell_output_is_truncated_before_being_added_to_model_history():
     from services.agent.core.react_loop import _SHELL_OUTPUT_LIMIT, _model_tool_output
     from services.agent.tools.shell_tool import ShellResult

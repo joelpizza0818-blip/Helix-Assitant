@@ -1,4 +1,4 @@
-import { spawn, ChildProcess, execSync } from 'child_process';
+import { spawn, ChildProcess } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -241,26 +241,6 @@ export function probeWebSocketAuth(
 }
 
 /**
- * Terminates any rogue or orphaned process occupying the specified port.
- */
-export function killProcessOnPort(port: number = 8765): void {
-  try {
-    if (process.platform === 'win32') {
-      execSync(
-        `powershell -NoProfile -Command "$conn = Get-NetTCPConnection -LocalPort ${port} -State Listen -ErrorAction SilentlyContinue; if ($conn) { Stop-Process -Id $conn.OwningProcess -Force -ErrorAction SilentlyContinue }"`,
-        { stdio: 'ignore', windowsHide: true }
-      );
-    } else {
-      execSync(`fuser -k ${port}/tcp || lsof -ti tcp:${port} | xargs kill -9`, {
-        stdio: 'ignore',
-      });
-    }
-  } catch {
-    // Ignore errors
-  }
-}
-
-/**
  * Waits until the agent service has completed startup and successfully accepts WebSocket authentication.
  */
 export async function waitForAgentReady(
@@ -313,10 +293,11 @@ export async function spawnAgentDaemon(port: number = 8765): Promise<{ success: 
     return { success: true };
   }
 
-  // 2. If port is occupied by an unauthorized process, clean it up
   if (currentStatus === 'unauthorized') {
-    killProcessOnPort(port);
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    return {
+      success: false,
+      error: `El puerto ${port} ya lo usa un agente HELIX que requiere otro token. Cierra esa instancia o inicia el CLI con --token.`,
+    };
   }
 
   if (isAgentProcessRunning() || isAgentStarting()) {
@@ -341,7 +322,7 @@ export async function spawnAgentDaemon(port: number = 8765): Promise<{ success: 
       ['main.py', '--ws-port', String(port), '--no-camera'],
       {
         cwd: agentDir,
-        detached: true,
+        detached: process.platform !== 'win32',
         stdio: 'ignore', // run completely in background
         windowsHide: true,
         env: {

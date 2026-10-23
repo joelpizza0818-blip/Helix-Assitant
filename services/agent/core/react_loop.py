@@ -490,6 +490,7 @@ class ReActLoop:
             "_excluded_api_keys": set(excluded_api_keys or []),
         }
         executed_tool_call_ids = set()
+        retried_empty_response_without_tools = False
         
         while iteration < max_iterations:
             iteration += 1
@@ -527,7 +528,10 @@ class ReActLoop:
                         f"No API key is available for {candidate.provider_id} slot {candidate.key_slot}."
                     )
                 context["_helix_current_credential"] = api_key
-                if allow_tool_calls and tools:
+                use_tool_calls = (
+                    allow_tool_calls and not retried_empty_response_without_tools
+                )
+                if use_tool_calls and tools:
                     return await provider.tool_call(
                         context['messages'],
                         tools,
@@ -735,6 +739,17 @@ class ReActLoop:
                             image_bytes=image_bytes,
                         ))
             else:
+                if (
+                    not retried_empty_response_without_tools
+                    and allow_tool_calls
+                    and not getattr(response, "content", "")
+                ):
+                    retried_empty_response_without_tools = True
+                    requirements.tool_calling = False
+                    logger.warning(
+                        "Model returned an empty response with tools enabled; retrying once without tools."
+                    )
+                    continue
                 if not isinstance(response, ChatResponse):
                     response = ChatResponse(
                         content=response.content,
