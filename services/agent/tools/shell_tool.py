@@ -239,8 +239,9 @@ class ShellTool(BaseTool):
                     execution_time_ms=0.0
                 )
 
+            requested_shell_type = shell_type
             shell_type = shell_type or self.default_shell_type
-            if self._can_use_os_adapter(shell_type, working_dir, timeout):
+            if requested_shell_type is None and self._can_use_os_adapter(shell_type, working_dir, timeout):
                 return await self._execute_via_os_adapter(command)
 
             if shell_type == 'cmd':
