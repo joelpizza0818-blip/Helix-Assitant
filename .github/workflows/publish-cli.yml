@@ -25,7 +25,9 @@ jobs:
         working-directory: .
         run: npm run build --workspace=apps/cli
 
-      - name: Publish to npm
-        run: npm publish --access public --no-workspaces --tag latest
+      - name: Stage package for npm approval
+        run: |
+          npm stage publish --access public --no-workspaces --tag latest
+          echo "The package is staged. A maintainer must review it and run npm stage approve <stage-id> with 2FA."
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
