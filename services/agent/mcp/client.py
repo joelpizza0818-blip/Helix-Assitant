@@ -59,12 +59,15 @@ def _windows_short_path(value: str) -> str:
 
 
 class MCPClient:
-    def __init__(self, server_command: str = None, server_url: str = None):
+    def __init__(self, server_command: str = None, server_url: str = None,
+                 sandbox_enabled: bool = False, sandbox_mode: str = "restricted"):
         if server_url is not None:
             raise ValueError(
                 "MCP URL transport is not supported; provide a local stdio server_command."
             )
         self.server_command = server_command
+        self.sandbox_enabled = sandbox_enabled
+        self.sandbox_mode = sandbox_mode
         self.process = None
         self._req_id = 0
         self._pending_requests: Dict[int, asyncio.Future] = {}
@@ -74,6 +77,26 @@ class MCPClient:
         self._protocol_error = None
         self.request_timeout = 60
         self._disconnecting = False
+
+    def configure_sandbox(self, enabled: bool, mode: str = "restricted") -> None:
+        self.sandbox_enabled = bool(enabled)
+        if mode in {"restricted", "isolated", "windows_sandbox", "docker"}:
+            self.sandbox_mode = mode
+
+    @staticmethod
+    def _sandbox_env(mode: str) -> dict[str, str]:
+        safe_keys = {
+            "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC", "PATHEXT",
+            "PATH", "TEMP", "TMP", "USERPROFILE", "HOME", "LANG", "LC_ALL",
+        }
+        env = {
+            key: value for key, value in os.environ.items()
+            if key.upper() in safe_keys
+            and not any(secret in key.upper() for secret in ("KEY", "TOKEN", "SECRET", "PASS", "AUTH"))
+        }
+        env["HELIX_SANDBOX"] = "1"
+        env["HELIX_SANDBOX_MODE"] = mode
+        return env
 
     async def connect(self):
         if self.server_command:
@@ -100,6 +123,7 @@ class MCPClient:
                     stdin=asyncio.subprocess.PIPE,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
+                    env=self._sandbox_env(self.sandbox_mode) if self.sandbox_enabled else None,
                 )
             except (OSError, ValueError) as error:
                 raise RuntimeError(
@@ -367,9 +391,23 @@ class MCPClientManager:
         self.event_bus = event_bus
         self.clients: Dict[str, MCPClient] = {}
         self.tools_cache: Dict[str, List[MCPToolDefinition]] = {}
+        self.sandbox_enabled = False
+        self.sandbox_mode = "restricted"
+
+    def configure_sandbox(self, enabled: bool, mode: str = "restricted") -> None:
+        self.sandbox_enabled = bool(enabled)
+        if mode in {"restricted", "isolated", "windows_sandbox", "docker"}:
+            self.sandbox_mode = mode
+        for client in self.clients.values():
+            client.configure_sandbox(self.sandbox_enabled, self.sandbox_mode)
 
     async def add_server(self, name: str, command: str = None, url: str = None) -> MCPClient:
-        client = MCPClient(server_command=command, server_url=url)
+        client = MCPClient(
+            server_command=command,
+            server_url=url,
+            sandbox_enabled=self.sandbox_enabled,
+            sandbox_mode=self.sandbox_mode,
+        )
         try:
             await client.connect()
             await client.initialize()

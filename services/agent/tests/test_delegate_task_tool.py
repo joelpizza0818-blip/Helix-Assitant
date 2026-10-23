@@ -68,7 +68,7 @@ async def test_delegate_tool_excludes_parent_credential_and_returns_child_metada
 
 
 @pytest.mark.asyncio
-async def test_delegate_tool_fails_if_no_distinct_available_credential_exists():
+async def test_delegate_tool_reuses_active_session_with_one_credential():
     manager = StubAgentManager()
     tool = DelegateTaskTool(
         manager,
@@ -81,13 +81,12 @@ async def test_delegate_tool_fails_if_no_distinct_available_credential_exists():
         parent_credential="parent-key",
     )
 
-    assert result.success is False
-    assert "No distinct available credential" in result.error
-    assert manager.calls == []
+    assert result.success is True
+    assert manager.calls[0][1]["excluded_api_keys"] == ["parent-key"]
 
 
 @pytest.mark.asyncio
-async def test_delegate_tool_fails_when_an_alternate_credential_is_unavailable():
+async def test_delegate_tool_allows_delegation_without_parent_credential():
     manager = StubAgentManager()
     tool = DelegateTaskTool(
         manager,
@@ -97,12 +96,11 @@ async def test_delegate_tool_fails_when_an_alternate_credential_is_unavailable()
     result = await tool.execute_with_context(
         {"task": "Independent work"},
         parent_id="parent-id",
-        parent_credential="parent-key",
+        parent_credential=None,
     )
 
-    assert result.success is False
-    assert "No distinct available credential" in result.error
-    assert manager.calls == []
+    assert result.success is True
+    assert manager.calls[0][1]["excluded_api_keys"] == []
 
 
 def test_subagent_tool_registration_uses_the_active_provider_session():

@@ -78,38 +78,26 @@ class DelegateTaskTool(BaseTool):
     ) -> ToolResult:
         if not self.validate_params(params):
             return ToolResult(success=False, output=None, error="Invalid subtask or role.")
-        if not parent_id or not parent_credential:
+        if not parent_id:
             return ToolResult(
                 success=False,
                 output=None,
-                error="Could not identify the parent task credential; delegation was not started.",
-            )
-        if self.key_manager.get_distinct_configured_credential_count() < 2:
-            return ToolResult(
-                success=False,
-                output=None,
-                error="Subagent delegation requires at least two distinct configured credentials.",
+                error="Could not identify the parent task; delegation was not started.",
             )
 
-        alternatives = {
-            key
-            for provider in self.key_manager.get_configured_providers()
-            for _slot, key in self.key_manager.get_available_keys(provider)
-            if key and key != parent_credential
-        }
-        if not alternatives:
-            return ToolResult(
-                success=False,
-                output=None,
-                error="No distinct available credential is available for the child agent.",
-            )
+        # Child agents run inside the managed runtime and reuse the active
+        # provider session.  A second credential is neither required nor
+        # desirable: it made delegation fail for valid single-provider setups.
+        # Keep the optional exclusion for callers that still provide it, so a
+        # provider can avoid reusing a specific key when another route exists.
+        excluded_api_keys = [parent_credential] if parent_credential else []
 
         handle = await self.agent_manager.delegate_task(
             params["task"].strip(),
             role=params.get("role", "research"),
             parent_id=parent_id,
             context={"input_source": "subagent delegation"},
-            excluded_api_keys=[parent_credential],
+            excluded_api_keys=excluded_api_keys,
         )
         result = await handle
         if result.get("status") != "success":

@@ -12,3 +12,13 @@ Este catálogo describe opciones que HELIX puede ofrecer a cada usuario. Es un c
 | Notion | Páginas y bases de datos | Integración opt-in | Espacios compartidos por el usuario |
 
 La configuración real se guarda por usuario. HELIX actualmente soporta servidores MCP locales por `stdio`; los conectores OAuth requieren integración específica antes de activarse.
+
+## Servidor de prueba Helix Vault
+
+HELIX incluye un servidor MCP de solo lectura para probar el acceso a una bóveda concreta sin conceder escritura ni permitir salir de su raíz:
+
+```text
+python -m services.agent.mcp.helix_vault_server --root "C:\ruta\a\Helix-vault"
+```
+
+Configúralo como servidor local `stdio` con ese comando desde el repositorio. Expone `list_notes`, `search_notes` y `read_note`; no se activa automáticamente y no guarda credenciales.

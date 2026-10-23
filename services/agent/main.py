@@ -403,6 +403,11 @@ async def main():
     mcp_server_errors: dict[str, str] = {}
 
     async def apply_mcp_servers(server_configs: list[dict]) -> None:
+        current_settings = request_handler.get_settings()
+        mcp_client_manager.configure_sandbox(
+            bool(current_settings.get("sandbox_enabled", False)),
+            current_settings.get("sandbox_mode", "restricted"),
+        )
         desired = _desired_mcp_servers(server_configs)
         for name, command in list(active_mcp_servers.items()):
             if desired.get(name) == command:
