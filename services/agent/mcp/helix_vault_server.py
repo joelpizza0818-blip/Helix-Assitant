@@ -125,7 +125,10 @@ def main() -> int:
         try:
             response = server.handle(json.loads(line))
             if response is not None:
-                sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
+                # Keep stdio JSON ASCII-safe on Windows code pages. The MCP
+                # client decodes stdout as UTF-8; escaped Unicode preserves
+                # note content without depending on the host console encoding.
+                sys.stdout.write(json.dumps(response, ensure_ascii=True) + "\n")
                 sys.stdout.flush()
         except Exception as exc:
             request_id = None
