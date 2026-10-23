@@ -7,6 +7,7 @@ except ImportError:
 
 from typing import Any, AsyncIterator, List, Dict
 import json
+import re
 from .base_provider import BaseAIProvider, ChatMessage, ChatResponse, StreamChunk, ToolCallResponse, Usage, ModelDefinition, ModelCapabilities, AgentError, KeyHealth, ToolCall
 
 
@@ -20,6 +21,16 @@ def _normalize_google_schema(value: Any) -> Any:
     if isinstance(value, list):
         return [_normalize_google_schema(item) for item in value]
     return value
+
+
+def _google_function_name(name: str) -> str:
+    """Return a Google-compatible function name without losing HELIX's name."""
+    normalized = re.sub(r"[^a-zA-Z0-9_]", "_", str(name))
+    if not normalized:
+        normalized = "helix_tool"
+    if normalized[0].isdigit():
+        normalized = f"helix_{normalized}"
+    return normalized
 
 
 class GoogleProvider(BaseAIProvider):
@@ -44,7 +55,7 @@ class GoogleProvider(BaseAIProvider):
                     contents.append(types.Content(
                         role="user",
                         parts=[types.Part.from_function_response(
-                            name=msg.tool_name or "unknown_tool",
+                            name=_google_function_name(msg.tool_name or "unknown_tool"),
                             response={"result": msg.content},
                         )],
                     ))
@@ -60,7 +71,7 @@ class GoogleProvider(BaseAIProvider):
                     ))
                 if msg.tool_calls:
                     parts.extend(types.Part.from_function_call(
-                        name=call["name"],
+                        name=_google_function_name(call["name"]),
                         args=call["arguments"],
                     ) for call in msg.tool_calls)
                 contents.append(types.Content(role=role, parts=parts))
@@ -86,7 +97,7 @@ class GoogleProvider(BaseAIProvider):
     def _convert_tools(tools: List[Dict]) -> List[types.Tool]:
         return [types.Tool(function_declarations=[
             types.FunctionDeclaration(
-                name=tool["name"],
+                name=_google_function_name(tool["name"]),
                 description=tool["description"],
                 parameters=_normalize_google_schema(tool["parameters"]),
             )
@@ -159,7 +170,17 @@ class GoogleProvider(BaseAIProvider):
                     tool_calls.append(
                         ToolCall(
                             id=f"{fc.name}-{index}",
-                            name=fc.name,
+                            # Google receives a normalized name, while the
+                            # rest of HELIX must continue using the canonical
+                            # registry name (for example computer.click_text).
+                            name=next(
+                                (
+                                    tool["name"]
+                                    for tool in tools
+                                    if _google_function_name(tool["name"]) == fc.name
+                                ),
+                                fc.name,
+                            ),
                             arguments=fc.args,
                         )
                     )

@@ -179,6 +179,12 @@ def test_provider_tool_formats_and_tool_result_history():
     google_tools = GoogleProvider._convert_tools(canonical_tools)
     assert google_tools[0].function_declarations[0].name == "lookup"
 
+    dotted = [{**canonical_tools[0], "name": "computer.click_text"}]
+    assert (
+        GoogleProvider._convert_tools(dotted)[0].function_declarations[0].name
+        == "computer_click_text"
+    )
+
 def test_google_tool_schema_drops_unsupported_additional_properties_recursively():
     schema = {
         "type": "object",
