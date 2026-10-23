@@ -31,12 +31,12 @@ function makeManifest(
   overrides: Partial<CapabilityPackManifest> = {},
 ): CapabilityPackManifest {
   const unsigned: Omit<CapabilityPackManifest, 'signature'> = {
-    arch: 'x64' as const,
+    arch: process.arch as CapabilityPackManifest['arch'],
     capability: 'vision',
     coreVersionRange: '*',
     format: 'python-plugin',
     id: 'vision',
-    platform: 'win32' as const,
+    platform: process.platform as CapabilityPackManifest['platform'],
     requiredForComplete: false,
     sha256: 'a'.repeat(64),
     sizeBytes: 4,
