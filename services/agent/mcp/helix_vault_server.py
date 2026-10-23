@@ -101,7 +101,7 @@ class HelixVaultServer:
         if method == "initialize":
             result = {
                 "protocolVersion": "2.0",
-                "serverInfo": {"name": "helix-vault-readonly", "version": "0.2.12"},
+                "serverInfo": {"name": "helix-vault-readonly", "version": "0.2.13"},
                 "capabilities": {"tools": True},
             }
         elif method == "tools/list":
