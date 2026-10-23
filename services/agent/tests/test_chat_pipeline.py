@@ -18,6 +18,7 @@ from google.genai.errors import ClientError
 from services.agent.core.orchestrator import (
     Orchestrator,
     _compact_conversation_history,
+    _conversation_failure_message,
     _fast_os_answer,
 )
 from services.agent.core.runtime_context import describe_runtime_os
@@ -1037,3 +1038,13 @@ def test_text_chat_surfaces_provider_failure_instead_of_marking_task_complete():
         and "No pude completar" in call.args[1]["content"]
         for call in event_bus.publish.await_args_list
     )
+
+
+def test_provider_quota_failure_is_actionable_without_exposing_provider_details():
+    message = _conversation_failure_message(
+        RuntimeError("ProviderExhaustedError: Last error: QUOTA_EXCEEDED.")
+    )
+
+    assert "cuota" in message.lower()
+    assert "clave es válida" in message
+    assert "ProviderExhaustedError" not in message

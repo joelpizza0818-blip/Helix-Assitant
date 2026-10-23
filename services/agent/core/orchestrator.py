@@ -120,6 +120,34 @@ _OS_QUERY_INTENT = re.compile(
 _HISTORY_SUMMARY_LIMIT = 900
 
 
+def _conversation_failure_message(error: Exception) -> str:
+    """Expose safe, actionable provider failures without leaking credentials."""
+    code = getattr(error, "code", "") or ""
+    detail = f"{code} {error}".upper()
+    if "QUOTA_EXCEEDED" in detail or "RESOURCE_EXHAUSTED" in detail:
+        return (
+            "La cuota del proveedor de IA está agotada. La clave es válida, "
+            "pero el proveedor rechazó esta solicitud por límite de uso. "
+            "Cambia de proveedor o clave, o espera a que se renueve la cuota."
+        )
+    if "BILLING_EXHAUSTED" in detail:
+        return (
+            "La facturación del proveedor de IA está agotada o deshabilitada. "
+            "Revisa el plan de la cuenta o cambia de proveedor."
+        )
+    if "AUTH_ERROR" in detail:
+        return (
+            "El proveedor rechazó la autenticación. Vuelve a validar la clave "
+            "en la configuración de IA."
+        )
+    if "MODEL_UNAVAILABLE" in detail:
+        return (
+            "El modelo seleccionado no está disponible para esta clave. "
+            "Selecciona otro modelo o proveedor."
+        )
+    return "No pude completar la solicitud. Revisa la configuración del proveedor de IA y vuelve a intentarlo."
+
+
 def _should_observe_screen(enabled: bool, description: str) -> bool:
     if not enabled or _METALINGUISTIC_INTENT.search(description):
         return False
@@ -985,7 +1013,7 @@ class Orchestrator:
                     {
                         "task_id": task_id,
                         "role": "assistant",
-                        "content": "No pude completar la solicitud. Revisa la configuración del proveedor de IA y vuelve a intentarlo.",
+                        "content": _conversation_failure_message(error),
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     },
                 )

@@ -73,7 +73,7 @@ const program = new Command();
 program
   .name('helix')
   .description('HELIX - Interactive Terminal CLI for Windows AI Desktop Agent')
-  .version('0.2.11')
+  .version('0.2.12')
   .option('-u, --ws-url <url>', 'URL del servidor WebSocket del agente', getWsUrl())
   .option('-t, --token <token>', 'Token de autenticación WebSocket de HELIX', getWsToken())
   .option('--plain', 'Desactivar formato enriquecido de Markdown y mostrar texto plano sin asteriscos')
