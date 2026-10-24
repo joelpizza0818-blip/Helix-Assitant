@@ -1,0 +1,84 @@
+name: Build HELIX Mobile
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'mobile-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    name: Build Android release package
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: movil
+    steps:
+      - name: Check out HELIX
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve Dart packages
+        run: flutter pub get
+
+      - name: Analyze mobile client
+        run: flutter analyze
+
+      - name: Test mobile client
+        run: flutter test
+
+      - name: Build Android APK
+        run: flutter build apk --release
+
+      - name: Prepare signed Android release
+        if: startsWith(github.ref, 'refs/tags/mobile-v')
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          MOBILE_KEYSTORE_PASSWORD: ${{ secrets.MOBILE_KEYSTORE_PASSWORD }}
+          MOBILE_KEY_ALIAS: ${{ secrets.MOBILE_KEY_ALIAS }}
+          MOBILE_KEY_PASSWORD: ${{ secrets.MOBILE_KEY_PASSWORD }}
+        run: |
+          test -n "$ANDROID_KEYSTORE_BASE64"
+          test -n "$MOBILE_KEYSTORE_PASSWORD"
+          test -n "$MOBILE_KEY_ALIAS"
+          test -n "$MOBILE_KEY_PASSWORD"
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/helix-mobile-release.jks
+          cat > android/key.properties <<EOF
+          storeFile=helix-mobile-release.jks
+          storePassword=$MOBILE_KEYSTORE_PASSWORD
+          keyAlias=$MOBILE_KEY_ALIAS
+          keyPassword=$MOBILE_KEY_PASSWORD
+          EOF
+          flutter build apk --release
+          cp build/app/outputs/flutter-apk/app-release.apk HELIX-Mobile.apk
+          sha256sum HELIX-Mobile.apk > HELIX-Mobile.apk.sha256
+
+      - name: Verify signed Android package
+        if: startsWith(github.ref, 'refs/tags/mobile-v')
+        run: |
+          unzip -l HELIX-Mobile.apk | grep -q 'META-INF/'
+          test -s HELIX-Mobile.apk.sha256
+
+      - name: Publish Android release assets
+        if: startsWith(github.ref, 'refs/tags/mobile-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            movil/HELIX-Mobile.apk
+            movil/HELIX-Mobile.apk.sha256
+
+      - name: Publish APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: helix-mobile-android
+          path: movil/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error

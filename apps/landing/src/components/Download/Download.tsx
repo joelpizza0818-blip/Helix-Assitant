@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import './Download.css';
 import { InstallerDownloadButton } from './InstallerDownloadButton';
 import { PrivacyModal } from '../PrivacyModal/PrivacyModal';
-import { getLatestInstallerVersion, getLatestLiteRelease, type LiteReleaseDownload } from '../../lib/downloads';
+import { getLatestInstallerVersion, getLatestLiteRelease, getLatestMobileRelease, type LiteReleaseDownload, type MobileReleaseDownload } from '../../lib/downloads';
 
 export const Download: React.FC<{ requireAuthenticatedDownload?: boolean }> = ({
   requireAuthenticatedDownload = false,
@@ -12,6 +12,8 @@ export const Download: React.FC<{ requireAuthenticatedDownload?: boolean }> = ({
   const [versionError, setVersionError] = useState(false);
   const [liteRelease, setLiteRelease] = useState<LiteReleaseDownload | null>(null);
   const [liteReleaseError, setLiteReleaseError] = useState(false);
+  const [mobileRelease, setMobileRelease] = useState<MobileReleaseDownload | null>(null);
+  const [mobileReleaseError, setMobileReleaseError] = useState(false);
   const [showLitePrivacyModal, setShowLitePrivacyModal] = useState(false);
 
   useEffect(() => {
@@ -29,6 +31,13 @@ export const Download: React.FC<{ requireAuthenticatedDownload?: boolean }> = ({
         if (controller.signal.aborted) return;
         console.error('Could not load the current HELIX Lite release.', error);
         setLiteReleaseError(true);
+      });
+    getLatestMobileRelease(controller.signal)
+      .then(setMobileRelease)
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        console.info('HELIX Mobile download is not published yet.', error);
+        setMobileReleaseError(true);
       });
 
     return () => controller.abort();
@@ -77,6 +86,22 @@ export const Download: React.FC<{ requireAuthenticatedDownload?: boolean }> = ({
               </div>
               <span className="release-option-status">Not published</span>
             </article>
+          </div>
+
+          <div className="mobile-download-card" aria-label="HELIX mobile availability">
+            <div>
+              <span className="section-label">HELIX MOBILE</span>
+              <h3>Control your Desktop from your phone</h3>
+              <p>Flutter multiplatform client with SSH tunneling and authenticated WebSocket control. The mobile app never replaces the Desktop agent.</p>
+            </div>
+            {mobileRelease ? (
+              <div className="download-actions">
+                <a className="btn-primary" href={mobileRelease.installerUrl}>Download HELIX Mobile v{mobileRelease.version} for Android</a>
+                <a className="release-checksum-link" href={mobileRelease.releaseUrl} target="_blank" rel="noreferrer">View Android release and SHA-256 checksum</a>
+              </div>
+            ) : (
+              <span className="release-option-status">{mobileReleaseError ? 'Android package pending publication' : 'Checking Android release'}</span>
+            )}
           </div>
 
           <p className="release-options-note release-options-warning" role="note">

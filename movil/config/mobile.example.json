@@ -1,0 +1,25 @@
+{
+  "environment": "development",
+  "default_transport": "ssh_tunnel",
+  "desktop": {
+    "label": "HELIX workstation",
+    "host": "192.168.1.20",
+    "ssh_port": 22,
+    "ssh_user": "helix",
+    "remote_ws_host": "127.0.0.1",
+    "remote_ws_port": 8765,
+    "identity_key_ref": "secure-storage://helix/ssh/mobile-key",
+    "ws_token_ref": "secure-storage://helix/ws-token",
+    "host_key_fingerprint": "SHA256:replace-with-your-openssh-host-fingerprint"
+  },
+  "relay": {
+    "enabled": false,
+    "wss_url": "wss://relay.example.invalid/helix",
+    "pairing_ref": "secure-storage://helix/relay-pairing"
+  },
+  "timeouts": {
+    "connect_seconds": 10,
+    "request_seconds": 30,
+    "reconnect_max_seconds": 30
+  }
+}

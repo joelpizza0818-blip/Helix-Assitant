@@ -1,0 +1,11 @@
+.dart_tool/
+.packages
+.pub-cache/
+build/
+coverage/
+android/.gradle/
+android/local.properties
+ios/Pods/
+*.iml
+.env
+config/mobile.local.json

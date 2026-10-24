@@ -5,6 +5,7 @@ on:
     branches: [main, dev]
     paths:
       - 'services/agent/**'
+      - 'services/relay/**'
       - 'config/**'
       - 'Dockerfile.test-linux'
       - '.github/workflows/test-multiplatform.yml'
@@ -13,6 +14,7 @@ on:
     branches: [main]
     paths:
       - 'services/agent/**'
+      - 'services/relay/**'
       - 'config/**'
       - 'Dockerfile.test-linux'
       - '.github/workflows/test-multiplatform.yml'
@@ -51,13 +53,14 @@ jobs:
           docker build -f Dockerfile.test-linux -t helix-test-linux .
           docker run --rm \
             -v "$PWD/services/agent:/app/services/agent" \
+            -v "$PWD/services/relay:/app/services/relay" \
             -v "$PWD/apps:/app/apps" \
             -v "$PWD/.github:/app/.github" \
             -v "$PWD/config:/app/config" \
             -v "$PWD/test-results:/app/test-results" \
             -e DISPLAY=:99 \
             helix-test-linux \
-            sh -c "Xvfb :99 -screen 0 1024x768x24 -ac & sleep 1 && python -m pytest services/agent/tests/ -v --tb=short --junitxml=/app/test-results/agent-linux.xml"
+            sh -c "Xvfb :99 -screen 0 1024x768x24 -ac & sleep 1 && python -m pytest services/agent/tests/ services/relay/tests/ -v --tb=short --junitxml=/app/test-results/agent-linux.xml"
 
       - name: Install Python dependencies on Windows and macOS
         if: matrix.os != 'ubuntu-latest'
@@ -67,7 +70,7 @@ jobs:
         if: matrix.os != 'ubuntu-latest'
         env:
           PYTHONPATH: .
-        run: python -m pytest services/agent/tests/ -v --tb=short --junitxml=test-results/agent-${{ runner.os }}.xml
+        run: python -m pytest services/agent/tests/ services/relay/tests/ -v --tb=short --junitxml=test-results/agent-${{ runner.os }}.xml
 
       - name: Upload platform test report
         if: always()

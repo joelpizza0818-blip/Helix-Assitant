@@ -112,6 +112,26 @@
   flex-wrap: wrap;
 }
 
+.mobile-download-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-top: 18px;
+  padding: 20px;
+  background: rgba(238, 96, 24, 0.06);
+  border: 1px solid rgba(238, 96, 24, 0.35);
+  border-radius: 8px;
+}
+
+.mobile-download-card h3 { margin: 8px 0 6px; color: var(--chalk, #fafafa); }
+.mobile-download-card p { max-width: 620px; margin: 0; color: var(--muted, #9ba0a6); line-height: 1.5; }
+.mobile-download-card .release-option-status { flex-shrink: 0; color: var(--orange, #ee6018); }
+
+@media (max-width: 720px) {
+  .mobile-download-card { align-items: flex-start; flex-direction: column; }
+}
+
 .download-actions .auth-alert {
   flex-basis: 100%;
   margin: 0;

@@ -40,10 +40,45 @@ button {
   font-family: inherit;
   color: inherit;
   cursor: pointer;
+  transition: transform 160ms cubic-bezier(.4,0,.2,1), color 160ms cubic-bezier(.4,0,.2,1), background-color 160ms cubic-bezier(.4,0,.2,1), border-color 160ms cubic-bezier(.4,0,.2,1), box-shadow 160ms cubic-bezier(.4,0,.2,1);
+}
+
+button:hover { transform: translateY(-1px); }
+button:active { transform: translateY(1px) scale(.99); }
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 3px;
 }
 
 input, textarea {
   font-family: inherit;
+}
+
+.helix-loader {
+  width: 60px;
+  display: flex;
+  align-items: flex-start;
+  aspect-ratio: 1;
+  color: var(--orange);
+}
+.helix-loader::before, .helix-loader::after {
+  content: "";
+  flex: 1;
+  aspect-ratio: 1;
+  --loader-gradient: conic-gradient(from -90deg at 10px 10px, var(--orange) 90deg, transparent 0);
+  background: var(--loader-gradient), var(--loader-gradient), var(--loader-gradient);
+  filter: drop-shadow(30px 30px 0 var(--orange));
+  animation: helix-loader 1s infinite;
+}
+.helix-loader::after { transform: scaleX(-1); }
+@keyframes helix-loader {
+  0% { background-position: 0 0, 10px 10px, 20px 20px; }
+  33% { background-position: 10px 10px; }
+  66% { background-position: 0 20px, 10px 10px, 20px 0; }
+  100% { background-position: 0 0, 10px 10px, 20px 20px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  button, .helix-loader::before, .helix-loader::after { transition: none; animation: none; }
 }
 
 ::-webkit-scrollbar {
