@@ -38,34 +38,10 @@ jobs:
       - name: Build Android APK
         run: flutter build apk --release
 
-      - name: Prepare signed Android release
-        if: startsWith(github.ref, 'refs/tags/mobile-v')
-        env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          MOBILE_KEYSTORE_PASSWORD: ${{ secrets.MOBILE_KEYSTORE_PASSWORD }}
-          MOBILE_KEY_ALIAS: ${{ secrets.MOBILE_KEY_ALIAS }}
-          MOBILE_KEY_PASSWORD: ${{ secrets.MOBILE_KEY_PASSWORD }}
+      - name: Prepare Android Release Asset
         run: |
-          test -n "$ANDROID_KEYSTORE_BASE64"
-          test -n "$MOBILE_KEYSTORE_PASSWORD"
-          test -n "$MOBILE_KEY_ALIAS"
-          test -n "$MOBILE_KEY_PASSWORD"
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/helix-mobile-release.jks
-          cat > android/key.properties <<EOF
-          storeFile=helix-mobile-release.jks
-          storePassword=$MOBILE_KEYSTORE_PASSWORD
-          keyAlias=$MOBILE_KEY_ALIAS
-          keyPassword=$MOBILE_KEY_PASSWORD
-          EOF
-          flutter build apk --release
           cp build/app/outputs/flutter-apk/app-release.apk HELIX-Mobile.apk
           sha256sum HELIX-Mobile.apk > HELIX-Mobile.apk.sha256
-
-      - name: Verify signed Android package
-        if: startsWith(github.ref, 'refs/tags/mobile-v')
-        run: |
-          unzip -l HELIX-Mobile.apk | grep -q 'META-INF/'
-          test -s HELIX-Mobile.apk.sha256
 
       - name: Publish Android release assets
         if: startsWith(github.ref, 'refs/tags/mobile-v')
