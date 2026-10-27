@@ -91,7 +91,12 @@ jobs:
             "$ANDROID_KEY_ALIAS" > android/key.properties
 
       - name: Build Android APK
-        run: flutter build apk --release
+        run: |
+          flutter build apk --release
+          cp build/app/outputs/flutter-apk/app-release.apk HELIX-Mobile.apk
+
+      - name: Build Android ABI-specific APKs
+        run: flutter build apk --release --split-per-abi -P force-version-code-ignoring-abi=true
 
       - name: Verify Android APK signing certificate
         env:
@@ -119,26 +124,43 @@ jobs:
             exit 1
           fi
 
-          apk="build/app/outputs/flutter-apk/app-release.apk"
           expected_fingerprint="$(keytool -exportcert -alias "$ANDROID_KEY_ALIAS" -keystore android/helix-release.jks -storepass:env ANDROID_STORE_PASSWORD | openssl dgst -sha256 | awk '{print tolower($NF)}')"
-          signer_info="$("$apksigner" verify --verbose --print-certs "$apk" 2>&1)"
-          actual_fingerprint="$(printf '%s\n' "$signer_info" | awk -F': ' '/certificate SHA-256 digest:/ {print tolower($NF); exit}')"
-          if [[ -z "$expected_fingerprint" || -z "$actual_fingerprint" || "$expected_fingerprint" != "$actual_fingerprint" ]]; then
-            echo "::error::APK signing certificate does not match the configured Android keystore."
-            echo "Expected certificate SHA-256: $expected_fingerprint"
-            echo "APK signer certificate SHA-256: $actual_fingerprint"
-            if [[ -z "$actual_fingerprint" ]]; then
-              printf '%s\n' "$signer_info"
+          for apk in \
+            build/app/outputs/flutter-apk/app-release.apk \
+            build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk \
+            build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
+            build/app/outputs/flutter-apk/app-x86_64-release.apk; do
+            signer_info="$("$apksigner" verify --verbose --print-certs "$apk" 2>&1)"
+            actual_fingerprint="$(printf '%s\n' "$signer_info" | awk -F': ' '/certificate SHA-256 digest:/ {print tolower($NF); exit}')"
+            if [[ -z "$expected_fingerprint" || -z "$actual_fingerprint" || "$expected_fingerprint" != "$actual_fingerprint" ]]; then
+              echo "::error::APK signing certificate does not match the configured Android keystore: $apk"
+              echo "Expected certificate SHA-256: $expected_fingerprint"
+              echo "APK signer certificate SHA-256: $actual_fingerprint"
+              if [[ -z "$actual_fingerprint" ]]; then
+                printf '%s\n' "$signer_info"
+              fi
+              exit 1
             fi
-            exit 1
-          fi
-          echo "Verified APK signer certificate SHA-256: $actual_fingerprint"
+            echo "Verified APK signer certificate SHA-256 for $apk: $actual_fingerprint"
+          done
 
       - name: Prepare Android Release Asset
         run: |
-          cp build/app/outputs/flutter-apk/app-release.apk HELIX-Mobile.apk
-          sha256sum HELIX-Mobile.apk > HELIX-Mobile.apk.sha256
-          sha256sum --check HELIX-Mobile.apk.sha256
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk HELIX-Mobile-armeabi-v7a.apk
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk HELIX-Mobile-arm64-v8a.apk
+          cp build/app/outputs/flutter-apk/app-x86_64-release.apk HELIX-Mobile-x86_64.apk
+          for apk in HELIX-Mobile.apk HELIX-Mobile-armeabi-v7a.apk HELIX-Mobile-arm64-v8a.apk HELIX-Mobile-x86_64.apk; do
+            sha256sum "$apk" > "$apk.sha256"
+            sha256sum --check "$apk.sha256"
+            ls -lh "$apk"
+          done
+          universal_size="$(stat -c '%s' HELIX-Mobile.apk)"
+          arm64_size="$(stat -c '%s' HELIX-Mobile-arm64-v8a.apk)"
+          if (( arm64_size >= universal_size )); then
+            echo "::error::The ARM64 APK is not smaller than the universal APK."
+            exit 1
+          fi
+          echo "ARM64 download size reduction: $(( (universal_size - arm64_size) * 100 / universal_size ))%"
 
       - name: Publish Android release assets
         if: startsWith(github.ref, 'refs/tags/mobile-v')
@@ -150,13 +172,19 @@ jobs:
 
             ${{ secrets.ANDROID_KEYSTORE_B64 != '' && '✅ APK firmado con clave de distribución oficial de HELIX.' || '⚠️ APK firmado con clave debug (sin firma oficial de distribución).' }}
 
-            Se adjunta `HELIX-Mobile.apk.sha256` para verificar la integridad del archivo descargado.
+            Se adjunta un SHA-256 para cada APK. El APK universal funciona en dispositivos Android de varias arquitecturas; las variantes por ABI son más pequeñas y deben elegirse según el dispositivo.
 
             > No instales sobre una versión firmada con una clave diferente.
           prerelease: false
           files: |
             movil/HELIX-Mobile.apk
             movil/HELIX-Mobile.apk.sha256
+            movil/HELIX-Mobile-armeabi-v7a.apk
+            movil/HELIX-Mobile-armeabi-v7a.apk.sha256
+            movil/HELIX-Mobile-arm64-v8a.apk
+            movil/HELIX-Mobile-arm64-v8a.apk.sha256
+            movil/HELIX-Mobile-x86_64.apk
+            movil/HELIX-Mobile-x86_64.apk.sha256
 
       - name: Publish APK artifact
         uses: actions/upload-artifact@v4
@@ -165,5 +193,11 @@ jobs:
           path: |
             movil/HELIX-Mobile.apk
             movil/HELIX-Mobile.apk.sha256
+            movil/HELIX-Mobile-armeabi-v7a.apk
+            movil/HELIX-Mobile-armeabi-v7a.apk.sha256
+            movil/HELIX-Mobile-arm64-v8a.apk
+            movil/HELIX-Mobile-arm64-v8a.apk.sha256
+            movil/HELIX-Mobile-x86_64.apk
+            movil/HELIX-Mobile-x86_64.apk.sha256
           if-no-files-found: error
           retention-days: 30

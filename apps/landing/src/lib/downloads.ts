@@ -1,5 +1,6 @@
+import { FunctionsHttpError } from '@supabase/supabase-js'
 import { supabase } from './supabase'
-import { fetchPublicReleaseHistory } from './landingContent'
+import { fetchPublicReleaseHistory, type LandingInstaller } from './landingContent'
 
 const UPDATE_METADATA_URL = 'https://zqjktbpymrfjmggjmbfp.supabase.co/functions/v1/installer-updates/latest.yml'
 const LITE_RELEASE_URL = 'https://zqjktbpymrfjmggjmbfp.supabase.co/functions/v1/installer-lite-updates'
@@ -15,6 +16,57 @@ export interface MobileReleaseDownload {
   installerUrl: string
   checksumUrl: string
   releaseUrl: string
+  architecture: 'arm64' | 'universal' | 'ios'
+  universalInstallerUrl: string | null
+  universalChecksumUrl: string | null
+}
+
+export function mapMobileReleaseDownload(release: LandingInstaller): MobileReleaseDownload {
+  if (release.platform !== 'android' && release.platform !== 'ios') {
+    throw new Error(`Unsupported HELIX Mobile platform: ${release.platform}.`)
+  }
+  if (!release.installerUrl || !release.checksumUrl) {
+    throw new Error(`The HELIX Mobile ${release.platform} release is missing an installer or checksum.`)
+  }
+  let architecture: MobileReleaseDownload['architecture'] = release.platform === 'ios' ? 'ios' : 'universal'
+  let universalInstallerUrl: string | null = null
+  let universalChecksumUrl: string | null = null
+  if (release.platform === 'android') {
+    const releaseTag = `mobile-v${release.version}`
+    const releaseUrl = new URL(release.releaseUrl)
+    const installerUrl = new URL(release.installerUrl)
+    const releasePath = `/joelpizza0818-blip/Helix-Assitant/releases/tag/${releaseTag}`
+    const assetPath = `/joelpizza0818-blip/Helix-Assitant/releases/download/${releaseTag}/`
+    const arm64AssetName = 'HELIX-Mobile-arm64-v8a.apk'
+    if (
+      releaseUrl.protocol !== 'https:'
+      || releaseUrl.hostname !== 'github.com'
+      || releaseUrl.pathname !== releasePath
+    ) {
+      throw new Error('The HELIX Mobile release returned an unexpected release URL.')
+    }
+    if (installerUrl.protocol !== 'https:' || installerUrl.hostname !== 'github.com') {
+      throw new Error('The HELIX Mobile release returned an untrusted installer URL.')
+    }
+    if (installerUrl.pathname === `${assetPath}${arm64AssetName}`) {
+      architecture = 'arm64'
+      installerUrl.pathname = `${assetPath}HELIX-Mobile.apk`
+      universalInstallerUrl = installerUrl.toString()
+      installerUrl.pathname += '.sha256'
+      universalChecksumUrl = installerUrl.toString()
+    } else if (installerUrl.pathname !== `${assetPath}HELIX-Mobile.apk`) {
+      throw new Error('The HELIX Mobile release returned an unexpected Android installer URL.')
+    }
+  }
+  return {
+    version: release.version,
+    installerUrl: release.installerUrl,
+    checksumUrl: release.checksumUrl,
+    releaseUrl: release.releaseUrl,
+    architecture,
+    universalInstallerUrl,
+    universalChecksumUrl,
+  }
 }
 
 export async function getLatestMobileRelease(
@@ -26,15 +78,7 @@ export async function getLatestMobileRelease(
     installer.platform === platform && installer.edition === 'mobile'
   ))
   if (!release) throw new Error(`No stable HELIX Mobile ${platform} release with an installer and checksum is available.`)
-  if (!release.installerUrl || !release.checksumUrl) {
-    throw new Error(`The HELIX Mobile ${platform} release is missing an installer or checksum.`)
-  }
-  return {
-    version: release.version,
-    installerUrl: release.installerUrl,
-    checksumUrl: release.checksumUrl,
-    releaseUrl: release.releaseUrl,
-  }
+  return mapMobileReleaseDownload(release)
 }
 
 export async function getLatestInstallerVersion(signal?: AbortSignal): Promise<string> {
@@ -110,6 +154,20 @@ export async function getInstallerDownloadUrl(): Promise<string> {
   const { data, error } = await supabase.functions.invoke('installer-download', {
     method: 'POST',
   })
+  if (error instanceof FunctionsHttpError && error.context instanceof Response) {
+    const status = error.context.status
+    const payload: unknown = await error.context.clone().json().catch(() => null)
+    if (
+      payload
+      && typeof payload === 'object'
+      && 'error' in payload
+      && typeof payload.error === 'string'
+      && payload.error.trim()
+    ) {
+      throw new Error(payload.error)
+    }
+    throw new Error(`Installer download returned HTTP ${status}.`)
+  }
   if (error) throw error
   if (!data || typeof data.signedUrl !== 'string') {
     throw new Error('The installer download service returned an invalid response.')

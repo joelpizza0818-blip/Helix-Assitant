@@ -4,7 +4,7 @@ Aplicación móvil multiplataforma para controlar una instalación de HELIX Desk
 
 ## Estado de la auditoría
 
-**Estado: Android 0.3.0 está publicado como release estable firmada. El worktree actual añade pairing QR v2 con aprobación por dispositivo, pero aún no está publicado ni verificado end-to-end.**
+**Estado: Android 0.3.1 está publicado como release estable firmada. El workflow prepara además APKs por ABI junto al APK universal para el próximo lanzamiento; aún falta que CI mida sus tamaños y valide la firma antes de ofrecerlos públicamente.**
 
 El agente expone un protocolo JSON sobre WebSocket y autentica con `HELIX_WS_TOKEN`. Para un host remoto, el móvil necesita un túnel SSH o un relay autorizado. El flujo existente de pairing temporal sigue disponible; el worktree actual también integra invitaciones QR v2 de cinco minutos, aprobación en Desktop y relay Cloudflare Worker. El Worker debe desplegarse y probarse en un teléfono antes de considerar funcional esa ruta en producción.
 
@@ -72,8 +72,9 @@ La superficie visual ya incluye chat remoto, modo Voice, drawer, estado de conex
 ## Límites conocidos
 
 - El agente actual solo escucha en loopback; el relay SSH requiere que el host remoto tenga SSH habilitado.
-- Android `mobile-v0.3.0` está publicado como release estable firmada con checksum. No hay IPA iOS publicado ni evidencia de instalación física.
-- El código local del Worker y su integración de pairing v2 no están desplegados ni publicados. El build Android del worktree no pudo completarse porque Maven Central respondió HTTP 403 al descargar dependencias; no equivale a un fallo confirmado del código.
+- Android `mobile-v0.3.1` está publicado como release estable con checksum. No hay IPA iOS publicado ni evidencia de instalación física.
+- El próximo flujo de release prepara APK universal y variantes por ABI, y ofrece arm64 como descarga optimizada con el universal como alternativa. El catálogo Edge Function debe desplegarse para seleccionar la variante arm64; la publicación y reducción real de tamaño siguen sin verificar.
+- El build Android local no se verificó: el SDK configurado tiene metadatos inconsistentes para Android 35. El workflow de CI aún debe confirmar los artefactos universales y por ABI.
 - Web solo sirve para previsualizar la interfaz y no puede completar el handshake autenticado.
 
 Consultar `docs/roadmap.md` antes de ampliar el alcance.

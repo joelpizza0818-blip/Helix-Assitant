@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { ResponsiveSiteNavigation } from '../components/ResponsiveSiteNavigation';
 import { InstallerDownloadButton } from '../components/Download/InstallerDownloadButton';
 import { PrivacyModal } from '../components/PrivacyModal/PrivacyModal';
-import { getLatestInstallerVersion, getLatestLiteRelease, type LiteReleaseDownload, type MobileReleaseDownload } from '../lib/downloads';
+import { getLatestInstallerVersion, getLatestLiteRelease, mapMobileReleaseDownload, type LiteReleaseDownload, type MobileReleaseDownload } from '../lib/downloads';
 import { fetchPublicInstallers, fetchPublicReleaseHistory, type LandingInstaller } from '../lib/landingContent';
 import './DownloadPage.css';
 
@@ -67,18 +67,8 @@ export const DownloadPage: React.FC = () => {
         setMobileReleaseHistory(releases)
         const android = releases.find((item) => item.platform === 'android' && item.edition === 'mobile')
         const ios = releases.find((item) => item.platform === 'ios' && item.edition === 'mobile')
-        setMobileRelease(android?.installerUrl && android.checksumUrl ? {
-          version: android.version,
-          installerUrl: android.installerUrl,
-          checksumUrl: android.checksumUrl,
-          releaseUrl: android.releaseUrl,
-        } : null)
-        setIosRelease(ios?.installerUrl && ios.checksumUrl ? {
-          version: ios.version,
-          installerUrl: ios.installerUrl,
-          checksumUrl: ios.checksumUrl,
-          releaseUrl: ios.releaseUrl,
-        } : null)
+        setMobileRelease(android?.installerUrl && android.checksumUrl ? mapMobileReleaseDownload(android) : null)
+        setIosRelease(ios?.installerUrl && ios.checksumUrl ? mapMobileReleaseDownload(ios) : null)
         setMobileReleaseError(!android?.installerUrl || !android.checksumUrl)
         setIosReleaseError(!ios?.installerUrl || !ios.checksumUrl)
       })
@@ -426,8 +416,18 @@ export const DownloadPage: React.FC = () => {
                 {mobileRelease ? (
                   <div className="download-mobile-actions">
                     <a className="download-action-btn download-action-btn--primary" href={mobileRelease.installerUrl}>
-                      Download Android APK
+                      {mobileRelease.architecture === 'arm64' ? 'Download ARM64 APK (recommended)' : 'Download Android APK'}
                     </a>
+                    {mobileRelease.universalInstallerUrl && (
+                      <a className="download-checksum-link" href={mobileRelease.universalInstallerUrl}>
+                        Download universal APK (all Android architectures)
+                      </a>
+                    )}
+                    {mobileRelease.universalChecksumUrl && (
+                      <a className="download-checksum-link" href={mobileRelease.universalChecksumUrl} target="_blank" rel="noreferrer">
+                        Universal APK SHA-256 checksum
+                      </a>
+                    )}
                     <a className="download-checksum-link" href={mobileRelease.checksumUrl} target="_blank" rel="noreferrer">
                       SHA-256 checksum
                     </a>

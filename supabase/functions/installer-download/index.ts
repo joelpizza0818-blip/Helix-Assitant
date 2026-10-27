@@ -1,6 +1,8 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const GITHUB_API = 'https://api.github.com'
+const INSTALLER_RELEASE_OWNER = 'joelpizza0818-blip'
+const INSTALLER_RELEASE_REPOSITORY = 'helix-installer-downloads'
 const INSTALLER_NAME = 'HELIX-Setup.exe'
 const RELEASE_ASSET_HOSTS = new Set([
   'release-assets.githubusercontent.com',
@@ -75,10 +77,8 @@ Deno.serve(async (request: Request) => {
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY')
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
-  const githubOwner = Deno.env.get('GITHUB_INSTALLER_OWNER')
-  const githubRepo = Deno.env.get('GITHUB_INSTALLER_REPO')
   const githubToken = Deno.env.get('GITHUB_INSTALLER_TOKEN')
-  if (!supabaseUrl || !anonKey || !serviceRoleKey || !githubOwner || !githubRepo || !githubToken) {
+  if (!supabaseUrl || !anonKey || !serviceRoleKey || !githubToken) {
     console.error('Installer download function is missing required environment configuration.')
     return jsonResponse(503, { error: 'Installer download is not configured yet.' })
   }
@@ -126,7 +126,7 @@ Deno.serve(async (request: Request) => {
   const policy = policyResult.policy
   try {
     releaseResponse = await fetch(
-      `${GITHUB_API}/repos/${encodeURIComponent(githubOwner)}/${encodeURIComponent(githubRepo)}/releases/${policy ? `tags/${encodeURIComponent(releaseTag(policy.public_version))}` : 'latest'}`,
+      `${GITHUB_API}/repos/${INSTALLER_RELEASE_OWNER}/${INSTALLER_RELEASE_REPOSITORY}/releases/${policy ? `tags/${encodeURIComponent(releaseTag(policy.public_version))}` : 'latest'}`,
       { headers: githubHeaders },
     )
   } catch (error) {
@@ -182,7 +182,7 @@ Deno.serve(async (request: Request) => {
   let assetResponse: Response
   try {
     assetResponse = await fetch(
-      `${GITHUB_API}/repos/${encodeURIComponent(githubOwner)}/${encodeURIComponent(githubRepo)}/releases/assets/${asset.id}`,
+      `${GITHUB_API}/repos/${INSTALLER_RELEASE_OWNER}/${INSTALLER_RELEASE_REPOSITORY}/releases/assets/${asset.id}`,
       {
         headers: { ...githubHeaders, Accept: 'application/octet-stream' },
         redirect: 'manual',

@@ -325,11 +325,15 @@ function historyRows(releases: GitHubReleaseRecord[], profileId: string): Array<
       let installerNames: string[]
       if (edition === 'normal') installerNames = ['HELIX-Setup.exe', `HELIX-Setup-${version}.exe`]
       else if (edition === 'lite') installerNames = ['HELIX-Lite-Setup.exe']
-      else installerNames = platform === 'android' ? ['HELIX-Mobile.apk'] : ['HELIX-Mobile.ipa']
-      const installerUrl = findReleaseAsset(release, installerNames)
-      const checksumUrl = installerUrl
-        ? findReleaseAsset(release, [`${installerNames[0]}.sha256`, `${installerNames[1] ?? installerNames[0]}.sha256`])
-        : null
+      else installerNames = platform === 'android'
+        ? ['HELIX-Mobile-arm64-v8a.apk', 'HELIX-Mobile.apk']
+        : ['HELIX-Mobile.ipa']
+      const installerName = installerNames.find((name) => (
+        findReleaseAsset(release, [name]) !== null
+        && findReleaseAsset(release, [`${name}.sha256`]) !== null
+      ))
+      const installerUrl = installerName ? findReleaseAsset(release, [installerName]) : null
+      const checksumUrl = installerName ? findReleaseAsset(release, [`${installerName}.sha256`]) : null
       rows.push({
         platform,
         edition,
@@ -347,7 +351,7 @@ function historyRows(releases: GitHubReleaseRecord[], profileId: string): Array<
     if (normal) assetsFor('windows', 'normal', normal[1])
     else if (lite) assetsFor('windows', 'lite', lite[1])
     else if (mobile) {
-      const hasAndroid = findReleaseAsset(release, ['HELIX-Mobile.apk']) !== null
+      const hasAndroid = findReleaseAsset(release, ['HELIX-Mobile-arm64-v8a.apk', 'HELIX-Mobile.apk']) !== null
       const hasIos = findReleaseAsset(release, ['HELIX-Mobile.ipa']) !== null
       if (hasAndroid || !hasIos) assetsFor('android', 'mobile', mobile[1])
       if (hasIos) assetsFor('ios', 'mobile', mobile[1])
@@ -562,7 +566,9 @@ async function verifyMobileRelease(
   const repository = Deno.env.get('GITHUB_INSTALLER_REPO') ?? 'Helix-Assitant'
   const token = Deno.env.get('GITHUB_INSTALLER_TOKEN')
   const tag = `mobile-v${version}`
-  const installerName = platform === 'android' ? 'HELIX-Mobile.apk' : 'HELIX-Mobile.ipa'
+  const installerNames = platform === 'android'
+    ? ['HELIX-Mobile-arm64-v8a.apk', 'HELIX-Mobile.apk']
+    : ['HELIX-Mobile.ipa']
   let response: Response
   const headers: Record<string, string> = {
     Accept: 'application/vnd.github+json',
@@ -594,18 +600,22 @@ async function verifyMobileRelease(
 
   const expectedReleaseUrl = `https://github.com/${owner}/${repository}/releases/tag/${tag}`
   const assetBase = `https://github.com/${owner}/${repository}/releases/download/${tag}/`
-  const expectedInstaller = `${assetBase}${installerName}`
-  const expectedChecksum = `${expectedInstaller}.sha256`
   const names = new Set<string>()
   for (const asset of release.assets) {
     if (isRecord(asset) && typeof asset.name === 'string') names.add(asset.name)
   }
+  const installerName = installerNames.find((name) => installerUrl === `${assetBase}${name}`)
+  const expectedInstaller = installerName ? `${assetBase}${installerName}` : null
+  const expectedChecksum = expectedInstaller ? `${expectedInstaller}.sha256` : null
   if (
     releaseUrl !== expectedReleaseUrl
     || installerUrl !== expectedInstaller
     || checksumUrl !== expectedChecksum
+    || !installerName
     || !names.has(installerName)
     || !names.has(`${installerName}.sha256`)
+    || (platform === 'android' && installerName === 'HELIX-Mobile-arm64-v8a.apk'
+      && (!names.has('HELIX-Mobile.apk') || !names.has('HELIX-Mobile.apk.sha256')))
   ) return { ok: false, error: `Mobile release ${tag} is missing the expected installer or SHA-256 asset.` }
 
   return { ok: true }

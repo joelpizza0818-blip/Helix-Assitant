@@ -96,7 +96,19 @@ export const Download: React.FC<{ requireAuthenticatedDownload?: boolean }> = ({
             </div>
             {mobileRelease ? (
               <div className="download-actions">
-                <a className="btn-primary" href={mobileRelease.installerUrl}>Download HELIX Mobile v{mobileRelease.version} for Android</a>
+                <a className="btn-primary" href={mobileRelease.installerUrl}>
+                  Download HELIX Mobile v{mobileRelease.version} {mobileRelease.architecture === 'arm64' ? '(ARM64)' : 'for Android'}
+                </a>
+                {mobileRelease.universalInstallerUrl && (
+                  <a className="release-checksum-link" href={mobileRelease.universalInstallerUrl}>
+                    Download universal APK (all Android architectures)
+                  </a>
+                )}
+                {mobileRelease.universalChecksumUrl && (
+                  <a className="release-checksum-link" href={mobileRelease.universalChecksumUrl}>
+                    Universal APK SHA-256 checksum
+                  </a>
+                )}
                 <a className="release-checksum-link" href={mobileRelease.releaseUrl} target="_blank" rel="noreferrer">View Android release and SHA-256 checksum</a>
               </div>
             ) : (
