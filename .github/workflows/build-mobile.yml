@@ -115,12 +115,15 @@ jobs:
 
           apk="build/app/outputs/flutter-apk/app-release.apk"
           expected_fingerprint="$(keytool -exportcert -alias "$ANDROID_KEY_ALIAS" -keystore android/helix-release.jks -storepass:env ANDROID_STORE_PASSWORD | openssl dgst -sha256 | awk '{print tolower($NF)}')"
-          signer_info="$("$apksigner" verify --verbose --print-certs "$apk")"
+          signer_info="$("$apksigner" verify --verbose --print-certs "$apk" 2>&1)"
           actual_fingerprint="$(printf '%s\n' "$signer_info" | awk -F': ' '/Signer #1 certificate SHA-256 digest:/ {print tolower($NF); exit}')"
           if [[ -z "$expected_fingerprint" || -z "$actual_fingerprint" || "$expected_fingerprint" != "$actual_fingerprint" ]]; then
             echo "::error::APK signing certificate does not match the configured Android keystore."
             echo "Expected certificate SHA-256: $expected_fingerprint"
             echo "APK signer certificate SHA-256: $actual_fingerprint"
+            if [[ -z "$actual_fingerprint" ]]; then
+              printf '%s\n' "$signer_info"
+            fi
             exit 1
           fi
           echo "Verified APK signer certificate SHA-256: $actual_fingerprint"
