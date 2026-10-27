@@ -730,6 +730,7 @@
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 14px;
   padding: 22px;
+  min-width: 0;
 }
 
 .download-info-card h4 {
@@ -753,6 +754,7 @@
   border-radius: 4px;
   background: rgba(255, 255, 255, 0.08);
   color: #eee;
+  overflow-wrap: anywhere;
 }
 
 /* Footer */
