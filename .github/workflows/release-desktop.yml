@@ -35,20 +35,6 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-
-      - name: Install dependencies and validate desktop code
-        run: |
-          npm ci
-          npm run typecheck --workspace=@helix/desktop
-
-      - name: Block release on high or critical dependency advisories
-        run: npm audit --omit=dev --audit-level=high
-
       - name: Verify release baseline
         id: baseline
         shell: bash
@@ -59,6 +45,7 @@ jobs:
           fi
           if [[ -n "$(git status --porcelain)" ]]; then
             echo "::error::The checked-out source tree is not clean."
+            git status --short
             exit 1
           fi
           version=$(node -p "require('./apps/desktop/package.json').version")
@@ -72,6 +59,20 @@ jobs:
             exit 1
           fi
           echo "previous_version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies and validate desktop code
+        run: |
+          npm ci
+          npm run typecheck --workspace=@helix/desktop
+
+      - name: Block release on high or critical dependency advisories
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Bump desktop version and lockfile
         id: version
