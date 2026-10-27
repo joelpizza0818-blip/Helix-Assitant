@@ -852,4 +852,10 @@
     padding-left: 18px;
     padding-right: 18px;
   }
+
+  .download-footer__links {
+    width: 100%;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
 }
