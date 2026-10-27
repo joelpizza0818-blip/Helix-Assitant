@@ -486,6 +486,57 @@
   min-width: min(100%, 280px);
 }
 
+.download-mobile-history {
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.download-mobile-history h5 {
+  margin: 0 0 12px;
+  color: #ddd;
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.download-mobile-history ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.download-mobile-history li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #ddd;
+  font-size: 0.84rem;
+}
+
+.download-mobile-history li > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.download-mobile-history a,
+.download-mobile-history-error {
+  color: #ffba63;
+  font-size: 0.78rem;
+}
+
+.download-mobile-history-error {
+  margin: 18px 0 0;
+}
+
 .download-public-catalog {
   margin: 0 0 48px;
   padding: clamp(20px, 4vw, 32px);

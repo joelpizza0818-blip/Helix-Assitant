@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ResponsiveSiteNavigation } from '../components/ResponsiveSiteNavigation';
-import { fetchPublicInstallers, type InstallerPlatform, type LandingInstaller } from '../lib/landingContent';
+import { fetchPublicReleaseHistory, type InstallerPlatform, type LandingInstaller } from '../lib/landingContent';
 import './FeaturesPage.css';
 
 const configuredApiUrl = (import.meta.env.VITE_API_URL ?? '').trim().replace(/\/+$/, '');
@@ -28,16 +28,17 @@ function platformLabel(platform: InstallerPlatform): string {
 
 function releaseFromInstaller(installer: LandingInstaller): Release {
   const edition = { normal: 'Normal', lite: 'Lite', mobile: 'Mobile' }[installer.edition] as Release['editions'][number]
+  const platform = platformLabel(installer.platform)
   return {
     version: installer.version,
-    tag: 'ADMIN-SELECTED PUBLIC RELEASE',
+    tag: 'PUBLISHED RELEASE',
     date: new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' })
-      .format(new Date(installer.publishedAt ?? installer.createdAt)),
-    title: `HELIX ${edition} ${installer.version} · ${platformLabel(installer.platform)}`,
-    summary: `This is the ${edition} installer currently selected for public distribution on ${platformLabel(installer.platform)}.`,
+      .format(new Date(installer.releaseDate)),
+    title: `HELIX ${edition} v${installer.version} · ${platform}`,
+    summary: `Published HELIX ${edition} release for ${platform}. The official installer and its SHA-256 checksum are available with the release notes.`,
     editions: [edition],
     changes: [
-      `Installer selected for ${platformLabel(installer.platform)}.`,
+      `${platform} ${edition} release v${installer.version}.`,
       'A SHA-256 checksum is provided with this release.',
     ],
     platform: installer.platform,
@@ -169,7 +170,7 @@ export function FeaturesPage() {
   useEffect(() => {
     let active = true;
     const controller = new AbortController();
-    fetchPublicInstallers(controller.signal)
+    fetchPublicReleaseHistory(controller.signal)
       .then((installers) => {
         if (active) setReleases(installers.map(releaseFromInstaller));
       })
@@ -266,7 +267,7 @@ export function FeaturesPage() {
             <span className="features-eyebrow">VERSION HISTORY & PATCHES</span>
             <h1>What's New in HELIX</h1>
             <p>
-              Only the versions selected for public distribution by a HELIX admin are shown here.
+              Published versions across HELIX Desktop, Mobile, Lite, and other supported channels.
             </p>
             {releaseError && <p className="features-release-error" role="alert">{releaseError}</p>}
             {!releaseError && releases.length === 0 && <p className="features-release-empty">No installer versions have been selected for public distribution yet.</p>}
@@ -329,13 +330,17 @@ export function FeaturesPage() {
                       <div className="features-card-actions">
                         {release.checksumUrl && <a href={release.checksumUrl} target="_blank" rel="noreferrer">SHA-256</a>}
                         {release.releaseUrl && <a href={release.releaseUrl} target="_blank" rel="noreferrer">Release</a>}
-                        <Link to="/download" className="features-card-download">
-                          Install v{release.version}
-                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ marginLeft: 6 }}>
-                          <line x1="5" y1="12" x2="19" y2="12" />
-                          <polyline points="12 5 19 12 12 19" />
-                        </svg>
-                        </Link>
+                        {release.installerUrl ? (
+                          <a href={release.installerUrl} className="features-card-download">
+                            Download v{release.version}
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ marginLeft: 6 }}>
+                              <line x1="5" y1="12" x2="19" y2="12" />
+                              <polyline points="12 5 19 12 12 19" />
+                            </svg>
+                          </a>
+                        ) : (
+                          <Link to="/download" className="features-card-download">View downloads</Link>
+                        )}
                       </div>
                     </div>
                   </article>

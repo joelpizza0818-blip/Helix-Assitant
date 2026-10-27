@@ -130,6 +130,20 @@ export async function fetchPublicInstallers(signal?: AbortSignal): Promise<Landi
   return (data ?? []).map((row) => mapInstaller(row as InstallerRow))
 }
 
+export async function fetchPublicReleaseHistory(signal?: AbortSignal): Promise<LandingInstaller[]> {
+  let query = supabase
+    .from('landing_installer_catalog')
+    .select('id, platform, edition, version, installer_url, checksum_url, release_url, is_published, is_prerelease, published_at, release_date, created_at')
+    .eq('is_prerelease', false)
+    .not('installer_url', 'is', null)
+    .not('checksum_url', 'is', null)
+    .order('release_date', { ascending: false })
+  if (signal) query = query.abortSignal(signal)
+  const { data, error } = await query
+  if (error) throw new Error(`Could not load published release history: ${error.message}`)
+  return (data ?? []).map((row) => mapInstaller(row as InstallerRow))
+}
+
 export async function requestAdmin<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   const baseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim().replace(/\/+$/, '')
   const anonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()

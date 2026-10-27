@@ -147,7 +147,7 @@ jobs:
             Se adjunta `HELIX-Mobile.apk.sha256` para verificar la integridad del archivo descargado.
 
             > No instales sobre una versión firmada con una clave diferente.
-          prerelease: true
+          prerelease: false
           files: |
             movil/HELIX-Mobile.apk
             movil/HELIX-Mobile.apk.sha256

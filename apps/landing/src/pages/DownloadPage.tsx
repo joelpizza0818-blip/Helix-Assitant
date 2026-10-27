@@ -4,7 +4,7 @@ import { ResponsiveSiteNavigation } from '../components/ResponsiveSiteNavigation
 import { InstallerDownloadButton } from '../components/Download/InstallerDownloadButton';
 import { PrivacyModal } from '../components/PrivacyModal/PrivacyModal';
 import { getLatestInstallerVersion, getLatestLiteRelease, type LiteReleaseDownload, type MobileReleaseDownload } from '../lib/downloads';
-import { fetchPublicInstallers, type LandingInstaller } from '../lib/landingContent';
+import { fetchPublicInstallers, fetchPublicReleaseHistory, type LandingInstaller } from '../lib/landingContent';
 import './DownloadPage.css';
 
 export const DownloadPage: React.FC = () => {
@@ -16,6 +16,8 @@ export const DownloadPage: React.FC = () => {
   const [mobileReleaseError, setMobileReleaseError] = useState(false);
   const [iosRelease, setIosRelease] = useState<MobileReleaseDownload | null>(null);
   const [iosReleaseError, setIosReleaseError] = useState(false);
+  const [mobileReleaseHistory, setMobileReleaseHistory] = useState<LandingInstaller[]>([]);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [catalogInstallers, setCatalogInstallers] = useState<LandingInstaller[]>([]);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [litePrivacyOpen, setLitePrivacyOpen] = useState(false);
@@ -51,8 +53,20 @@ export const DownloadPage: React.FC = () => {
     fetchPublicInstallers(controller.signal)
       .then((installers) => {
         setCatalogInstallers(installers)
-        const android = installers.find((item) => item.platform === 'android' && item.edition === 'mobile')
-        const ios = installers.find((item) => item.platform === 'ios' && item.edition === 'mobile')
+      })
+      .catch((err: unknown) => {
+        if (controller.signal.aborted) return;
+        console.error('Failed to load the public installer catalog.', err);
+        setCatalogError(err instanceof Error ? err.message : 'Published installer catalog is unavailable.')
+        setMobileReleaseError(true)
+        setIosReleaseError(true)
+      });
+
+    fetchPublicReleaseHistory(controller.signal)
+      .then((releases) => {
+        setMobileReleaseHistory(releases)
+        const android = releases.find((item) => item.platform === 'android' && item.edition === 'mobile')
+        const ios = releases.find((item) => item.platform === 'ios' && item.edition === 'mobile')
         setMobileRelease(android?.installerUrl && android.checksumUrl ? {
           version: android.version,
           installerUrl: android.installerUrl,
@@ -70,8 +84,8 @@ export const DownloadPage: React.FC = () => {
       })
       .catch((err: unknown) => {
         if (controller.signal.aborted) return;
-        console.error('Failed to load the public installer catalog.', err);
-        setCatalogError(err instanceof Error ? err.message : 'Published installer catalog is unavailable.')
+        console.error('Failed to load the public release history.', err);
+        setHistoryError(err instanceof Error ? err.message : 'Published release history is unavailable.')
         setMobileReleaseError(true)
         setIosReleaseError(true)
       });
@@ -403,10 +417,10 @@ export const DownloadPage: React.FC = () => {
                   <h4>HELIX Mobile</h4>
                   <p>
                     {mobileRelease
-                      ? 'The Android package selected for public release is available. Review its notes and SHA-256 checksum before installing.'
+                      ? 'The latest stable Android package is available. Review its release notes and SHA-256 checksum before installing.'
                       : mobileReleaseError
-                      ? 'No Android installer has been selected for public distribution.'
-                      : 'Checking the admin-selected Android release.'}
+                      ? 'No stable Android release with an installer and checksum is available.'
+                      : 'Checking for the latest stable Android release.'}
                   </p>
                 </div>
                 {mobileRelease ? (
@@ -427,6 +441,12 @@ export const DownloadPage: React.FC = () => {
                   </span>
                 )}
               </div>
+              <MobileReleaseHistory
+                platform="android"
+                releases={mobileReleaseHistory}
+                currentVersion={mobileRelease?.version}
+                error={historyError}
+              />
             </div>
             <div className="download-mobile-card">
                 <div className="download-mobile-meta">
@@ -443,10 +463,10 @@ export const DownloadPage: React.FC = () => {
                     <h4>HELIX Mobile for iOS</h4>
                     <p>
                       {iosRelease
-                        ? 'The iOS build selected for public release is available. Review its release notes and SHA-256 checksum before installing.'
+                        ? 'The latest stable iOS build is available. Review its release notes and SHA-256 checksum before installing.'
                         : iosReleaseError
-                        ? 'No iOS installer has been selected for public distribution.'
-                        : 'Checking the admin-selected iOS release.'}
+                        ? 'No stable iOS release with an installer and checksum is available.'
+                        : 'Checking for the latest stable iOS release.'}
                     </p>
                   </div>
                   {iosRelease ? (
@@ -467,6 +487,12 @@ export const DownloadPage: React.FC = () => {
                     </span>
                   )}
                 </div>
+                <MobileReleaseHistory
+                  platform="ios"
+                  releases={mobileReleaseHistory}
+                  currentVersion={iosRelease?.version}
+                  error={historyError}
+                />
               </div>
           </section>
 
@@ -583,3 +609,45 @@ npm run dev:desktop`}</code>
     </div>
   );
 };
+
+function MobileReleaseHistory({
+  platform,
+  releases,
+  currentVersion,
+  error,
+}: {
+  platform: 'android' | 'ios'
+  releases: LandingInstaller[]
+  currentVersion?: string
+  error: string | null
+}) {
+  const history = releases.filter((release) => (
+    release.platform === platform
+    && release.edition === 'mobile'
+    && release.version !== currentVersion
+    && release.installerUrl
+    && release.checksumUrl
+  ))
+  const platformName = platform === 'android' ? 'Android' : 'iOS'
+
+  if (error) return <p className="download-mobile-history-error" role="alert">{error}</p>
+  if (history.length === 0) return null
+
+  return (
+    <div className="download-mobile-history">
+      <h5>Previous {platformName} versions</h5>
+      <ul>
+        {history.map((release) => (
+          <li key={release.id}>
+            <span>HELIX Mobile v{release.version}</span>
+            <div>
+              <a href={release.installerUrl ?? undefined}>Download</a>
+              <a href={release.checksumUrl ?? undefined} target="_blank" rel="noreferrer">SHA-256</a>
+              <a href={release.releaseUrl} target="_blank" rel="noreferrer">Release notes</a>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}

@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import { fetchPublicInstallers } from './landingContent'
+import { fetchPublicReleaseHistory } from './landingContent'
 
 const UPDATE_METADATA_URL = 'https://zqjktbpymrfjmggjmbfp.supabase.co/functions/v1/installer-updates/latest.yml'
 const LITE_RELEASE_URL = 'https://zqjktbpymrfjmggjmbfp.supabase.co/functions/v1/installer-lite-updates'
@@ -21,11 +21,13 @@ export async function getLatestMobileRelease(
   signal?: AbortSignal,
   platform: 'android' | 'ios' = 'android',
 ): Promise<MobileReleaseDownload> {
-  const installers = await fetchPublicInstallers(signal)
-  const release = installers.find((installer) => installer.platform === platform && installer.edition === 'mobile')
-  if (!release) throw new Error(`No HELIX Mobile ${platform} version has been selected for public release.`)
-  if (!release.installerUrl || !release.checksumUrl || release.isPrerelease) {
-    throw new Error(`The selected HELIX Mobile ${platform} release is missing a verified installer or checksum.`)
+  const releases = await fetchPublicReleaseHistory(signal)
+  const release = releases.find((installer) => (
+    installer.platform === platform && installer.edition === 'mobile'
+  ))
+  if (!release) throw new Error(`No stable HELIX Mobile ${platform} release with an installer and checksum is available.`)
+  if (!release.installerUrl || !release.checksumUrl) {
+    throw new Error(`The HELIX Mobile ${platform} release is missing an installer or checksum.`)
   }
   return {
     version: release.version,
