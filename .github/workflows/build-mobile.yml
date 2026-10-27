@@ -87,6 +87,41 @@ jobs:
       - name: Build Android APK
         run: flutter build apk --release
 
+      - name: Verify Android APK signing certificate
+        env:
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${ANDROID_STORE_PASSWORD:-}" || -z "${ANDROID_KEY_ALIAS:-}" ]]; then
+            if [[ "$GITHUB_REF" == refs/tags/mobile-v* ]]; then
+              echo "::error::Android signing secrets are required to verify a mobile release."
+              exit 1
+            fi
+            echo "::notice::Skipping distribution certificate comparison for a debug-only manual build."
+            exit 0
+          fi
+
+          sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [[ -z "$sdk_root" ]]; then
+            echo "::error::Android SDK path is unavailable; cannot verify APK signature."
+            exit 1
+          fi
+          apksigner="$(find "$sdk_root/build-tools" -maxdepth 2 -type f -name apksigner -print | sort -V | tail -n 1)"
+          if [[ -z "$apksigner" ]]; then
+            echo "::error::Android SDK apksigner was not found."
+            exit 1
+          fi
+
+          apk="build/app/outputs/flutter-apk/app-release.apk"
+          expected_fingerprint="$(keytool -J-Duser.language=en -J-Duser.country=US -list -v -alias "$ANDROID_KEY_ALIAS" -keystore android/helix-release.jks -storepass "$ANDROID_STORE_PASSWORD" 2>/dev/null | sed -n 's/^[[:space:]]*SHA256: //p' | head -n 1 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          actual_fingerprint="$("$apksigner" verify --verbose --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1 | tr '[:upper:]' '[:lower:]')"
+          if [[ -z "$expected_fingerprint" || -z "$actual_fingerprint" || "$expected_fingerprint" != "$actual_fingerprint" ]]; then
+            echo "::error::APK signing certificate does not match the configured Android keystore."
+            exit 1
+          fi
+          echo "Verified APK signer certificate SHA-256: $actual_fingerprint"
+
       - name: Prepare Android Release Asset
         run: |
           cp build/app/outputs/flutter-apk/app-release.apk HELIX-Mobile.apk
