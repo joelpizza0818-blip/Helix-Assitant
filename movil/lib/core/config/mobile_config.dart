@@ -6,6 +6,7 @@ class MobileConfig {
     required this.desktop,
     this.relayWssUrl,
     this.requiresDeviceApproval = false,
+    this.invitationExpiresAt,
     this.connectTimeout = const Duration(seconds: 10),
     this.requestTimeout = const Duration(seconds: 30),
   });
@@ -14,6 +15,7 @@ class MobileConfig {
   final DesktopConfig desktop;
   final String? relayWssUrl;
   final bool requiresDeviceApproval;
+  final DateTime? invitationExpiresAt;
   final Duration connectTimeout;
   final Duration requestTimeout;
 }

@@ -29,6 +29,18 @@ export interface HelixAPI {
   createMobilePairing: () => Promise<MobilePairingInvitation>
   getMobileRelayUrl: () => Promise<string>
   setMobileRelayUrl: (url: string) => Promise<string>
+  getMobileWorkerUrl: () => Promise<string>
+  setMobileWorkerUrl: (url: string) => Promise<string>
+  getMobileRelayStatus: () => Promise<MobileRelayStatus>
+  getMobileDevices: () => Promise<MobileDevice[]>
+  revokeMobileDevice: (deviceId: string) => Promise<void>
+  getMobilePairings?: () => Promise<MobilePairingRequest[]>
+  resolveMobilePairing?: (requestId: string, approved: boolean) => Promise<void>
+  getMobileTextRequests?: () => Promise<MobileTextRequest[]>
+  resolveMobileTextRequest?: (requestId: string, approved: boolean) => Promise<void>
+  onMobilePairingRequest?: (fn: (request: MobilePairingRequest) => void) => () => void
+  onMobileTextRequest?: (fn: (request: MobileTextRequest) => void) => () => void
+  onMobileRelayStatus?: (fn: (status: MobileRelayStatus) => void) => () => void
 
   getSettings: () => Promise<HelixSettings>
   saveSettings: (settings: Partial<HelixSettings>) => Promise<void>
@@ -93,13 +105,37 @@ export interface HelixAPI {
 export interface AdminBackup { version: string; createdAt: string; currentVersion: string | null; synced?: boolean; syncError?: string }
 
 export interface MobilePairingInvitation {
-  version: 1
+  version: 1 | 2
   host: string
   sshPort: number
   remoteWsPort: number
   token: string
   expiresAt: string
   relayWssUrl?: string
+  requiresDeviceApproval?: boolean
+}
+
+export interface MobileDevice {
+  device_id: string
+  device_name: string
+  created_at: number
+}
+
+export interface MobilePairingRequest {
+  request_id: string
+  device_name: string
+}
+
+export interface MobileTextRequest {
+  request_id: string
+  device_id: string
+  device_name: string
+  text: string
+}
+
+export interface MobileRelayStatus {
+  configured: boolean
+  connected: boolean
 }
 
 export type InstallationProfile = 'progressive' | 'complete'

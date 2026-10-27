@@ -38,6 +38,9 @@ use tokio_tungstenite::{
     },
 };
 
+mod mobile_relay;
+use mobile_relay::MobileRelayState;
+
 const DEFAULT_AGENT_PORT: u16 = 8765;
 const MAX_PENDING_REQUESTS: usize = 64;
 const AGENT_READY_TIMEOUT: Duration = Duration::from_secs(90);
@@ -445,13 +448,21 @@ async fn start_agent_inner(app: AppHandle, bridge: AgentBridge) -> Result<(), St
     let (outgoing, receiver) = mpsc::channel(64);
     bridge.0.lock().await.outgoing = Some(outgoing);
     let _ = app.emit("helix:agent-status", json!({ "status": "ready" }));
-    tokio::spawn(run_websocket(app, bridge.clone(), socket, receiver));
+    let mobile_relay = app.state::<MobileRelayState>().inner().clone();
+    tokio::spawn(run_websocket(
+        app,
+        bridge.clone(),
+        mobile_relay,
+        socket,
+        receiver,
+    ));
     Ok(())
 }
 
 async fn run_websocket(
     app: AppHandle,
     bridge: AgentBridge,
+    mobile_relay: MobileRelayState,
     socket: tokio_tungstenite::WebSocketStream<
         tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
     >,
@@ -496,6 +507,7 @@ async fn run_websocket(
 
                 let event_type = message.get("type").and_then(Value::as_str).unwrap_or("message");
                 let payload = message.get("payload").cloned().unwrap_or(Value::Null);
+                mobile_relay.send_agent_event(event_type, &payload).await;
                 if event_type == "capability-required" {
                     let request_id = payload.get("request_id").and_then(Value::as_str).unwrap_or("").to_string();
                     let capability = payload.get("capability").and_then(Value::as_str).unwrap_or("").to_string();
@@ -572,6 +584,92 @@ fn app_version() -> String {
 #[tauri::command]
 async fn start_agent(app: AppHandle, bridge: State<'_, AgentBridge>) -> Result<(), String> {
     start_agent_inner(app, bridge.inner().clone()).await
+}
+
+#[tauri::command]
+async fn get_mobile_worker_url(relay: State<'_, MobileRelayState>) -> Result<String, String> {
+    Ok(relay.worker_url().await)
+}
+
+#[tauri::command]
+async fn set_mobile_worker_url(
+    app: AppHandle,
+    bridge: State<'_, AgentBridge>,
+    relay: State<'_, MobileRelayState>,
+    value: String,
+) -> Result<String, String> {
+    relay
+        .set_worker_url(app, bridge.inner().clone(), value)
+        .await
+}
+
+#[tauri::command]
+async fn get_mobile_relay_status(relay: State<'_, MobileRelayState>) -> Result<Value, String> {
+    let configured = !relay.worker_url().await.is_empty();
+    Ok(json!({
+        "configured": configured,
+        "connected": relay.connected().await,
+    }))
+}
+
+#[tauri::command]
+async fn create_mobile_pairing(
+    app: AppHandle,
+    bridge: State<'_, AgentBridge>,
+    relay: State<'_, MobileRelayState>,
+) -> Result<mobile_relay::MobilePairingInvitation, String> {
+    let agent_connected = bridge.inner().0.lock().await.outgoing.is_some();
+    if !agent_connected {
+        start_agent_inner(app, bridge.inner().clone()).await?;
+    }
+    relay.create_invitation().await
+}
+
+#[tauri::command]
+async fn get_mobile_devices(
+    relay: State<'_, MobileRelayState>,
+) -> Result<Vec<mobile_relay::PairedMobileDevice>, String> {
+    relay.devices().await
+}
+
+#[tauri::command]
+async fn revoke_mobile_device(
+    relay: State<'_, MobileRelayState>,
+    device_id: String,
+) -> Result<(), String> {
+    relay.revoke_device(device_id).await
+}
+
+#[tauri::command]
+async fn get_mobile_pairings(
+    relay: State<'_, MobileRelayState>,
+) -> Result<Vec<mobile_relay::PendingMobilePairing>, String> {
+    Ok(relay.pending_pairings().await)
+}
+
+#[tauri::command]
+async fn resolve_mobile_pairing(
+    relay: State<'_, MobileRelayState>,
+    request_id: String,
+    approved: bool,
+) -> Result<(), String> {
+    relay.resolve_pairing(request_id, approved).await
+}
+
+#[tauri::command]
+async fn get_mobile_text_requests(
+    relay: State<'_, MobileRelayState>,
+) -> Result<Vec<mobile_relay::PendingMobileText>, String> {
+    Ok(relay.pending_mobile_texts().await)
+}
+
+#[tauri::command]
+async fn resolve_mobile_text_request(
+    relay: State<'_, MobileRelayState>,
+    request_id: String,
+    approved: bool,
+) -> Result<(), String> {
+    relay.resolve_mobile_text(request_id, approved).await
 }
 
 #[tauri::command]
@@ -1498,15 +1596,27 @@ async fn send_agent_message(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let bridge = AgentBridge::default();
+    let mobile_relay = MobileRelayState::default();
     let updater = UpdaterState::default();
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_deep_link::init())
         .manage(bridge.clone())
+        .manage(mobile_relay)
         .manage(CapabilityDownloads::default())
         .manage(updater)
         .setup(|app| {
+            let relay = app.state::<MobileRelayState>().inner().clone();
+            let bridge = app.state::<AgentBridge>().inner().clone();
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = relay.initialize(handle, bridge).await {
+                    eprintln!(
+                        "[MobileRelay] Could not restore the saved relay connection: {error}"
+                    );
+                }
+            });
             let show = MenuItem::with_id(app, "show", "Show HELIX Lite", true, None::<&str>)?;
             let tasks = MenuItem::with_id(app, "tasks", "Show tasks", true, None::<&str>)?;
             let toolbox = MenuItem::with_id(app, "toolbox", "Open Toolkit", true, None::<&str>)?;
@@ -1569,6 +1679,16 @@ pub fn run() {
             stop_agent,
             agent_send,
             agent_request,
+            get_mobile_worker_url,
+            set_mobile_worker_url,
+            get_mobile_relay_status,
+            create_mobile_pairing,
+            get_mobile_devices,
+            revoke_mobile_device,
+            get_mobile_pairings,
+            resolve_mobile_pairing,
+            get_mobile_text_requests,
+            resolve_mobile_text_request,
             get_capabilities,
             set_installation_profile,
             install_capability,

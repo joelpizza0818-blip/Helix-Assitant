@@ -30,6 +30,7 @@ export class IPCBridge {
   private reconnecting: boolean = false
   private settingsAppliedHandler: ((settings: Record<string, unknown>) => void) | null = null
   private capabilityRequiredHandler: ((payload: Record<string, unknown>) => Promise<void>) | null = null
+  private agentEventHandler: ((message: AgentMessage) => void) | null = null
 
   setupHandlers(
     mainWindow: BrowserWindow,
@@ -170,6 +171,27 @@ export class IPCBridge {
     this.capabilityRequiredHandler = handler
   }
 
+  onAgentEvent(handler: (message: AgentMessage) => void): void {
+    this.agentEventHandler = handler
+  }
+
+  sendMobileUserText(deviceId: string, text: string): boolean {
+    if (!/^[A-Za-z0-9_-]{20,64}$/.test(deviceId) || !text.trim() || text.length > 50_000) {
+      throw new TypeError('Mobile message is invalid.')
+    }
+    return this._sendToPython({
+      type: 'USER_TEXT',
+      payload: {
+        text,
+        conversation_id: `mobile_${deviceId}`,
+        conversation_history: [],
+        input_source: 'mobile',
+        source_device_id: deviceId,
+      },
+      timestamp: new Date().toISOString(),
+    })
+  }
+
   sendCapabilityResolved(payload: Record<string, unknown>): void {
     this._sendToPython({ type: 'CAPABILITY_RESOLVED', payload, timestamp: new Date().toISOString() })
   }
@@ -265,6 +287,8 @@ export class IPCBridge {
               this._handleWindowAction(message.payload)
               return
             }
+
+            this.agentEventHandler?.(message)
 
             // Forward event messages to renderer windows
             this._forwardToRenderer(message)
