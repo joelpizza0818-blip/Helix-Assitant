@@ -9,6 +9,7 @@ on:
       - 'apps/desktop-tauri/**'
       - 'apps/cli/**'
       - 'server/**'
+      - 'services/relay-worker/**'
       - 'tests/k6/**'
       - 'tests/promptfoo/**'
       - '.github/workflows/test-quality.yml'
@@ -22,6 +23,7 @@ on:
       - 'apps/desktop-tauri/**'
       - 'apps/cli/**'
       - 'server/**'
+      - 'services/relay-worker/**'
       - 'tests/k6/**'
       - 'tests/promptfoo/**'
       - '.github/workflows/test-quality.yml'
@@ -67,6 +69,12 @@ jobs:
 
       - name: Typecheck desktop sources
         run: npm run typecheck --workspace=@helix/desktop
+
+      - name: Run relay Worker unit tests
+        run: npm test --workspace=@helix/relay-worker
+
+      - name: Typecheck relay Worker
+        run: npm run typecheck --workspace=@helix/relay-worker
 
       - name: Run server unit tests
         run: npm test --workspace=@helix/server

@@ -9,7 +9,7 @@ on:
       version:
         description: "Lite version to publish (must match the Tauri package)"
         required: true
-        default: "0.2.13"
+        default: "0.3.1"
 
 permissions:
   contents: write
@@ -136,5 +136,4 @@ jobs:
               --title "HELIX Lite ${{ steps.lite-version.outputs.version }}" `
               --notes "HELIX Lite (Tauri) Windows x64 installer. This installer is unsigned; Windows may show an unknown-publisher warning. Verify the attached SHA-256 file before running it. This release and updater are separate from HELIX Normal/Electron."
           }
-
 

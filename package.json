@@ -8,7 +8,8 @@
     "apps/desktop",
     "apps/desktop-tauri",
     "apps/landing",
-    "server"
+    "server",
+    "services/relay-worker"
   ],
   "scripts": {
     "dev": "npm run dev --workspaces",
@@ -26,6 +27,9 @@
     "build:windows": "npm run build:agent-runtime && npm run build:desktop && npm run stage:windows-installer && npm run build:landing",
     "build:landing": "npm run build --workspace=@helix/landing",
     "build:server": "npm run build --workspace=@helix/server",
+    "dev:relay-worker": "npm run dev --workspace=@helix/relay-worker",
+    "deploy:relay-worker": "npm run deploy --workspace=@helix/relay-worker",
+    "test:relay-worker": "npm run test --workspace=@helix/relay-worker",
     "lint:encoding": "node scripts/check-file-encodings.mjs",
     "models:generate": "node scripts/generate-model-catalog.mjs",
     "models:check": "node scripts/generate-model-catalog.mjs --check",

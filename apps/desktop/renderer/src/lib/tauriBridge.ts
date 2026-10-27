@@ -11,6 +11,11 @@ import type {
   HelixAPI,
   HelixSettings,
   InstallationProfile,
+  MobileDevice,
+  MobilePairingInvitation,
+  MobilePairingRequest,
+  MobileRelayStatus,
+  MobileTextRequest,
 } from '../types/global'
 
 type EventHandler = (payload: any) => void
@@ -34,6 +39,9 @@ const rendererEvents: Record<string, string> = {
   onUpdaterStatus: 'helix:updater-status',
   onCapabilityDownloadProgress: 'helix:capability-download-progress',
   onOAuthCallback: 'helix:oauth-callback',
+  onMobilePairingRequest: 'helix:mobile-pairing-request',
+  onMobileTextRequest: 'helix:mobile-text-request',
+  onMobileRelayStatus: 'helix:mobile-relay-status',
 }
 
 const adminConfigKey = 'helix-lite-admin-config'
@@ -156,6 +164,31 @@ export async function installTauriBridge(): Promise<void> {
     rejectAction: (requestId: string) =>
       send('CONFIRMATION_REJECTED', { request_id: requestId }),
     getAppVersion: () => invoke<string>('app_version'),
+    createMobilePairing: async () => {
+      const invitation = await invoke<
+        Omit<MobilePairingInvitation, 'expiresAt'> & { expiresAt: number }
+      >('create_mobile_pairing')
+      return {
+        ...invitation,
+        expiresAt: new Date(invitation.expiresAt * 1000).toISOString(),
+      }
+    },
+    getMobileRelayUrl: () => Promise.resolve(''),
+    setMobileRelayUrl: () => Promise.reject(new Error('La configuración de Relay requiere HELIX Desktop con el agente Electron.')),
+    getMobileWorkerUrl: () => invoke<string>('get_mobile_worker_url'),
+    setMobileWorkerUrl: (url: string) =>
+      invoke<string>('set_mobile_worker_url', { value: url }),
+    getMobileRelayStatus: () =>
+      invoke<{ configured: boolean; connected: boolean }>('get_mobile_relay_status'),
+    getMobileDevices: () => invoke<MobileDevice[]>('get_mobile_devices'),
+    revokeMobileDevice: (deviceId: string) =>
+      invoke<void>('revoke_mobile_device', { deviceId }),
+    getMobilePairings: () => invoke<MobilePairingRequest[]>('get_mobile_pairings'),
+    resolveMobilePairing: (requestId: string, approved: boolean) =>
+      invoke<void>('resolve_mobile_pairing', { requestId, approved }),
+    getMobileTextRequests: () => invoke<MobileTextRequest[]>('get_mobile_text_requests'),
+    resolveMobileTextRequest: (requestId: string, approved: boolean) =>
+      invoke<void>('resolve_mobile_text_request', { requestId, approved }),
     getSettings: () => request('GET_SETTINGS') as ReturnType<HelixAPI['getSettings']>,
     saveSettings: async (settings: Partial<HelixSettings>) => {
       await request('SAVE_SETTINGS', { settings })
@@ -211,6 +244,12 @@ export async function installTauriBridge(): Promise<void> {
       pendingOAuthCallbacks.splice(0).forEach((url) => handler(url))
       return subscribe('onOAuthCallback', handler)
     },
+    onMobilePairingRequest: (handler: EventHandler) =>
+      subscribe('onMobilePairingRequest', handler),
+    onMobileTextRequest: (handler: EventHandler) =>
+      subscribe('onMobileTextRequest', handler),
+    onMobileRelayStatus: (handler: EventHandler) =>
+      subscribe('onMobileRelayStatus', handler),
     dismissConfirmationToast: () => {},
     getBrowserExtensionInfo: () => Promise.reject(new Error('Browser Companion is not bundled with HELIX Lite.')),
     openBrowserExtensionFolder: () => Promise.reject(new Error('Browser Companion is not bundled with HELIX Lite.')),

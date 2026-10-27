@@ -205,16 +205,25 @@ contextBridge.exposeInMainWorld('helix', {
     createEventListener('helix:oauth-callback', fn),
   getAppVersion: (): Promise<string> => ipcRenderer.invoke('helix:app-version'),
   createMobilePairing: (): Promise<{
-    version: 1
+    version: 1 | 2
     host: string
     sshPort: number
     remoteWsPort: number
     token: string
     expiresAt: string
     relayWssUrl?: string
+    requiresDeviceApproval?: boolean
   }> => ipcRenderer.invoke('helix:create-mobile-pairing'),
   getMobileRelayUrl: (): Promise<string> => ipcRenderer.invoke('helix:get-mobile-relay-url'),
   setMobileRelayUrl: (url: string): Promise<string> => ipcRenderer.invoke('helix:set-mobile-relay-url', url),
+  getMobileWorkerUrl: (): Promise<string> => ipcRenderer.invoke('helix:get-mobile-worker-url'),
+  setMobileWorkerUrl: (url: string): Promise<string> => ipcRenderer.invoke('helix:set-mobile-worker-url', url),
+  getMobileRelayStatus: (): Promise<{ configured: boolean; connected: boolean }> =>
+    ipcRenderer.invoke('helix:get-mobile-relay-status'),
+  getMobileDevices: (): Promise<Array<{ device_id: string; device_name: string; created_at: number }>> =>
+    ipcRenderer.invoke('helix:get-mobile-devices'),
+  revokeMobileDevice: (deviceId: string): Promise<void> =>
+    ipcRenderer.invoke('helix:revoke-mobile-device', deviceId),
   getAdminStatus: (): Promise<{ configured: boolean; authenticated: boolean }> =>
     ipcRenderer.invoke('helix:admin-status'),
   validateAdmin: (accessToken: string): Promise<{ authenticated: boolean }> =>

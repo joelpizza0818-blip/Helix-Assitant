@@ -12,19 +12,20 @@ import {
   globalShortcut,
   clipboard,
   session,
-  systemPreferences
+  systemPreferences,
+  safeStorage,
 } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import path from 'path'
 import fs from 'fs'
 import { randomBytes } from 'crypto'
-import { networkInterfaces } from 'os'
 import { pathToFileURL } from 'url'
 import { PythonManager } from './python-manager'
 import { IPCBridge } from './ipc'
 import { TrayManager } from './tray'
 import { BrowserExtensionBridge } from './browser-extension-bridge'
 import { ClipboardHistory } from './clipboard-history'
+import { MobileRelayClient, type PairedMobileDevice } from './mobile-relay-client'
 import {
   CapabilityManager,
   type CapabilityPackManifest,
@@ -64,6 +65,7 @@ let pythonManager: PythonManager | null = null
 let ipcBridge: IPCBridge | null = null
 let browserExtensionBridge: BrowserExtensionBridge | null = null
 let clipboardHistory: ClipboardHistory | null = null
+let mobileRelayClient: MobileRelayClient | null = null
 let capabilityManager: CapabilityManager | null = null
 let updaterCheckInProgress = false
 let updateDownloaded = false
@@ -176,13 +178,14 @@ interface AdminConfig { autoUpdate: boolean; checkIntervalHours: number; channel
 function adminConfigPath(): string { return path.join(app.getPath('userData'), 'admin-config.json') }
 
 interface MobilePairingInvitation {
-  version: 1
+  version: 1 | 2
   host: string
   sshPort: number
   remoteWsPort: number
   token: string
   expiresAt: string
   relayWssUrl?: string
+  requiresDeviceApproval?: boolean
 }
 
 function mobilePairingPath(): string {
@@ -191,6 +194,10 @@ function mobilePairingPath(): string {
 
 function mobileRelayConfigPath(): string {
   return path.join(app.getPath('userData'), 'mobile-relay.json')
+}
+
+function mobileRelayWorkerConfigPath(): string {
+  return path.join(app.getPath('userData'), 'mobile-relay-worker.json')
 }
 
 function readMobileRelayUrl(): string {
@@ -226,34 +233,12 @@ function saveMobileRelayUrl(value: unknown): string {
   return url
 }
 
-function desktopLanAddress(): string {
-  const interfaces = networkInterfaces()
-  for (const entries of Object.values(interfaces)) {
-    for (const entry of entries ?? []) {
-      if (entry.family === 'IPv4' && !entry.internal && entry.address) return entry.address
-    }
-  }
-  return '127.0.0.1'
-}
-
-function createMobilePairing(): MobilePairingInvitation {
+async function createMobilePairing(): Promise<MobilePairingInvitation> {
   if (!pythonManager) throw new Error('The HELIX Desktop agent is not running.')
-  const token = randomBytes(32).toString('hex')
-  const expiresAt = new Date(Date.now() + 30 * 60 * 1000)
-  fs.writeFileSync(mobilePairingPath(), JSON.stringify({ token, expires_at: expiresAt.getTime() / 1000 }), {
-    encoding: 'utf8',
-    mode: 0o600,
-  })
-  const relayWssUrl = readMobileRelayUrl()
-  return {
-    version: 1,
-    host: desktopLanAddress(),
-    sshPort: 22,
-    remoteWsPort: wsPort,
-    token,
-    expiresAt: expiresAt.toISOString(),
-    ...(relayWssUrl ? { relayWssUrl } : {}),
+  if (!mobileRelayClient?.workerApiUrl) {
+    throw new Error('Configure and connect the Cloudflare Worker Relay before creating a secure mobile invitation.')
   }
+  return mobileRelayClient.createInvitation()
 }
 
 function readAdminConfig(): AdminConfig {
@@ -556,6 +541,7 @@ function setupIPC(): void {
 
   ipcBridge = new IPCBridge()
   ipcBridge.onSettingsApplied(applyDesktopSettings)
+  ipcBridge.onAgentEvent((message) => mobileRelayClient?.sendAgentEvent(message))
   ipcBridge.onCapabilityRequired(async (payload) => {
     const id = typeof payload.capability === 'string' ? payload.capability : ''
     const requestId = typeof payload.request_id === 'string' ? payload.request_id : ''
@@ -593,6 +579,61 @@ function setupIPC(): void {
     }
   })
   ipcBridge.setupHandlers(floatingWindow, toolboxWindow, confirmationWindow)
+  mobileRelayClient = new MobileRelayClient(mobileRelayWorkerConfigPath(), {
+    approvePairing: async (deviceName) => {
+      const options = {
+        type: 'warning' as const,
+        title: 'Vincular dispositivo móvil',
+        message: `¿Permitir vincular "${deviceName}" con este HELIX Desktop?`,
+        detail: 'Solo acepta si tú iniciaste esta solicitud. La invitación caduca en cinco minutos.',
+        buttons: ['Rechazar', 'Vincular dispositivo'],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+      }
+      const parent = toolboxWindow && !toolboxWindow.isDestroyed() ? toolboxWindow : undefined
+      const result = parent
+        ? await dialog.showMessageBox(parent, options)
+        : await dialog.showMessageBox(options)
+      return result.response === 1
+    },
+    receiveMobileText: async (deviceId, deviceName, text) => {
+      if (!ipcBridge) throw new Error('HELIX Desktop agent bridge is unavailable.')
+      const preview = text.length > 2_000 ? `${text.slice(0, 2_000)}\n\n[Texto truncado en la solicitud de confirmación]` : text
+      const options = {
+        type: 'warning' as const,
+        title: 'Solicitud desde HELIX Mobile',
+        message: `${deviceName} solicita enviar este mensaje al agente local.`,
+        detail: preview,
+        buttons: ['Rechazar', 'Permitir esta solicitud'],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+      }
+      const parent = toolboxWindow && !toolboxWindow.isDestroyed() ? toolboxWindow : undefined
+      const result = parent
+        ? await dialog.showMessageBox(parent, options)
+        : await dialog.showMessageBox(options)
+      if (result.response !== 1) return false
+      if (!ipcBridge.sendMobileUserText(deviceId, text)) {
+        throw new Error('HELIX Desktop agent is not connected.')
+      }
+      return true
+    },
+  }, {
+    encrypt: (value) => {
+      if (!safeStorage.isEncryptionAvailable()) {
+        throw new Error('Secure operating-system storage is unavailable for the mobile relay credential.')
+      }
+      return safeStorage.encryptString(value).toString('base64')
+    },
+    decrypt: (value) => {
+      if (!safeStorage.isEncryptionAvailable()) {
+        throw new Error('Secure operating-system storage is unavailable for the mobile relay credential.')
+      }
+      return safeStorage.decryptString(Buffer.from(value, 'base64'))
+    },
+  })
 
   ipcMain.handle('helix:updater-check', async () => {
     if (!app.isPackaged || process.platform !== 'win32') return { status: 'unsupported' }
@@ -619,6 +660,25 @@ function setupIPC(): void {
   ipcMain.handle('helix:create-mobile-pairing', () => createMobilePairing())
   ipcMain.handle('helix:get-mobile-relay-url', () => readMobileRelayUrl())
   ipcMain.handle('helix:set-mobile-relay-url', (_event, value: unknown) => saveMobileRelayUrl(value))
+  ipcMain.handle('helix:get-mobile-worker-url', () => mobileRelayClient?.workerApiUrl ?? '')
+  ipcMain.handle('helix:set-mobile-worker-url', async (_event, value: unknown) => {
+    if (typeof value !== 'string') throw new TypeError('Worker URL must be a string.')
+    if (!mobileRelayClient) throw new Error('Mobile relay client is not initialized.')
+    return mobileRelayClient.setWorkerApiUrl(value)
+  })
+  ipcMain.handle('helix:get-mobile-relay-status', () => ({
+    configured: Boolean(mobileRelayClient?.workerApiUrl),
+    connected: mobileRelayClient?.connected ?? false,
+  }))
+  ipcMain.handle('helix:get-mobile-devices', async (): Promise<PairedMobileDevice[]> => {
+    if (!mobileRelayClient) throw new Error('Mobile relay client is not initialized.')
+    return mobileRelayClient.listDevices()
+  })
+  ipcMain.handle('helix:revoke-mobile-device', async (_event, deviceId: unknown) => {
+    if (typeof deviceId !== 'string') throw new TypeError('Device ID must be a string.')
+    if (!mobileRelayClient) throw new Error('Mobile relay client is not initialized.')
+    await mobileRelayClient.revokeDevice(deviceId)
+  })
   ipcMain.handle('helix:get-capabilities', () => capabilityManager?.snapshot() ?? {
     profile: 'complete', packs: [], missingCount: 0, ready: true,
   })
@@ -916,6 +976,13 @@ async function connectWebSocket(retryCount = 0, maxRetries = 15): Promise<void> 
     )
     console.log('[Main] Connected to Python agent WebSocket')
     const settings = await ipcBridge.loadSettings()
+    try {
+      await mobileRelayClient?.initialize(process.env.HELIX_RELAY_WORKER_URL ?? '')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      appendSystemLog('[MobileRelay]', `Could not connect to Worker relay: ${message}`)
+      console.error('[MobileRelay] Could not connect to Worker relay:', error)
+    }
     if (settings.start_minimized === false) {
       floatingWindow?.show()
       floatingWindow?.focus()
@@ -1119,6 +1186,7 @@ app.on('before-quit', (event) => {
     toolboxWindow?.destroy()
     confirmationWindow?.destroy()
     trayManager?.destroy()
+    mobileRelayClient?.close()
     ipcBridge?.close()
     clipboardHistory?.stop()
     await browserExtensionBridge?.close()

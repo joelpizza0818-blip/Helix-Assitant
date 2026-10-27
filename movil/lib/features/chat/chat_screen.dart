@@ -1,10 +1,11 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../app/helix_mark.dart';
 import '../../core/config/mobile_config.dart';
+import '../../core/config/mobile_pairing_invitation.dart';
 import '../../core/models/protocol_message.dart';
 import '../../core/session/mobile_connection.dart';
 import '../../core/security/secure_pairing_store.dart';
@@ -106,7 +107,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   ? 'Tiempo de espera agotado. Verifica que el relay esté activo.'
                   : e.toString().toLowerCase().contains('rejected')
                       ? 'La vinculación fue rechazada en HELIX Desktop.'
-                  : 'No se pudo conectar. Revisa el token y la URL del relay.';
+                      : 'No se pudo conectar. Revisa el token y la URL del relay.';
         });
         Future.delayed(const Duration(seconds: 6), () {
           if (mounted) setState(() => _connectionError = null);
@@ -238,7 +239,9 @@ class _ChatScreenState extends State<ChatScreen> {
                             setState(() => _tab = 1);
                           }),
                       _DrawerAction(
-                          icon: _connected ? Icons.link_off_rounded : Icons.link_rounded,
+                          icon: _connected
+                              ? Icons.link_off_rounded
+                              : Icons.link_rounded,
                           label: _connected
                               ? 'Desconectar sesión'
                               : 'Vincular Desktop',
@@ -294,7 +297,8 @@ class _ChatScreenState extends State<ChatScreen> {
               const Text(
                   'La app móvil depende de una sesión segura con tu equipo Desktop.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: Color(0xFF85898E), height: 1.45, fontSize: 14)),
+                  style: TextStyle(
+                      color: Color(0xFF85898E), height: 1.45, fontSize: 14)),
               const SizedBox(height: 22),
               OutlinedButton.icon(
                   onPressed: _toggleConnection,
@@ -433,18 +437,21 @@ class _ChatScreenState extends State<ChatScreen> {
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 decoration: BoxDecoration(
                   color: const Color(0x22FF453A),
                   border: Border.all(color: const Color(0x66FF453A)),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Row(children: [
-                  const Icon(Icons.error_outline_rounded, color: Color(0xFFFF6B6B), size: 16),
+                  const Icon(Icons.error_outline_rounded,
+                      color: Color(0xFFFF6B6B), size: 16),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(_connectionError!,
-                        style: const TextStyle(color: Color(0xFFFF6B6B), fontSize: 12)),
+                        style: const TextStyle(
+                            color: Color(0xFFFF6B6B), fontSize: 12)),
                   ),
                 ]),
               ),
@@ -472,18 +479,22 @@ class _ChatScreenState extends State<ChatScreen> {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
                               duration: Duration(seconds: 2),
-                              content: Text('Atajo rápido: puedes pedir capturas o comandos al Desktop.'),
+                              content: Text(
+                                  'Atajo rápido: puedes pedir capturas o comandos al Desktop.'),
                             ),
                           );
                         }
                       : null,
                   icon: Icon(
                     Icons.add_rounded,
-                    color: _connected ? const Color(0xFF98989E) : const Color(0xFF48484A),
+                    color: _connected
+                        ? const Color(0xFF98989E)
+                        : const Color(0xFF48484A),
                     size: 22,
                   ),
                   splashRadius: 20,
-                  constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                  constraints:
+                      const BoxConstraints(minWidth: 36, minHeight: 36),
                   padding: EdgeInsets.zero,
                 ),
                 Expanded(
@@ -496,14 +507,18 @@ class _ChatScreenState extends State<ChatScreen> {
                     onSubmitted: (_) => _send(),
                     style: const TextStyle(fontSize: 15, color: Colors.white),
                     decoration: InputDecoration(
-                      hintText: _connected ? 'Pregunta a HELIX...' : 'Conecta tu Desktop para chatear',
-                      hintStyle: const TextStyle(color: Color(0xFF68686E), fontSize: 14.5),
+                      hintText: _connected
+                          ? 'Pregunta a HELIX...'
+                          : 'Conecta tu Desktop para chatear',
+                      hintStyle: const TextStyle(
+                          color: Color(0xFF68686E), fontSize: 14.5),
                       border: InputBorder.none,
                       enabledBorder: InputBorder.none,
                       focusedBorder: InputBorder.none,
                       filled: false,
                       isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+                      contentPadding: const EdgeInsets.symmetric(
+                          vertical: 8, horizontal: 6),
                     ),
                   ),
                 ),
@@ -512,12 +527,17 @@ class _ChatScreenState extends State<ChatScreen> {
                     tooltip: _voiceMode ? 'Modo texto' : 'Modo voz',
                     onPressed: () => setState(() => _voiceMode = !_voiceMode),
                     icon: Icon(
-                      _voiceMode ? Icons.chat_bubble_outline_rounded : Icons.graphic_eq_rounded,
-                      color: _voiceMode ? const Color(0xFFEE6018) : const Color(0xFF8E8E93),
+                      _voiceMode
+                          ? Icons.chat_bubble_outline_rounded
+                          : Icons.graphic_eq_rounded,
+                      color: _voiceMode
+                          ? const Color(0xFFEE6018)
+                          : const Color(0xFF8E8E93),
                       size: 20,
                     ),
                     splashRadius: 20,
-                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                    constraints:
+                        const BoxConstraints(minWidth: 36, minHeight: 36),
                     padding: EdgeInsets.zero,
                   ),
                 const SizedBox(width: 4),
@@ -571,6 +591,8 @@ class _ConnectionSheetState extends State<_ConnectionSheet> {
   final _fingerprint = TextEditingController();
   final _sshPort = TextEditingController(text: '22');
   final _remoteWsPort = TextEditingController(text: '8765');
+  DateTime? _invitationExpiresAt;
+  bool _scanHandled = false;
   // Relay is preferred for production; SSH remains the local fallback.
   MobileTransportMode _mode = MobileTransportMode.relay;
   bool _requiresDeviceApproval = false;
@@ -625,40 +647,73 @@ class _ConnectionSheetState extends State<_ConnectionSheet> {
     );
     input.dispose();
     if (!mounted || raw == null || raw.trim().isEmpty) return;
+    _applyInvitation(raw);
+  }
+
+  Future<void> _scanInvitation() async {
+    _scanHandled = false;
+    final raw = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        child: SizedBox(
+          width: 360,
+          height: 440,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: [
+                    const Expanded(child: Text('Escanear QR de HELIX Desktop')),
+                    IconButton(
+                      onPressed: () => Navigator.pop(dialogContext),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: MobileScanner(
+                  onDetect: (capture) {
+                    if (_scanHandled || capture.barcodes.isEmpty) return;
+                    final value = capture.barcodes.first.rawValue;
+                    if (value != null && value.isNotEmpty) {
+                      _scanHandled = true;
+                      Navigator.pop(dialogContext, value);
+                    }
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted || raw == null) return;
+    _applyInvitation(raw);
+  }
+
+  void _applyInvitation(String raw) {
     try {
-      final value = jsonDecode(raw);
-      final relay = value is Map<String, dynamic> ? value['relayWssUrl'] : null;
-      if (value is! Map<String, dynamic> ||
-          (value['host'] is! String && relay is! String) ||
-          value['token'] is! String) {
-        throw const FormatException('Formato de invitación inválido');
-      }
-      _host.text = relay is String && relay.isNotEmpty
-          ? relay
-          : value['host'] as String;
-      _token.text = value['token'] as String;
-      if (relay is String && relay.isNotEmpty) {
-        _mode = MobileTransportMode.relay;
-        _requiresDeviceApproval = value['requiresDeviceApproval'] == true;
-      } else {
-        _mode = MobileTransportMode.sshTunnel;
-        _requiresDeviceApproval = false;
-      }
-      if (value['sshPort'] is int) {
-        _sshPort.text = '${value['sshPort']}';
-      }
-      if (value['remoteWsPort'] is int) {
-        _remoteWsPort.text = '${value['remoteWsPort']}';
-      }
+      final invitation = MobilePairingInvitation.decode(raw);
+      _host.text = invitation.relayWssUrl;
+      _token.text = invitation.token;
+      _mode = MobileTransportMode.relay;
+      _requiresDeviceApproval = true;
+      _invitationExpiresAt = invitation.expiresAt;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
             content: Text(
                 'Invitación importada. Aprueba la vinculación desde Desktop si se solicita.')));
       }
-    } on Object catch (_) {
+    } on FormatException catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('La invitación no tiene un formato válido.')));
+        final detail = error.message.toString();
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(detail.isEmpty
+              ? 'La invitación no tiene un formato válido.'
+              : 'Invitación inválida: $detail'),
+        ));
       }
     }
   }
@@ -676,6 +731,13 @@ class _ConnectionSheetState extends State<_ConnectionSheet> {
   }
 
   void _submit() {
+    if (_invitationExpiresAt != null &&
+        !_invitationExpiresAt!.isAfter(DateTime.now())) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('La invitación expiró. Escanea un QR nuevo en Desktop.'),
+      ));
+      return;
+    }
     if (_host.text.trim().isEmpty ||
         _token.text.trim().isEmpty ||
         (_mode == MobileTransportMode.sshTunnel &&
@@ -702,6 +764,7 @@ class _ConnectionSheetState extends State<_ConnectionSheet> {
         relayWssUrl:
             _mode == MobileTransportMode.relay ? _host.text.trim() : null,
         requiresDeviceApproval: _requiresDeviceApproval,
+        invitationExpiresAt: _invitationExpiresAt,
       ),
       _token.text.trim(),
     ));
@@ -728,9 +791,18 @@ class _ConnectionSheetState extends State<_ConnectionSheet> {
               style: TextStyle(color: Color(0xFF85898E), height: 1.4)),
           const SizedBox(height: 18),
           OutlinedButton.icon(
+              onPressed: _scanInvitation,
+              icon: const Icon(Icons.qr_code_scanner_rounded),
+              label: const Text('Escanear QR de Desktop')),
+          TextButton.icon(
               onPressed: _importInvitation,
               icon: const Icon(Icons.content_paste_go_rounded),
-              label: const Text('Pegar invitación de Toolbox')),
+              label: const Text('Usar alternativa manual')),
+          if (_invitationExpiresAt != null)
+            Text(
+              'Invitación temporal · expira ${_invitationExpiresAt!.toLocal()}',
+              style: const TextStyle(color: Color(0xFF85898E)),
+            ),
           const SizedBox(height: 12),
           SegmentedButton<MobileTransportMode>(
             segments: const [
@@ -854,7 +926,8 @@ class _Bubble extends StatelessWidget {
             borderRadius: BorderRadius.circular(20),
           ),
           child: Text(message.text,
-              style: const TextStyle(fontSize: 15, height: 1.4, color: Colors.white)),
+              style: const TextStyle(
+                  fontSize: 15, height: 1.4, color: Colors.white)),
         ),
       );
     }
@@ -871,14 +944,16 @@ class _Bubble extends StatelessWidget {
               color: const Color(0x1FEE6018),
               borderRadius: BorderRadius.circular(6),
             ),
-            child: const Icon(Icons.bolt_rounded, color: Color(0xFFEE6018), size: 16),
+            child: const Icon(Icons.bolt_rounded,
+                color: Color(0xFFEE6018), size: 16),
           ),
           Expanded(
             child: Container(
               margin: const EdgeInsets.only(bottom: 8, right: 40),
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
               child: Text(message.text,
-                  style: const TextStyle(fontSize: 15, height: 1.45, color: Colors.white)),
+                  style: const TextStyle(
+                      fontSize: 15, height: 1.45, color: Colors.white)),
             ),
           ),
         ],
