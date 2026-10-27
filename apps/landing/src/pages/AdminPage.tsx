@@ -26,7 +26,6 @@ const ANNOUNCEMENT_CATEGORIES: AnnouncementCategory[] = [
   'COMPATIBILITY',
 ]
 const INSTALLER_PLATFORMS: InstallerPlatform[] = ['windows', 'linux', 'macos', 'android', 'ios']
-const INSTALLER_EDITIONS: InstallerEdition[] = ['normal', 'lite', 'mobile']
 const EDITIONS_BY_PLATFORM: Record<InstallerPlatform, InstallerEdition[]> = {
   windows: ['normal', 'lite'],
   linux: ['normal', 'lite'],
@@ -44,30 +43,12 @@ interface AnnouncementDraft {
   links: string
 }
 
-interface InstallerDraft {
-  platform: InstallerPlatform
-  edition: InstallerEdition
-  version: string
-  installerUrl: string
-  checksumUrl: string
-  releaseUrl: string
-}
-
 const emptyAnnouncement: AnnouncementDraft = {
   category: 'FEATURE',
   title: '',
   summary: '',
   content: '',
   links: '',
-}
-
-const emptyInstaller: InstallerDraft = {
-  platform: 'windows',
-  edition: 'normal',
-  version: '',
-  installerUrl: '',
-  checksumUrl: '',
-  releaseUrl: '',
 }
 
 function readList<T>(payload: ApiList<T>, key: string): T[] {
@@ -87,7 +68,6 @@ export function AdminPage() {
   const [profiles, setProfiles] = useState<AdminProfile[]>([])
   const [tab, setTab] = useState<AdminTab>('announcements')
   const [announcementDraft, setAnnouncementDraft] = useState<AnnouncementDraft>(emptyAnnouncement)
-  const [installerDraft, setInstallerDraft] = useState<InstallerDraft>(emptyInstaller)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -225,19 +205,10 @@ export function AdminPage() {
     }, 'Borrador eliminado.')
   }
 
-  const saveInstaller = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    void runAction(async () => {
-      await requestAdmin('installers', 'POST', installerDraft)
-      setInstallerDraft(emptyInstaller)
-      await loadContent()
-    }, 'Versión añadida al histórico como borrador.')
-  }
-
   const importInstallerHistory = () => runAction(async () => {
     await requestAdmin('installers/import-history', 'POST')
     await loadContent()
-  }, 'Histórico de GitHub sincronizado.')
+  }, 'Histórico de GitHub sincronizado. Elige una versión existente para publicarla.')
 
   const changeInstallerPublication = (installer: LandingInstaller) => runAction(async () => {
     await requestAdmin(`installers/${installer.id}/publication`, 'PUT', { isPublished: !installer.isPublished })
@@ -360,57 +331,11 @@ export function AdminPage() {
 
             {tab === 'installers' && (
               <section className="admin-section">
-                <form className="admin-form" onSubmit={saveInstaller}>
-                  <div className="admin-section-heading">
-                    <div>
-                      <h2>Añadir versión al histórico</h2>
-                      <p>Se guardará como borrador. El catálogo público conserva solo la versión que selecciones por SO y edición.</p>
-                    </div>
-                  </div>
-                  <div className="admin-form-grid">
-                    <label>
-                      Sistema operativo
-                      <select
-                        value={installerDraft.platform}
-                        onChange={(event) => {
-                          const platform = event.target.value as InstallerPlatform
-                          setInstallerDraft({ ...installerDraft, platform, edition: EDITIONS_BY_PLATFORM[platform][0] })
-                        }}
-                      >
-                        {INSTALLER_PLATFORMS.map((platform) => <option key={platform} value={platform}>{platformLabel(platform)}</option>)}
-                      </select>
-                    </label>
-                    <label>
-                      Edición
-                      <select value={installerDraft.edition} onChange={(event) => setInstallerDraft({ ...installerDraft, edition: event.target.value as InstallerEdition })}>
-                        {INSTALLER_EDITIONS.filter((edition) => EDITIONS_BY_PLATFORM[installerDraft.platform].includes(edition)).map((edition) => <option key={edition} value={edition}>{editionLabel(edition)}</option>)}
-                      </select>
-                    </label>
-                    <label>
-                      Versión
-                      <input required maxLength={40} placeholder="0.3.0" value={installerDraft.version} onChange={(event) => setInstallerDraft({ ...installerDraft, version: event.target.value })} />
-                    </label>
-                    <label>
-                      URL del instalador (HTTPS)
-                      <input required type="url" placeholder="https://…" value={installerDraft.installerUrl} onChange={(event) => setInstallerDraft({ ...installerDraft, installerUrl: event.target.value })} />
-                    </label>
-                    <label>
-                      URL del checksum SHA-256 (HTTPS)
-                      <input required type="url" placeholder="https://…" value={installerDraft.checksumUrl} onChange={(event) => setInstallerDraft({ ...installerDraft, checksumUrl: event.target.value })} />
-                    </label>
-                    <label>
-                      URL de la release / publicación (HTTPS)
-                      <input required type="url" placeholder="https://…" value={installerDraft.releaseUrl} onChange={(event) => setInstallerDraft({ ...installerDraft, releaseUrl: event.target.value })} />
-                    </label>
-                  </div>
-                  <button className="admin-button" disabled={saving} type="submit">{saving ? 'Guardando…' : 'Añadir al histórico'}</button>
-                </form>
-
                 <div className="admin-catalog">
                   <div className="admin-section-heading">
                     <div>
                       <h2>Histórico completo de instaladores</h2>
-                      <p>Se importa el historial de releases de GitHub. Linux y macOS permanecen sin publicar hasta verificar su empaquetado y activos oficiales.</p>
+                      <p>El histórico se sincroniza automáticamente desde GitHub. Selecciona aquí cualquier versión anterior con activos válidos para publicarla; las más recientes aparecen primero. Linux y macOS permanecen sin publicar hasta verificar su empaquetado y activos oficiales.</p>
                     </div>
                     <button className="admin-button admin-button--quiet" type="button" disabled={saving} onClick={() => { void importInstallerHistory() }}>
                       Sincronizar historial

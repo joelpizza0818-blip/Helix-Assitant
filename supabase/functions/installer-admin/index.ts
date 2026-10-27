@@ -358,6 +358,7 @@ async function syncUserProfile(
   admin: ReturnType<typeof getAdminClient>,
   identity: { login: string; githubId: string; displayName: string; avatarUrl: string | null },
 ): Promise<UserProfile | null> {
+  const rank = identity.login.toLowerCase() === 'joelpizza0818-blip' ? 'master-admin' : null
   const byGitHubId = await admin
     .from('github_user_roles')
     .select('profile_id, github_user_id, github_login, display_name, avatar_url, rank')
@@ -384,7 +385,7 @@ async function syncUserProfile(
         github_user_id: identity.githubId,
         display_name: identity.displayName || identity.login,
         avatar_url: identity.avatarUrl,
-        rank: 'user',
+        rank: rank ?? 'user',
       })
       .select('profile_id, github_user_id, github_login, display_name, avatar_url, rank')
       .single()
@@ -407,6 +408,7 @@ async function syncUserProfile(
       github_user_id: identity.githubId,
       display_name: profile.display_name || identity.displayName || identity.login,
       avatar_url: identity.avatarUrl,
+      ...(rank ? { rank } : {}),
       updated_at: new Date().toISOString(),
     })
     .eq('profile_id', profile.profile_id)
