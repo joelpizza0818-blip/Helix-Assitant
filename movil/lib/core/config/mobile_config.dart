@@ -5,6 +5,7 @@ class MobileConfig {
     required this.mode,
     required this.desktop,
     this.relayWssUrl,
+    this.requiresDeviceApproval = false,
     this.connectTimeout = const Duration(seconds: 10),
     this.requestTimeout = const Duration(seconds: 30),
   });
@@ -12,6 +13,7 @@ class MobileConfig {
   final MobileTransportMode mode;
   final DesktopConfig desktop;
   final String? relayWssUrl;
+  final bool requiresDeviceApproval;
   final Duration connectTimeout;
   final Duration requestTimeout;
 }

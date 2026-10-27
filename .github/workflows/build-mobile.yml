@@ -49,6 +49,19 @@ jobs:
       - name: Test mobile client
         run: flutter test
 
+      - name: Inject Android signing keystore
+        if: ${{ secrets.ANDROID_KEYSTORE_B64 != '' }}
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          echo "$ANDROID_KEYSTORE_B64" | base64 --decode > android/helix-release.jks
+          cat <<EOF > android/key.properties
+          storePassword=${{ secrets.ANDROID_STORE_PASSWORD }}
+          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
+          storeFile=helix-release.jks
+          EOF
+
       - name: Build Android APK
         run: flutter build apk --release
 
@@ -62,15 +75,15 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/mobile-v')
         uses: softprops/action-gh-release@v2
         with:
-          name: HELIX Mobile ${{ github.ref_name }} - APK de prueba (sin firma oficial)
+          name: HELIX Mobile ${{ github.ref_name }}
           body: |
-            **APK de prueba; no es una distribución Android firmada oficialmente por HELIX.**
+            ### HELIX Mobile ${{ github.ref_name }}
 
-            Este workflow no configura una clave privada de distribución. El APK queda firmado con la clave debug predeterminada de Android/Gradle. No lo instales como una actualización de una versión firmada con otra clave.
+            ${{ secrets.ANDROID_KEYSTORE_B64 != '' && '✅ APK firmado con clave de distribución oficial de HELIX.' || '⚠️ APK firmado con clave debug (sin firma oficial de distribución).' }}
 
-            Se adjunta `HELIX-Mobile.apk.sha256` para verificar la integridad del archivo descargado. SHA-256 no verifica la identidad del editor ni sustituye una firma de distribución.
+            Se adjunta `HELIX-Mobile.apk.sha256` para verificar la integridad del archivo descargado.
 
-            Esta publicación es una prerelease de prueba y no debe anunciarse como versión estable.
+            > No instales sobre una versión firmada con una clave diferente.
           prerelease: true
           files: |
             movil/HELIX-Mobile.apk

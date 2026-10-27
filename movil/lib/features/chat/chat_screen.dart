@@ -66,13 +66,22 @@ class _ChatScreenState extends State<ChatScreen> {
     if (draft == null || !mounted) return;
     setState(() => _connecting = true);
     if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    if (draft.config.requiresDeviceApproval) {
+      messenger.showSnackBar(const SnackBar(
+        content: Text('Aprueba la solicitud de vinculación en HELIX Desktop.'),
+        duration: Duration(minutes: 5),
+      ));
+    }
     try {
       final session = await _connection.connect(draft.config, draft.token);
       await _pairingStore.save(
-        token: draft.token,
+        token: _connection.authenticatedToken ?? draft.token,
+        relayWssUrl: draft.config.relayWssUrl,
         identityKeyPem: draft.config.desktop.identityKeyPem,
         hostKeyFingerprint: draft.config.desktop.hostKeyFingerprint,
       );
+      messenger.hideCurrentSnackBar();
       _events = session.events.listen((event) {
         final text = event.payload['text'] ??
             event.payload['content'] ??
@@ -86,6 +95,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _connected = true;
       });
     } on Object catch (e) {
+      messenger.hideCurrentSnackBar();
       await _connection.close();
       if (mounted) {
         setState(() {
@@ -94,6 +104,8 @@ class _ChatScreenState extends State<ChatScreen> {
               ? 'La conexión móvil requiere la app nativa; la versión web solo permite previsualizar la interfaz.'
               : e.toString().contains('TimeoutException')
                   ? 'Tiempo de espera agotado. Verifica que el relay esté activo.'
+                  : e.toString().toLowerCase().contains('rejected')
+                      ? 'La vinculación fue rechazada en HELIX Desktop.'
                   : 'No se pudo conectar. Revisa el token y la URL del relay.';
         });
         Future.delayed(const Duration(seconds: 6), () {
@@ -561,6 +573,7 @@ class _ConnectionSheetState extends State<_ConnectionSheet> {
   final _remoteWsPort = TextEditingController(text: '8765');
   // Relay is preferred for production; SSH remains the local fallback.
   MobileTransportMode _mode = MobileTransportMode.relay;
+  bool _requiresDeviceApproval = false;
 
   @override
   void initState() {
@@ -574,11 +587,16 @@ class _ConnectionSheetState extends State<_ConnectionSheet> {
       store.token(),
       store.identityKeyPem(),
       store.hostKeyFingerprint(),
+      store.relayWssUrl(),
     ]);
     if (!mounted) return;
     if (values[0] != null) _token.text = values[0]!;
     if (values[1] != null) _key.text = values[1]!;
     if (values[2] != null) _fingerprint.text = values[2]!;
+    if (values[3] != null) {
+      _host.text = values[3]!;
+      _mode = MobileTransportMode.relay;
+    }
   }
 
   Future<void> _importInvitation() async {
@@ -609,21 +627,22 @@ class _ConnectionSheetState extends State<_ConnectionSheet> {
     if (!mounted || raw == null || raw.trim().isEmpty) return;
     try {
       final value = jsonDecode(raw);
+      final relay = value is Map<String, dynamic> ? value['relayWssUrl'] : null;
       if (value is! Map<String, dynamic> ||
-          value['host'] is! String ||
+          (value['host'] is! String && relay is! String) ||
           value['token'] is! String) {
         throw const FormatException('Formato de invitación inválido');
       }
-      _host.text = value['host'] as String;
+      _host.text = relay is String && relay.isNotEmpty
+          ? relay
+          : value['host'] as String;
       _token.text = value['token'] as String;
-      // Desktop invitations currently describe the SSH fallback. A relay URL,
-      // when provisioned, is imported as the preferred transport instead.
-      final relay = value['relayWssUrl'];
       if (relay is String && relay.isNotEmpty) {
         _mode = MobileTransportMode.relay;
-        _host.text = relay;
+        _requiresDeviceApproval = value['requiresDeviceApproval'] == true;
       } else {
         _mode = MobileTransportMode.sshTunnel;
+        _requiresDeviceApproval = false;
       }
       if (value['sshPort'] is int) {
         _sshPort.text = '${value['sshPort']}';
@@ -634,7 +653,7 @@ class _ConnectionSheetState extends State<_ConnectionSheet> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
             content: Text(
-                'Invitación importada. Completa usuario, clave y huella SSH.')));
+                'Invitación importada. Aprueba la vinculación desde Desktop si se solicita.')));
       }
     } on Object catch (_) {
       if (mounted) {
@@ -682,6 +701,7 @@ class _ConnectionSheetState extends State<_ConnectionSheet> {
         ),
         relayWssUrl:
             _mode == MobileTransportMode.relay ? _host.text.trim() : null,
+        requiresDeviceApproval: _requiresDeviceApproval,
       ),
       _token.text.trim(),
     ));
