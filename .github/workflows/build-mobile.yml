@@ -50,17 +50,30 @@ jobs:
         run: flutter test
 
       - name: Inject Android signing keystore
-        if: ${{ secrets.ANDROID_KEYSTORE_B64 != '' }}
         env:
           ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          echo "$ANDROID_KEYSTORE_B64" | base64 --decode > android/helix-release.jks
-          cat <<EOF > android/key.properties
-          storePassword=${{ secrets.ANDROID_STORE_PASSWORD }}
-          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
-          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
-          storeFile=helix-release.jks
-          EOF
+          if [[ -z "$ANDROID_KEYSTORE_B64" ]]; then
+            if [[ "$GITHUB_REF" == refs/tags/mobile-v* ]]; then
+              echo "::error::Android signing secrets are required for a mobile release."
+              exit 1
+            fi
+            echo "::notice::No Android signing keystore configured; manual build will use debug signing."
+            exit 0
+          fi
+
+          set -euo pipefail
+          : "${ANDROID_KEY_ALIAS:?Missing ANDROID_KEY_ALIAS secret}"
+          : "${ANDROID_STORE_PASSWORD:?Missing ANDROID_STORE_PASSWORD secret}"
+          : "${ANDROID_KEY_PASSWORD:?Missing ANDROID_KEY_PASSWORD secret}"
+          printf '%s' "$ANDROID_KEYSTORE_B64" | base64 --decode > android/helix-release.jks
+          printf 'storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\nstoreFile=helix-release.jks\n' \
+            "$ANDROID_STORE_PASSWORD" \
+            "$ANDROID_KEY_PASSWORD" \
+            "$ANDROID_KEY_ALIAS" > android/key.properties
 
       - name: Build Android APK
         run: flutter build apk --release
