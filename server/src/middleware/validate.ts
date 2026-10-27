@@ -1,8 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
-import { AnyZodObject, ZodError } from 'zod';
+import { ZodError, ZodObject } from 'zod';
 
 export const validate =
-  (schema: AnyZodObject) =>
+  (schema: ZodObject) =>
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       await schema.parseAsync({
@@ -18,7 +18,7 @@ export const validate =
           error: {
             code: 'VALIDATION_ERROR',
             message: 'Invalid request payload or parameters',
-            details: error.errors.map((e) => ({
+            details: error.issues.map((e) => ({
               field: e.path.join('.'),
               message: e.message,
             })),

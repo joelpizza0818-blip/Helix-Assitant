@@ -101,7 +101,7 @@ updatesRouter.post('/subscribe', async (req: Request, res: Response) => {
     if (error instanceof z.ZodError) {
       return res.status(400).json({
         success: false,
-        error: error.errors[0]?.message || 'Invalid subscription data',
+        error: error.issues[0]?.message || 'Invalid subscription data',
       });
     }
     return res.status(500).json({
@@ -155,7 +155,7 @@ updatesRouter.post(
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           success: false,
-          error: error.errors[0]?.message || 'Invalid broadcast parameters',
+          error: error.issues[0]?.message || 'Invalid broadcast parameters',
         });
       }
       return res.status(500).json({

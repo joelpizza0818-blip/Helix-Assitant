@@ -1,6 +1,6 @@
 {
   "name": "@helix/desktop-tauri",
-  "version": "0.2.13",
+  "version": "0.3.0",
   "private": true,
   "scripts": {
     "tauri": "tauri"
