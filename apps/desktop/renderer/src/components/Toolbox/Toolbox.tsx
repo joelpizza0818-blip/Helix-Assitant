@@ -395,7 +395,10 @@ export default function Toolbox() {
         {/* ── Content Area with Real Components ── */}
         <main className="toolbox__content">
           {isLoading ? (
-            <div className="toolbox__loading">Loading configuration...</div>
+            <div className="toolbox__loading" role="status" aria-live="polite">
+              <div className="helix-loader" aria-hidden="true" />
+              <span>Loading configuration...</span>
+            </div>
           ) : (
             <>
               {activeSection === 'ai' && (

@@ -56,6 +56,18 @@ export default function FloatingUI() {
   const inputHighlightRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
+  const suppressedMode = voiceSettings.floating_ui_mode === 'suppressed'
+
+  useEffect(() => {
+    document.body.classList.toggle('floating-ui-transparent', suppressedMode)
+    return () => document.body.classList.remove('floating-ui-transparent')
+  }, [suppressedMode])
+
+  useEffect(() => {
+    if (!window.helix?.setFloatingWindowMode) return
+    void window.helix.setFloatingWindowMode(suppressedMode ? 'suppressed' : 'full')
+      .catch((error) => console.error('[FloatingUI] Failed to resize floating window:', error))
+  }, [suppressedMode])
 
   useEffect(() => {
     void loadSettings().finally(() => setVoiceSettingsReady(true))
@@ -168,6 +180,16 @@ export default function FloatingUI() {
     setActiveMention(null)
   }
 
+  const handleModeToggle = () => {
+    const nextMode = suppressedMode ? 'full' : 'suppressed'
+    void window.helix?.setFloatingWindowMode(nextMode)
+      .catch((error) => console.error('[FloatingUI] Failed to resize floating window:', error))
+    void saveSettings({
+      floating_ui_mode: nextMode,
+      ...(nextMode === 'suppressed' ? { voice_response_enabled: true, voice_enabled: true } : {}),
+    })
+  }
+
   const readAttachments = async (files: FileList | null) => {
     if (!files) return
     const incoming = Array.from(files)
@@ -243,6 +265,11 @@ export default function FloatingUI() {
   }
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (suppressedMode && e.key === 'Escape') {
+      e.preventDefault()
+      handleModeToggle()
+      return
+    }
     const action = getFloatingInputKeyAction(
       e.key,
       e.shiftKey,
@@ -293,7 +320,7 @@ export default function FloatingUI() {
   const activeTask = tasks.find((t) => t.status === 'running') ?? tasks.find((t) => t.status === 'queued')
 
   return (
-        <div className="floating-ui">
+        <div className={`floating-ui ${suppressedMode ? 'floating-ui--suppressed' : ''}`}>
       {/* ── Header ─────────────────────────────── */}
       <div className="floating-ui__header" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
         <div className="floating-ui__brand">
@@ -324,6 +351,15 @@ export default function FloatingUI() {
             aria-label="Open Toolbox"
           >
             <GearIcon />
+          </button>
+          <button
+            className={`icon-btn ${suppressedMode ? 'icon-btn--active' : ''}`}
+            onClick={handleModeToggle}
+            title={suppressedMode ? 'Exit suppression mode' : 'Enable suppression mode'}
+            aria-label={suppressedMode ? 'Exit suppression mode' : 'Enable suppression mode'}
+            aria-pressed={suppressedMode}
+          >
+            <span className="floating-ui__suppression-glyph" aria-hidden="true">—</span>
           </button>
           <button
             className="icon-btn floating-ui__quit-btn"
@@ -427,9 +463,7 @@ export default function FloatingUI() {
           ))}
           {isLoading && (
             <div className="message-bubble message-bubble--assistant">
-              <div className="typing-indicator">
-                <span /><span /><span />
-              </div>
+              <div className="helix-loader" aria-label="HELIX is working" role="status" />
             </div>
           )}
           <div ref={messagesEndRef} />
@@ -500,6 +534,7 @@ export default function FloatingUI() {
               setSelectedMentionIndex(0)
             }}
             disabled={isLoading || agentStatus === 'listening'}
+            spellCheck={false}
             aria-autocomplete="list"
             aria-label="Message HELIX"
             aria-expanded={filteredMentionOptions.length > 0}
@@ -566,6 +601,17 @@ export default function FloatingUI() {
         >
           <SendIcon />
         </button>
+        {suppressedMode && (
+          <button
+            className="floating-ui__restore-btn"
+            type="button"
+            onClick={handleModeToggle}
+            title="Return to the full HELIX floating UI"
+            aria-label="Return to the full HELIX floating UI"
+          >
+            <span aria-hidden="true">↗</span>
+          </button>
+        )}
       </div>
 
       {/* ── Stop button (when task running) ───── */}

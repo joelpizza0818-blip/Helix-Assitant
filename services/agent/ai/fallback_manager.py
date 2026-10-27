@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import time
 import uuid
 from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
@@ -154,6 +155,7 @@ class FallbackManager:
                 "model": candidate.model_id,
                 "key_slot": candidate.key_slot + 1,
                 "status": "attempting",
+                "timeout_seconds": context.get("_model_request_timeout_seconds"),
                 "request": _request_snapshot(context, self.key_manager.keys),
             }
             if task_id:
@@ -166,15 +168,25 @@ class FallbackManager:
                 attempts,
             )
             try:
+                started_at = time.perf_counter()
                 result = await provider_call_fn(candidate, context)
+                latency_ms = round((time.perf_counter() - started_at) * 1000)
                 self.key_manager.mark_key_success(candidate.provider_id, candidate.key_slot)
+                logger.info(
+                    "Model attempt succeeded provider=%s model=%s key_slot=%d duration_ms=%d",
+                    candidate.provider_id,
+                    candidate.model_id,
+                    candidate.key_slot + 1,
+                    latency_ms,
+                )
                 if task_id:
                     await self.event_bus.publish(
                         "MODEL_REQUEST",
-                        {**request_payload, "status": "succeeded"},
+                        {**request_payload, "status": "succeeded", "latency_ms": latency_ms},
                     )
                 return result
             except Exception as error:
+                latency_ms = round((time.perf_counter() - started_at) * 1000)
                 e = error if isinstance(error, AgentError) else AgentError(
                     code="UNKNOWN",
                     message=str(error),
@@ -197,12 +209,13 @@ class FallbackManager:
                     )
                 logger.warning(
                     "Model attempt failed provider=%s model=%s key_slot=%d "
-                    "error=%s retryable=%s message=%s",
+                    "error=%s retryable=%s duration_ms=%d message=%s",
                     candidate.provider_id,
                     candidate.model_id,
                     candidate.key_slot + 1,
                     e.code,
                     e.retryable,
+                    latency_ms,
                     safe_message,
                 )
                 await self.event_bus.publish(
@@ -213,6 +226,7 @@ class FallbackManager:
                         "key_slot": candidate.key_slot + 1,
                         "error": e.code,
                         "retryable": e.retryable,
+                        "latency_ms": latency_ms,
                         "message": safe_message,
                     },
                 )
@@ -222,6 +236,7 @@ class FallbackManager:
                         {
                             **request_payload,
                             "status": "failed",
+                            "latency_ms": latency_ms,
                             "error": {
                                 "code": e.code,
                                 "message": safe_message[:2000],

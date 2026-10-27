@@ -118,3 +118,27 @@ Cuando termines una tarea, informa:
 * Información que sigue pendiente de verificar.
 
 Si no hubo cambios relevantes para la documentación, indica que no fue necesario actualizar notas.
+
+## Flujo obligatorio de cada lanzamiento
+
+Antes de publicar una versión, verificar y registrar por separado Desktop Normal, Desktop Lite, Linux, macOS, web, CLI y móvil. Una plataforma sin instalador o prueba de empaquetado no se debe anunciar como compatible solo porque pase pruebas del agente.
+
+1. Revisar el estado real del código, pruebas, dependencias y cambios incluidos; bloquear publicación si hay una regresión crítica o falta una firma/credencial requerida.
+2. Alinear las versiones de cada canal con sus archivos fuente y workflows. Etiquetas actuales: `vX.Y.Z` para Desktop Normal, `lite-vX.Y.Z` para Lite y `mobile-vX.Y.Z` para móvil. CLI usa su versión npm y publicación mediante su workflow; web se despliega desde el commit aprobado. No reutilizar una etiqueta entre canales.
+3. Ejecutar los tests y builds definidos por cada canal. La matriz `test-multiplatform.yml` valida el agente/relay en Windows, Linux y macOS; eso no demuestra que existan instaladores de escritorio Linux/macOS. No prometer esos instaladores hasta agregar, ejecutar y verificar su empaquetado en CI.
+4. Verificar integridad de los instaladores y publicar hashes SHA-256 junto a cada activo. Mantener visibles avisos de firma, plataforma, arquitectura y limitaciones.
+5. Actualizar la documentación del repositorio, el changelog/What's New de la web y las notas de publicación con el mismo alcance: funcionalidades nuevas, cambios, incompatibilidades, limitaciones y elementos que no se publican.
+6. Actualizar `Helix-vault/Human/Registro de versiones.md` y `09 - Operación/Registro de versiones por plataforma.md`, separando `desktop/linux`, `mac`, `win`, `web`, `cli` y `movil`. Guardar evidencia de pruebas y estado de publicación; no convertir planes en resultados.
+7. Revisar las notas de GitHub Release y la web después de publicar; verificar que cada descarga corresponde a un activo existente y a su checksum.
+
+### Puertas de publicación por canal
+
+- **Windows Normal:** workflow `release-desktop.yml`; validar versión, tag, release, build del instalador, checksum y publicación.
+- **Windows Lite:** workflow `release-desktop-tauri-lite.yml`; versiones npm/Tauri/Rust alineadas, tests y clave pública configurada.
+- **Linux y macOS desktop:** actualmente no hay evidencia de instaladores oficiales; registrar como no publicado y tratar el empaquetado como trabajo pendiente.
+- **Agente/relay Linux y macOS:** ejecutar la matriz multiplataforma y registrar el resultado por sistema operativo.
+- **Web:** verificar build de landing, rutas de descarga, What's New y enlaces a releases antes/después del deploy.
+- **CLI:** verificar tests/build y publicar `helix-assistant-cli` mediante `publish-cli.yml`; confirmar versión en npm.
+- **Móvil:** `flutter analyze`, `flutter test`, build Android firmado y checksum; publicar solo con tag `mobile-vX.Y.Z` y credenciales válidas. No afirmar disponibilidad de APK sin release publicado.
+
+Toda versión debe conservar un registro de lo que incluye y de lo que expresamente no incluye. Una solicitud de publicación no sustituye las verificaciones ni la confirmación de que los activos están disponibles.

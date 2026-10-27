@@ -55,6 +55,18 @@ def test_wake_word_threshold_default_and_range_validation(request_handler):
             })
 
 
+def test_voice_and_floating_ui_defaults_are_explicit(request_handler):
+    settings = request_handler.get_settings()
+    assert settings["activation_phrase_enabled"] is True
+    assert settings["floating_ui_mode"] == "full"
+
+    with pytest.raises(ValueError, match="floating_ui_mode must be full or suppressed"):
+        request_handler._apply_runtime_settings({
+            **settings,
+            "floating_ui_mode": "invalid",
+        })
+
+
 def test_cross_provider_failover_migrates_old_default(request_handler):
     request_handler.settings_path.write_text(
         json.dumps({"cross_provider_fallback": False}),
@@ -674,3 +686,47 @@ async def test_user_text_forwards_conversation_context(request_handler):
     })
 
     assert events == [("USER_TEXT", payload)]
+
+
+@pytest.mark.asyncio
+async def test_mobile_user_text_preserves_verified_device_context(request_handler):
+    events = []
+
+    async def capture(event_name, payload):
+        events.append((event_name, payload))
+
+    await request_handler.task_manager.event_bus.subscribe("USER_TEXT", capture)
+    device_id = "abcdefghijklmnopqrstuvwxyz123456"
+    await request_handler.dispatch({
+        "type": "USER_TEXT",
+        "payload": {
+            "text": "Summarize the current desktop state",
+            "conversation_id": f"mobile_{device_id}",
+            "conversation_history": [],
+            "input_source": "mobile",
+            "source_device_id": device_id,
+        },
+    })
+
+    assert events == [("USER_TEXT", {
+        "text": "Summarize the current desktop state",
+        "conversation_id": f"mobile_{device_id}",
+        "conversation_history": [],
+        "input_source": "mobile",
+        "source_device_id": device_id,
+    })]
+
+
+@pytest.mark.asyncio
+async def test_mobile_user_text_rejects_spoofed_device_metadata(request_handler):
+    with pytest.raises(ValueError, match="Mobile USER_TEXT metadata is invalid"):
+        await request_handler.dispatch({
+            "type": "USER_TEXT",
+            "payload": {
+                "text": "Run a task",
+                "conversation_id": "mobile_other-device",
+                "conversation_history": [],
+                "input_source": "mobile",
+                "source_device_id": "abcdefghijklmnopqrstuvwxyz123456",
+            },
+        })

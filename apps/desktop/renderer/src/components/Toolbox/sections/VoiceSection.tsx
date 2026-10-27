@@ -87,6 +87,39 @@ export default function VoiceSection({ settings, onSave }: Props) {
           </label>
         </div>
 
+        <div className="toolbox-card__header toolbox-card__header--subtle">
+          <div>
+            <span className="toolbox-card__title">Require activation phrase</span>
+            <p className="toolbox-card__hint">Disable it for direct text chat. The microphone remains controlled separately.</p>
+          </div>
+          <label className="toggle">
+            <input
+              type="checkbox"
+              checked={settings.activation_phrase_enabled ?? true}
+              onChange={(e) => onSave({ activation_phrase_enabled: e.target.checked })}
+            />
+            <span className="toggle__slider" />
+          </label>
+        </div>
+
+        <div className="toolbox-card__header toolbox-card__header--subtle">
+          <div>
+            <span className="toolbox-card__title">Suppression mode</span>
+            <p className="toolbox-card__hint">Shows only the message field and enables spoken replies. Press Escape in the field to exit.</p>
+          </div>
+          <label className="toggle">
+            <input
+              type="checkbox"
+              checked={settings.floating_ui_mode === 'suppressed'}
+              onChange={(e) => onSave({
+                floating_ui_mode: e.target.checked ? 'suppressed' : 'full',
+                ...(e.target.checked ? { voice_response_enabled: true, voice_enabled: true } : {}),
+              })}
+            />
+            <span className="toggle__slider" />
+          </label>
+        </div>
+
         <div className="toolbox-card__header" style={{ marginTop: 10 }}>
           <span className="toolbox-card__title">Speak assistant replies</span>
           <label className="toggle">

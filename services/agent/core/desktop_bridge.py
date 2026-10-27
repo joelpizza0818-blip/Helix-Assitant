@@ -35,6 +35,7 @@ except ImportError:
 
 DEFAULT_SETTINGS = {
     "voice_enabled": True,
+    "activation_phrase_enabled": True,
     "wake_word": "hey helix",
     "wake_word_provider": "openwakeword",
     "wake_word_threshold": 0.5,
@@ -85,6 +86,7 @@ DEFAULT_SETTINGS = {
     "block_downloads": True,
     "block_untrusted_domains": True,
     "always_on_top": True,
+    "floating_ui_mode": "full",
     "global_summon_shortcut": "Alt+Space",
     "emergency_stop_shortcut": "Control+Shift+Escape",
     "gesture_mappings": {
@@ -99,6 +101,7 @@ DEFAULT_SETTINGS = {
     "application_memory": {},
     "memory_context_limit": 20,
     "memory_auto_compaction": True,
+    "model_request_timeout_seconds": 90,
     "embedding_model": "text-embedding-3-small",
     "memory_similarity_threshold": 0.75,
     "tool_verification_enabled": True,
@@ -246,7 +249,25 @@ class DesktopRequestHandler:
             text = payload.get("text")
             if not isinstance(text, str) or (not text.strip() and not payload.get("attachments")):
                 raise ValueError("USER_TEXT requires text or at least one attachment")
+            input_source = payload.get("input_source")
+            source_device_id = payload.get("source_device_id")
+            if input_source is not None:
+                if (
+                    input_source != "mobile"
+                    or not isinstance(source_device_id, str)
+                    or re.fullmatch(r"[A-Za-z0-9_-]{20,64}", source_device_id) is None
+                    or payload.get("conversation_id") != f"mobile_{source_device_id}"
+                    or payload.get("attachments")
+                ):
+                    raise ValueError("Mobile USER_TEXT metadata is invalid")
+                if len(text) > 50_000:
+                    raise ValueError("Mobile USER_TEXT exceeds the 50000-character limit")
             event_payload = {"text": text}
+            if input_source == "mobile":
+                event_payload.update({
+                    "input_source": "mobile",
+                    "source_device_id": source_device_id,
+                })
             attachments = payload.get("attachments", [])
             if not isinstance(attachments, list) or len(attachments) > 10:
                 raise ValueError("USER_TEXT attachments must be a list with at most 10 items")
@@ -495,6 +516,10 @@ class DesktopRequestHandler:
         ):
             if not isinstance(settings.get(setting, False), bool):
                 raise ValueError(f"{setting} must be a boolean")
+        if not isinstance(settings.get("activation_phrase_enabled", True), bool):
+            raise ValueError("activation_phrase_enabled must be a boolean")
+        if settings.get("floating_ui_mode", "full") not in {"full", "suppressed"}:
+            raise ValueError("floating_ui_mode must be full or suppressed")
         validate_screen_vision_interval_ms(
             settings.get(
                 "continuous_screen_vision_interval_ms",
@@ -519,6 +544,15 @@ class DesktopRequestHandler:
         if mode not in {"ALWAYS_ASK", "AUTO_APPROVE", "SMART_APPROVAL"}:
             raise ValueError(
                 "permissions_mode must be ALWAYS_ASK, AUTO_APPROVE, or SMART_APPROVAL"
+            )
+        model_request_timeout = settings.get("model_request_timeout_seconds", 90)
+        if (
+            isinstance(model_request_timeout, bool)
+            or not isinstance(model_request_timeout, (int, float))
+            or not 15 <= model_request_timeout <= 300
+        ):
+            raise ValueError(
+                "model_request_timeout_seconds must be between 15 and 300"
             )
         if self.fallback_manager is not None:
             self.fallback_manager.fallback_enabled = bool(
@@ -570,6 +604,7 @@ class DesktopRequestHandler:
             self.react_loop.tool_verification_enabled = bool(
                 settings.get("tool_verification_enabled", True)
             )
+            self.react_loop.model_request_timeout_seconds = int(model_request_timeout)
         if self.permission_manager is not None:
             self.permission_manager.configure(
                 mode=mode,

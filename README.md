@@ -2,7 +2,7 @@
 
 HELIX is a local-first desktop agent for working with the operating system, terminal, and context the user chooses to share. It combines a desktop shell, Python agent, explicit permission controls, configurable AI providers, and a CLI for supported workflows.
 
-> Documentation status: `v0.2.9` release line. Compatibility statements distinguish implementation, automated evidence, and manual validation.
+> Code versions in the current checkout: Normal `0.2.13`, Lite `0.2.13`, CLI `0.2.14`, and Mobile `0.1.0`. These values do not by themselves prove publication; verify each channel's release and assets independently.
 
 Links: [landing](https://helix-assistant.vercel.app) · [downloads](https://helix-assistant.vercel.app/download) · [capabilities](https://helix-assistant.vercel.app/features) · [web docs](https://helix-assistant.vercel.app/docs) · [releases](https://github.com/joelpizza0818-blip/Helix-Assitant/releases)
 
@@ -23,9 +23,10 @@ HELIX does not grant implicit authority or promise universal automation. Tool av
 
 | Product | Supported platform | Distribution | Support status |
 |---|---|---|---|
-| HELIX Normal | Windows x64, Electron | `HELIX-Setup-0.2.9.exe` | Primary desktop product |
-| HELIX Lite | Windows x64, Tauri/NSIS | `lite-v0.2.9` | Independent lightweight shell |
-| HELIX CLI | Node.js on Windows, macOS, and Linux where dependencies are available | `npx helix-assistant-cli` | Terminal/headless workflows |
+| HELIX Normal | Windows x64, Electron | `v0.2.13` | Primary desktop product; verify current release asset and checksum |
+| HELIX Lite | Windows x64, Tauri/NSIS | `lite-v0.2.13` | Independent lightweight shell; verify release asset separately |
+| HELIX Mobile | Android via Flutter | `mobile-vX.Y.Z` | Build workflow exists; signed public APK is not confirmed |
+| HELIX CLI | Node.js on Windows, macOS, and Linux where dependencies are available | `npx helix-assistant-cli` | Source version `0.2.14`; verify npm publication/stage status |
 | Server | Express/Prisma in its configured deployment environment | internal service | API, tasks, and update subscriptions |
 | Landing | Modern browser | Vercel | Public site, docs, and downloads |
 
@@ -138,11 +139,14 @@ Evidence must be labeled as automated, static, manual, installation, hardware, o
 
 ## Release process
 
-The current product line is `0.2.9`:
+The current source versions are `0.2.13` for Normal, `0.2.13` for Lite, `0.2.14` for CLI, and `0.1.0` for Mobile. Treat each as a separate release channel:
 
-- `v0.2.9`: Normal/core.
-- `lite-v0.2.9`: Lite.
-- `helix-assistant-cli@0.2.9`: CLI package.
+- `vX.Y.Z`: Normal/core.
+- `lite-vX.Y.Z`: Lite.
+- `mobile-vX.Y.Z`: Android/mobile workflow.
+- CLI uses its npm package version and a separately approved publish stage.
+
+HELIX `0.3.0` is planned, not published. Confirm tags, artifacts, checksums, npm state, and production deploys before describing any channel as released. Linux/macOS desktop installers are not currently verified; CI tests for the agent/relay do not establish desktop installer support.
 
 Before publishing: align manifests and lockfiles, run required tests, review the diff, apply `npm run db:deploy` from the approved production environment, create tags from a clean commit, verify installers/checksums, and run broadcasts only with production SMTP configured.
 

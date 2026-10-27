@@ -645,6 +645,7 @@ class Orchestrator:
                 )
                 return {"status": "cancelled", "task_id": task_id}
         finally:
+            close_ccl(task_id)
             async with self._execution_lock:
                 self._active_execution_ids.discard(task_id)
 

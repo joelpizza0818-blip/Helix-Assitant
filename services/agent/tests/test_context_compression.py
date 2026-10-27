@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import gzip
 import pytest
+import asyncio
 
 try:
     from services.agent.core.context_compression import (
@@ -135,6 +136,39 @@ def test_compress_conversation_tail_long_history(ccl):
     trimmed, header = ccl.compress_conversation_tail(msgs, keep_recent=8)
     assert len(trimmed) == 8
     assert "CCL" in header or "ccl" in header.lower()
+
+
+def test_compress_conversation_tail_preserves_full_older_turns(ccl):
+    long_turn = "important detail " * 100
+    messages = [{"role": "user", "content": long_turn}] + [
+        {"role": "assistant", "content": f"msg {index}"}
+        for index in range(8)
+    ]
+
+    _, header = ccl.compress_conversation_tail(messages, keep_recent=8)
+    block_id = next(iter(ccl._store))
+
+    assert "important detail" in ccl.retrieve(block_id)
+    assert block_id[:8] in header
+
+
+def test_context_retrieve_returns_large_blocks_in_bounded_chunks():
+    from services.agent.tools.context_retrieve_tool import ContextRetrieveTool
+
+    session_id = "retrieve-chunks-test"
+    registry_ccl = get_ccl(session_id, max_inline_chars=1, enable_disk_spill=False)
+    _, block_id = registry_ccl.pack("data", "abcdefghij", block_type="text")
+    tool = ContextRetrieveTool(session_id)
+
+    first = asyncio.run(tool.execute({"block_id": block_id[:12], "max_chars": 4}))
+    second = asyncio.run(tool.execute({"block_id": block_id[:12], "offset": 4, "max_chars": 4}))
+
+    assert first.success and second.success
+    assert first.output["content"] == "abcd"
+    assert first.output["next_offset"] == 4
+    assert second.output["content"] == "efgh"
+    assert second.output["next_offset"] == 8
+    close_ccl(session_id)
 
 
 # ── stats ─────────────────────────────────────────────────────────────────────

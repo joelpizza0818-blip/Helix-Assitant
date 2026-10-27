@@ -4,6 +4,7 @@ import { prepareSettingsSave, type SettingsSaveResult } from './settingsSave'
 
 const DEFAULT_SETTINGS: HelixSettings = {
   voice_enabled: true,
+  activation_phrase_enabled: true,
   wake_word: 'hey helix',
   wake_word_provider: 'openwakeword',
   wake_word_threshold: 0.5,
@@ -39,12 +40,14 @@ const DEFAULT_SETTINGS: HelixSettings = {
   block_downloads: true,
   block_untrusted_domains: true,
   always_on_top: true,
+  floating_ui_mode: 'full',
   global_summon_shortcut: 'Alt+Space',
   emergency_stop_shortcut: 'Control+Shift+Escape',
   default_model: null,
   preferred_provider: null,
   fallback_enabled: true,
   cross_provider_fallback: true,
+  model_request_timeout_seconds: 90,
   auto_approve_up_to: 'LOW_RISK',
   permissions_mode: 'SMART_APPROVAL',
   cost_preference: 'balanced',

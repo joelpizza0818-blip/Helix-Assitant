@@ -52,6 +52,9 @@ contextBridge.exposeInMainWorld('helix', {
     ipcRenderer.send('helix:open-toolbox')
   },
 
+  setFloatingWindowMode: (mode: 'full' | 'suppressed'): Promise<void> =>
+    ipcRenderer.invoke('helix:set-floating-window-mode', mode),
+
   // Open external URL in default browser
   openExternal: (url: string): void => {
     ipcRenderer.send('helix:open-external', url)

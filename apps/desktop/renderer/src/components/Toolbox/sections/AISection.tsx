@@ -479,6 +479,24 @@ export default function AISection({ providers, models, settings, onSave, onRefre
         </div>
 
         <div className="form-row">
+          <label className="form-label">Maximum wait per model response</label>
+          <select
+            className="form-input"
+            value={settings.model_request_timeout_seconds ?? 90}
+            onChange={(e) => void onSave({ model_request_timeout_seconds: Number(e.target.value) })}
+          >
+            <option value="30">30 seconds (fast failover)</option>
+            <option value="60">60 seconds</option>
+            <option value="90">90 seconds (recommended)</option>
+            <option value="180">3 minutes (slow providers)</option>
+            <option value="300">5 minutes (large individual turns)</option>
+          </select>
+          <span className="text-xs text-muted" style={{ marginLeft: 8 }}>
+            A timeout switches to the next compatible model; it does not limit the total workflow.
+          </span>
+        </div>
+
+        <div className="form-row">
           <label className="form-label">Cost Optimization Tier</label>
           <select
             className="form-input"

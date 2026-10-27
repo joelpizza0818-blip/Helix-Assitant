@@ -16,7 +16,15 @@ def _normalize_google_schema(value: Any) -> Any:
         return {
             key: _normalize_google_schema(item)
             for key, item in value.items()
-            if key not in {"additionalProperties", "additional_properties"}
+            # The Google SDK validates its Schema model locally and rejects
+            # JSON-Schema metadata such as ``$schema`` before a request ever
+            # reaches the provider.  Tool schemas originate in multiple
+            # registries, so normalize the unsupported metadata recursively.
+            if key not in {
+                "additionalProperties",
+                "additional_properties",
+                "$schema",
+            }
         }
     if isinstance(value, list):
         return [_normalize_google_schema(item) for item in value]
@@ -151,11 +159,15 @@ class GoogleProvider(BaseAIProvider):
 
     async def tool_call(self, messages: List[ChatMessage], tools: List[Dict], model: str, **kwargs) -> ToolCallResponse:
         if not genai: raise RuntimeError("google-genai SDK not installed")
-        contents = self._convert_messages(messages)
-        converted_tools = self._convert_tools(tools)
-        api_key = kwargs.get("api_key")
-        client = genai.Client(api_key=api_key)
         try:
+            # Build all SDK objects inside this boundary.  A malformed local
+            # schema is deterministic: normalize_error classifies it as an
+            # internal client error so FallbackManager stops instead of
+            # retrying every configured model/key combination.
+            contents = self._convert_messages(messages)
+            converted_tools = self._convert_tools(tools)
+            api_key = kwargs.get("api_key")
+            client = genai.Client(api_key=api_key)
             response = await client.aio.models.generate_content(
                 model=model,
                 contents=contents,

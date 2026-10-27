@@ -3,6 +3,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 const GITHUB_API = 'https://api.github.com'
 const LITE_RELEASE_OWNER = 'joelpizza0818-blip'
 const LITE_RELEASE_REPOSITORY = 'Helix-Assitant'
+const INSTALLER_RELEASE_OWNER = 'joelpizza0818-blip'
+const INSTALLER_RELEASE_REPOSITORY = 'helix-installer-downloads'
 
 function releaseTag(version: string): string {
   return version.startsWith('v') ? version : `v${version}`
@@ -429,17 +431,15 @@ async function verifyRelease(
   version: string,
   channel?: 'stable' | 'beta',
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const owner = Deno.env.get('GITHUB_INSTALLER_OWNER')
-  const repository = Deno.env.get('GITHUB_INSTALLER_REPO')
   const token = Deno.env.get('GITHUB_INSTALLER_TOKEN')
-  if (!owner || !repository || !token) {
+  if (!token) {
     return { ok: false, error: 'Private installer release access is not configured.' }
   }
   const tag = releaseTag(version)
   let response: Response
   try {
     response = await fetch(
-      `${GITHUB_API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}/releases/tags/${encodeURIComponent(tag)}`,
+      `${GITHUB_API}/repos/${INSTALLER_RELEASE_OWNER}/${INSTALLER_RELEASE_REPOSITORY}/releases/tags/${encodeURIComponent(tag)}`,
       {
         headers: {
           Accept: 'application/vnd.github+json',

@@ -749,6 +749,9 @@ async def main():
                     env_dict = {
                         **dict(os.environ),
                         "VOICE_ENABLED": "true",
+                        "ACTIVATION_PHRASE_ENABLED": str(
+                            payload.get("activation_phrase_enabled", True)
+                        ).lower(),
                         "VOICE_RESPONSE_ENABLED": str(
                             payload.get("voice_response_enabled", True)
                         ).lower(),
@@ -817,6 +820,15 @@ async def main():
                     },
                 )
         elif voice_enabled is True and voice_engine is not None:
+            activation_phrase_enabled = bool(payload.get("activation_phrase_enabled", True))
+            if activation_phrase_enabled != voice_engine.activation_phrase_enabled:
+                voice_engine.activation_phrase_enabled = activation_phrase_enabled
+                voice_engine.config["ACTIVATION_PHRASE_ENABLED"] = activation_phrase_enabled
+                if activation_phrase_enabled:
+                    await voice_engine.start()
+                elif voice_engine.is_active():
+                    await voice_engine.stop()
+                    await voice_engine.start_response()
             configured_aliases = payload.get("custom_wake_words", [])
             if not isinstance(configured_aliases, list):
                 raise ValueError("custom_wake_words must be a list of phrases.")

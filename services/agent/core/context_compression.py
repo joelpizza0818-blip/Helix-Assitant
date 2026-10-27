@@ -238,7 +238,9 @@ class ContextCompressionLayer:
                 content = " ".join(
                     p.get("text", "") for p in content if isinstance(p, dict)
                 )
-            parts.append(f"{role.upper()}: {content[:300]}")
+            # Preserve exact old turns in the recoverable block. The packed
+            # representation, not destructive slicing, controls prompt size.
+            parts.append(f"{role.upper()}: {content}")
         raw_history = "\n".join(parts)
 
         packed, block_id = self.pack(

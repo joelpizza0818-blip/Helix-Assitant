@@ -9,11 +9,14 @@ from types import SimpleNamespace
 from typing import Any, List, Optional
 
 try:
-    from services.agent.ai.base_provider import ChatMessage, ChatResponse
+    from services.agent.ai.base_provider import AgentError, ChatMessage, ChatResponse
+    from services.agent.core.context_compression import get_ccl
     from services.agent.perception.screen_observation_policy import (
         screen_observation_scope,
     )
 except ImportError:
+    from ai.base_provider import AgentError
+    from core.context_compression import get_ccl
     from perception.screen_observation_policy import screen_observation_scope
 
 logger = logging.getLogger(__name__)
@@ -34,9 +37,8 @@ class _ToolExecutionOutcome:
     image_bytes: Optional[bytes] = None
 
 
-def _model_tool_output(tool_name: str, output) -> str:
-    if tool_name not in _SHELL_TOOL_NAMES:
-        return str(output)
+def _model_tool_output(tool_name: str, output, *, ccl=None, success: bool = True) -> str:
+    """Keep large tool evidence recoverable instead of irreversibly truncating it."""
     if is_dataclass(output) and not isinstance(output, type):
         output = asdict(output)
     serialized = (
@@ -44,6 +46,9 @@ def _model_tool_output(tool_name: str, output) -> str:
         if isinstance(output, (dict, list, tuple))
         else str(output)
     )
+    if ccl is not None:
+        packed, _ = ccl.compress_tool_output(tool_name, serialized, success=success)
+        return packed
     if len(serialized) <= _SHELL_OUTPUT_LIMIT:
         return serialized
     marker = "[... Output truncated ...]"
@@ -88,6 +93,8 @@ class ReActLoop:
         self.continuous_screen_vision_enabled = False
         self.model_decides_screen_vision_enabled = False
         self.tool_verification_enabled = True
+        # A per-model-turn bound: it never limits a full workflow or its tools.
+        self.model_request_timeout_seconds = 90
 
     async def _ensure_confirmation_subscriptions(self):
         subscribe = getattr(self.event_bus, "subscribe", None)
@@ -483,6 +490,7 @@ class ReActLoop:
         )
         provider_context = {
             "messages": current_messages,
+            "_model_request_timeout_seconds": self.model_request_timeout_seconds,
             "_execution_failed_models": set(),
             "_execution_failed_keys": set(),
             "_execution_failed_candidates": set(),
@@ -532,17 +540,35 @@ class ReActLoop:
                     allow_tool_calls and not retried_empty_response_without_tools
                 )
                 if use_tool_calls and tools:
-                    return await provider.tool_call(
+                    request = provider.tool_call(
                         context['messages'],
                         tools,
                         candidate.model_id,
                         api_key=api_key,
                     )
-                return await provider.chat(
-                    context['messages'],
-                    candidate.model_id,
-                    api_key=api_key,
-                )
+                else:
+                    request = provider.chat(
+                        context['messages'],
+                        candidate.model_id,
+                        api_key=api_key,
+                    )
+                try:
+                    return await asyncio.wait_for(
+                        request,
+                        timeout=self.model_request_timeout_seconds,
+                    )
+                except asyncio.TimeoutError as error:
+                    raise AgentError(
+                        code="TIMEOUT",
+                        message=(
+                            "The model did not respond within "
+                            f"{self.model_request_timeout_seconds} seconds."
+                        ),
+                        provider=candidate.provider_id,
+                        model=candidate.model_id,
+                        retryable=True,
+                        original_exception=error,
+                    ) from error
 
             provider_context["messages"] = current_messages
             response = await self.fallback_manager.execute_with_fallback(
@@ -728,7 +754,12 @@ class ReActLoop:
                     
                     current_messages.append(ChatMessage(
                         role="tool",
-                        content=_model_tool_output(tc.name, output),
+                        content=_model_tool_output(
+                            tc.name,
+                            output,
+                            ccl=get_ccl(task_id) if task_id else None,
+                            success=tool_succeeded,
+                        ),
                         tool_call_id=tc.id,
                         tool_name=tc.name,
                     ))

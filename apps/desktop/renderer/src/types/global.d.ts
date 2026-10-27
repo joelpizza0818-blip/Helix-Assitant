@@ -24,6 +24,7 @@ export interface HelixAPI {
   rejectAction: (requestId: string) => void
   quit: () => void
   openToolbox: () => void
+  setFloatingWindowMode: (mode: 'full' | 'suppressed') => Promise<void>
   openExternal: (url: string) => void
   getAppVersion: () => Promise<string>
   createMobilePairing: () => Promise<MobilePairingInvitation>
@@ -477,6 +478,7 @@ export interface AgentError {
 
 export interface HelixSettings {
   voice_enabled: boolean
+  activation_phrase_enabled?: boolean
   wake_word: string
   wake_word_provider: 'openwakeword'
   custom_wake_words?: string[]
@@ -497,6 +499,7 @@ export interface HelixSettings {
   preferred_provider: ProviderID | null
   fallback_enabled: boolean
   cross_provider_fallback: boolean
+  model_request_timeout_seconds?: number
   auto_approve_up_to: 'READ_ONLY' | 'LOW_RISK' | 'MODIFY'
   permissions_mode?: 'ALWAYS_ASK' | 'AUTO_APPROVE' | 'SMART_APPROVAL'
   cost_preference: 'low' | 'balanced' | 'high'
@@ -532,6 +535,7 @@ export interface HelixSettings {
   block_downloads?: boolean
   block_untrusted_domains?: boolean
   always_on_top?: boolean
+  floating_ui_mode?: 'full' | 'suppressed'
   global_summon_shortcut?: string
   emergency_stop_shortcut?: string
   custom_models?: ModelDefinition[]

@@ -215,6 +215,7 @@ export async function installTauriBridge(): Promise<void> {
     deleteSkill: async (name: string) => { await request('DELETE_SKILL', { name }) },
     getMcpServers: () => request('GET_MCP_SERVERS') as ReturnType<HelixAPI['getMcpServers']>,
     openToolbox: () => invoke<void>('open_toolbox').catch(notifyError),
+    setFloatingWindowMode: () => Promise.resolve(),
     quit: () => invoke<void>('quit_app').catch(notifyError),
     openExternal: (url: string) => {
       const parsed = new URL(url)

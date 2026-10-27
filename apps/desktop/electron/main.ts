@@ -386,12 +386,12 @@ function createFloatingWindow(): BrowserWindow {
     x: width - 440,
     y: height - 660,
     frame: false,
-    transparent: false,
+    transparent: true,
     alwaysOnTop: true,
     skipTaskbar: true,
     resizable: false,
     show: false,
-    backgroundColor: '#101010',
+    backgroundColor: '#00000000',
     icon: APP_ICON_PATH,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -410,6 +410,20 @@ function createFloatingWindow(): BrowserWindow {
   })
 
   return win
+}
+
+function resizeFloatingWindow(mode: 'full' | 'suppressed'): void {
+  if (!floatingWindow || floatingWindow.isDestroyed()) return
+
+  const bounds = floatingWindow.getBounds()
+  const nextWidth = mode === 'suppressed' ? 620 : 420
+  const nextHeight = mode === 'suppressed' ? 76 : 640
+  const center = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 }
+  const display = screen.getDisplayNearestPoint(center)
+  const area = display.workArea
+  const x = Math.max(area.x, Math.min(Math.round(center.x - nextWidth / 2), area.x + area.width - nextWidth))
+  const y = Math.max(area.y, Math.min(Math.round(center.y - nextHeight / 2), area.y + area.height - nextHeight))
+  floatingWindow.setBounds({ x, y, width: nextWidth, height: nextHeight }, true)
 }
 
 function createToolboxWindow(): BrowserWindow {
@@ -633,6 +647,16 @@ function setupIPC(): void {
       }
       return safeStorage.decryptString(Buffer.from(value, 'base64'))
     },
+  })
+
+  ipcMain.handle('helix:set-floating-window-mode', (event, mode: unknown) => {
+    if (event.sender.id !== floatingWindow?.webContents.id) {
+      throw new Error('Only the floating HELIX window can change its mode.')
+    }
+    if (mode !== 'full' && mode !== 'suppressed') {
+      throw new TypeError('Floating window mode must be full or suppressed.')
+    }
+    resizeFloatingWindow(mode)
   })
 
   ipcMain.handle('helix:updater-check', async () => {

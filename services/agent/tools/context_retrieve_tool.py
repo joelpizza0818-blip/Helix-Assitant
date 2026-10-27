@@ -22,6 +22,8 @@ except ImportError:
     from core.context_compression import get_ccl
 
 logger = logging.getLogger(__name__)
+_DEFAULT_RETRIEVE_CHARS = 12_000
+_MAX_RETRIEVE_CHARS = 50_000
 
 
 class ContextRetrieveTool(BaseTool):
@@ -58,15 +60,36 @@ class ContextRetrieveTool(BaseTool):
         return False
 
     def validate_params(self, params: Dict[str, Any]) -> bool:
-        return bool(params.get("block_id", "").strip())
+        block_id = params.get("block_id", "")
+        offset = params.get("offset", 0)
+        max_chars = params.get("max_chars", _DEFAULT_RETRIEVE_CHARS)
+        return (
+            isinstance(block_id, str)
+            and bool(block_id.strip())
+            and isinstance(offset, int)
+            and not isinstance(offset, bool)
+            and offset >= 0
+            and isinstance(max_chars, int)
+            and not isinstance(max_chars, bool)
+            and 1 <= max_chars <= _MAX_RETRIEVE_CHARS
+        )
 
     async def execute(self, params: Dict[str, Any]) -> ToolResult:
         block_id: str = params.get("block_id", "").strip()
-        if not block_id:
+        offset = params.get("offset", 0)
+        max_chars = params.get("max_chars", _DEFAULT_RETRIEVE_CHARS)
+        if not self.validate_params({
+            "block_id": block_id,
+            "offset": offset,
+            "max_chars": max_chars,
+        }):
             return ToolResult(
                 success=False,
                 output=None,
-                error="block_id is required",
+                error=(
+                    "block_id is required; offset must be non-negative and "
+                    f"max_chars must be between 1 and {_MAX_RETRIEVE_CHARS}."
+                ),
             )
 
         # Accept short prefix (first 8+ chars) by searching the store
@@ -94,16 +117,21 @@ class ContextRetrieveTool(BaseTool):
             )
 
         char_count = len(content)
+        chunk = content[offset:offset + max_chars]
+        next_offset = offset + len(chunk)
         logger.info(
-            "CCL retrieve tool block=%s chars=%d session=%s",
-            block_id[:16], char_count, self._session_id,
+            "CCL retrieve tool block=%s chars=%d offset=%d returned=%d session=%s",
+            block_id[:16], char_count, offset, len(chunk), self._session_id,
         )
         return ToolResult(
             success=True,
             output={
                 "block_id": block_id,
                 "char_count": char_count,
-                "content": content,
+                "offset": offset,
+                "returned_chars": len(chunk),
+                "next_offset": next_offset if next_offset < char_count else None,
+                "content": chunk,
             },
         )
 
@@ -120,7 +148,21 @@ class ContextRetrieveTool(BaseTool):
                             "The block identifier shown in a [CCL:...] marker. "
                             "Can be the full 'ccl:<sha256>' or a short prefix (≥8 chars)."
                         ),
-                    }
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": "Character offset to resume from (default 0).",
+                        "minimum": 0,
+                    },
+                    "max_chars": {
+                        "type": "integer",
+                        "description": (
+                            "Maximum characters to return in this chunk (default 12000, "
+                            "maximum 50000). Use next_offset to continue large blocks."
+                        ),
+                        "minimum": 1,
+                        "maximum": _MAX_RETRIEVE_CHARS,
+                    },
                 },
                 "required": ["block_id"],
             },

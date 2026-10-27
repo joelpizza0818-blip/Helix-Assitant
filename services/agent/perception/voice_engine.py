@@ -25,6 +25,9 @@ class VoiceEngine:
         self.key_manager = key_manager
         self.state_manager = state_manager
         self.enabled = config.get('VOICE_ENABLED', 'false').lower() == 'true'
+        self.activation_phrase_enabled = self._as_bool(
+            config.get('ACTIVATION_PHRASE_ENABLED', 'true')
+        )
         self.response_enabled = self._as_bool(
             config.get('VOICE_RESPONSE_ENABLED', 'false')
         )
@@ -138,6 +141,10 @@ class VoiceEngine:
 
     async def start(self):
         if not self.enabled or self._is_active:
+            return
+        if not getattr(self, "activation_phrase_enabled", True):
+            logger.info("Voice input is paused because the activation phrase is disabled.")
+            await self.start_response()
             return
         try:
             import faster_whisper as _fw

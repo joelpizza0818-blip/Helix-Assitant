@@ -4,9 +4,9 @@ Aplicación móvil multiplataforma para controlar una instalación de HELIX Desk
 
 ## Estado de la auditoría
 
-**Estado: shell visual, pairing temporal, Relay local y transportes nativos implementados; despliegue TLS y publicación firmada todavía pendientes.**
+**Estado: Android 0.3.0 está publicado como release estable firmada. El worktree actual añade pairing QR v2 con aprobación por dispositivo, pero aún no está publicado ni verificado end-to-end.**
 
-La auditoría del repositorio confirma que el agente ya expone un protocolo JSON sobre WebSocket, pero actualmente está ligado a `127.0.0.1` y autentica con `HELIX_WS_TOKEN`. Por eso el móvil no debe intentar conectarse directamente al puerto local de una máquina remota: necesita primero un túnel SSH o un relay autorizado. Desktop genera desde Toolbox una invitación separada, con expiración de 30 minutos, que el agente valida además del token interno.
+El agente expone un protocolo JSON sobre WebSocket y autentica con `HELIX_WS_TOKEN`. Para un host remoto, el móvil necesita un túnel SSH o un relay autorizado. El flujo existente de pairing temporal sigue disponible; el worktree actual también integra invitaciones QR v2 de cinco minutos, aprobación en Desktop y relay Cloudflare Worker. El Worker debe desplegarse y probarse en un teléfono antes de considerar funcional esa ruta en producción.
 
 ## Qué contiene esta carpeta
 
@@ -47,7 +47,7 @@ movil/
 1. Instalar Flutter estable con soporte Android/iOS/Web/Desktop según el objetivo.
 2. Desde esta carpeta ejecutar `flutter pub get`.
 3. Copiar `config/mobile.example.json` a una configuración local fuera de Git.
-4. Desde Desktop > Toolbox > Vincular móvil genera una invitación; nunca pegar `HELIX_WS_TOKEN` en el repositorio.
+4. Desde Desktop > Toolbox > Vincular móvil genera una invitación; para QR v2, escanéala desde el móvil o usa la alternativa de pegar el JSON. Nunca pegar `HELIX_WS_TOKEN` en el repositorio.
 5. Ejecutar `flutter analyze` y `flutter test` antes de conectar una máquina real.
 
 La superficie visual ya incluye chat remoto, modo Voice, drawer, estado de conexión, panel Desktop y composer bloqueado hasta conectar. En targets nativos el botón de conexión abre SSH + forward loopback o Relay WSS y después el WebSocket autenticado del agente. Web solo sirve para previsualizar la interfaz: no puede establecer el handshake autenticado porque el navegador no permite configurar el header `Authorization`; el cliente no envía tokens en query strings.
@@ -66,14 +66,14 @@ La superficie visual ya incluye chat remoto, modo Voice, drawer, estado de conex
 - **Chat:** estado vacío orientado a conectar Desktop, burbujas de conversación y composer deshabilitado cuando no hay sesión.
 - **Desktop:** resumen del transporte, destino loopback y acción de conexión/desconexión.
 - **Estado global:** píldora `Offline`, `Conectando` o `Conectado` en la cabecera.
-- **Vinculación:** token temporal generado por Desktop, menú de conexión SSH/Relay y huella de host opcional pero recomendada.
+- **Vinculación:** pairing temporal SSH/Relay; el worktree añade escaneo QR o importación manual de invitaciones v2 y validación de expiración antes de solicitar aprobación en Desktop.
 - **Identidad visual:** fondo carbón, superficies discretas, naranja HELIX como acento y navegación táctil nativa de Flutter.
 
 ## Límites conocidos
 
 - El agente actual solo escucha en loopback; el relay SSH requiere que el host remoto tenga SSH habilitado.
-- El pairing temporal y el relay están implementados; aún falta desplegar el relay detrás de TLS y una política de revocación por dispositivo con scopes más finos.
-- No existe todavía un APK firmado ni evidencia de prueba en dispositivos físicos.
-- Los tags `mobile-v*` generan prereleases de prueba con SHA-256, no releases estables: el workflow no tiene keystore oficial y Gradle usa su firma debug predeterminada. SHA-256 verifica integridad, no identidad del editor.
+- Android `mobile-v0.3.0` está publicado como release estable firmada con checksum. No hay IPA iOS publicado ni evidencia de instalación física.
+- El código local del Worker y su integración de pairing v2 no están desplegados ni publicados. El build Android del worktree no pudo completarse porque Maven Central respondió HTTP 403 al descargar dependencias; no equivale a un fallo confirmado del código.
+- Web solo sirve para previsualizar la interfaz y no puede completar el handshake autenticado.
 
 Consultar `docs/roadmap.md` antes de ampliar el alcance.

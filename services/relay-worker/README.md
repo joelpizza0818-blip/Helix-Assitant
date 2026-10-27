@@ -28,11 +28,10 @@ npx wrangler login
 npm run deploy:relay-worker
 ```
 
-The HELIX Desktop client pre-fills the HELIX-operated relay endpoint, but users
-may replace it with a Worker deployed in their own Cloudflare account. No
-Cloudflare account credential or API token is shipped. Keep Wrangler credentials
-out of the repository and configure deployments through the operator's
-Cloudflare account.
+The Worker endpoint is specific to the deploying account. HELIX does not ship a
+shared relay URL, account credential, or Cloudflare API token. Keep Wrangler
+credentials out of the repository and configure deployments through the
+operator's Cloudflare account.
 
 ## Protocol and security
 

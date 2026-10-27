@@ -186,8 +186,9 @@ def test_provider_tool_formats_and_tool_result_history():
         == "computer_click_text"
     )
 
-def test_google_tool_schema_drops_unsupported_additional_properties_recursively():
+def test_google_tool_schema_drops_unsupported_metadata_recursively():
     schema = {
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
         "properties": {
             "options": {
@@ -210,20 +211,25 @@ def test_google_tool_schema_drops_unsupported_additional_properties_recursively(
         exclude_none=True,
     )
 
-    def has_additional_properties(value):
+    def has_unsupported_metadata(value):
         if isinstance(value, dict):
             return any(
-                key in {"additionalProperties", "additional_properties"}
-                or has_additional_properties(item)
+                key in {
+                    "additionalProperties",
+                    "additional_properties",
+                    "$schema",
+                }
+                or has_unsupported_metadata(item)
                 for key, item in value.items()
             )
         if isinstance(value, list):
-            return any(has_additional_properties(item) for item in value)
+            return any(has_unsupported_metadata(item) for item in value)
         return False
 
-    assert not has_additional_properties(converted_schema)
+    assert not has_unsupported_metadata(converted_schema)
     assert schema["additionalProperties"] is False
     assert schema["properties"]["options"]["additionalProperties"] is False
+    assert schema["$schema"] == "http://json-schema.org/draft-07/schema#"
 
 def test_google_messages_match_installed_sdk_and_preserve_roles_and_modal_parts():
     history = [
