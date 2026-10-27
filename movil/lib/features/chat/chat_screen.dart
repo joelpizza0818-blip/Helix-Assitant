@@ -90,9 +90,11 @@ class _ChatScreenState extends State<ChatScreen> {
       if (mounted) {
         setState(() {
           _connecting = false;
-          _connectionError = e.toString().contains('TimeoutException')
-              ? 'Tiempo de espera agotado. Verifica que el relay esté activo.'
-              : 'No se pudo conectar. Revisa el token y la URL del relay.';
+          _connectionError = e is UnsupportedError
+              ? 'La conexión móvil requiere la app nativa; la versión web solo permite previsualizar la interfaz.'
+              : e.toString().contains('TimeoutException')
+                  ? 'Tiempo de espera agotado. Verifica que el relay esté activo.'
+                  : 'No se pudo conectar. Revisa el token y la URL del relay.';
         });
         Future.delayed(const Duration(seconds: 6), () {
           if (mounted) setState(() => _connectionError = null);

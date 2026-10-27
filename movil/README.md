@@ -50,7 +50,7 @@ movil/
 4. Desde Desktop > Toolbox > Vincular móvil genera una invitación; nunca pegar `HELIX_WS_TOKEN` en el repositorio.
 5. Ejecutar `flutter analyze` y `flutter test` antes de conectar una máquina real.
 
-La superficie visual ya incluye chat remoto, modo Voice, drawer, estado de conexión, panel Desktop y composer bloqueado hasta conectar. En targets nativos el botón de conexión abre SSH + forward loopback o Relay WSS y después el WebSocket autenticado del agente; en Web solo sirve para preview porque no existe TCP nativo.
+La superficie visual ya incluye chat remoto, modo Voice, drawer, estado de conexión, panel Desktop y composer bloqueado hasta conectar. En targets nativos el botón de conexión abre SSH + forward loopback o Relay WSS y después el WebSocket autenticado del agente. Web solo sirve para previsualizar la interfaz: no puede establecer el handshake autenticado porque el navegador no permite configurar el header `Authorization`; el cliente no envía tokens en query strings.
 
 ## Decisiones iniciales
 
@@ -74,5 +74,6 @@ La superficie visual ya incluye chat remoto, modo Voice, drawer, estado de conex
 - El agente actual solo escucha en loopback; el relay SSH requiere que el host remoto tenga SSH habilitado.
 - El pairing temporal y el relay están implementados; aún falta desplegar el relay detrás de TLS y una política de revocación por dispositivo con scopes más finos.
 - No existe todavía un APK firmado ni evidencia de prueba en dispositivos físicos.
+- Los tags `mobile-v*` generan prereleases de prueba con SHA-256, no releases estables: el workflow no tiene keystore oficial y Gradle usa su firma debug predeterminada. SHA-256 verifica integridad, no identidad del editor.
 
 Consultar `docs/roadmap.md` antes de ampliar el alcance.

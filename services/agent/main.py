@@ -28,6 +28,7 @@ from core.desktop_bridge import (
     _serialize_task_for_desktop,
 )
 from security.websocket_auth import authenticate_websocket_handshake
+from services.agent.relay_client import run_relay_connector
 from core.state_manager import StateManager
 from core.task_manager import TaskManager
 from core.planner import Planner
@@ -131,6 +132,7 @@ async def main():
 
     load_dotenv(project_root / ".env")
     ws_token = os.environ.pop("HELIX_WS_TOKEN", None)
+    pairing_file = os.environ.get("HELIX_WS_PAIRING_FILE")
     token_dir = Path(os.environ.get("APPDATA", Path.home() / ".config")) / "HELIX"
     token_file = token_dir / ".ws_token"
 
@@ -985,11 +987,21 @@ async def main():
         args.ws_port,
         max_size=MAX_AGENT_WEBSOCKET_MESSAGE_BYTES,
         process_request=lambda connection, request: authenticate_websocket_handshake(
-            connection, request, ws_token
+            connection, request, ws_token, pairing_file
         ),
     )
     logger.info(f"HELIX Agent WebSocket server started on ws://127.0.0.1:{args.ws_port}")
     await asyncio.sleep(0)
+    relay_task = None
+    relay_url = (
+        os.environ.get("HELIX_MOBILE_RELAY_URL_FILE")
+        or os.environ.get("HELIX_MOBILE_RELAY_WSS_URL")
+    )
+    if relay_url:
+        relay_task = asyncio.create_task(
+            run_relay_connector(relay_url, pairing_file, args.ws_port, ws_token),
+            name="helix-mobile-relay",
+        )
     startup_settings_task = asyncio.create_task(
         initialize_startup_settings(),
         name="helix-startup-settings",
@@ -1001,6 +1013,12 @@ async def main():
     except (asyncio.CancelledError, KeyboardInterrupt):
         pass
     finally:
+        if relay_task is not None and not relay_task.done():
+            relay_task.cancel()
+            try:
+                await relay_task
+            except asyncio.CancelledError:
+                pass
         if not startup_settings_task.done():
             startup_settings_task.cancel()
             try:

@@ -56,6 +56,11 @@ tests/*
 !tests/promptfoo/*.yaml
 tests/promptfoo/eval-results*.json
 /tools/
+/.tools/
+/.helix-relay-url.json
+/movil/android/key.properties
+/movil/android/*.jks
+/movil/android/*.keystore
 AGENTS.md
 
 .kiro

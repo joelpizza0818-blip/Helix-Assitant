@@ -1,6 +1,6 @@
 import 'package:web_socket_channel/web_socket_channel.dart';
 
-WebSocketChannel connectAuthenticatedWebSocket(Uri uri, String token) {
-  final params = Map<String, String>.from(uri.queryParameters)..['access_token'] = token;
-  return WebSocketChannel.connect(uri.replace(queryParameters: params));
-}
+WebSocketChannel connectAuthenticatedWebSocket(Uri uri, String token) =>
+    throw UnsupportedError(
+      'Authenticated HELIX connections require a native Flutter target.',
+    );

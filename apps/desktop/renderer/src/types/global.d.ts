@@ -26,6 +26,9 @@ export interface HelixAPI {
   openToolbox: () => void
   openExternal: (url: string) => void
   getAppVersion: () => Promise<string>
+  createMobilePairing: () => Promise<MobilePairingInvitation>
+  getMobileRelayUrl: () => Promise<string>
+  setMobileRelayUrl: (url: string) => Promise<string>
 
   getSettings: () => Promise<HelixSettings>
   saveSettings: (settings: Partial<HelixSettings>) => Promise<void>
@@ -88,6 +91,16 @@ export interface HelixAPI {
 }
 
 export interface AdminBackup { version: string; createdAt: string; currentVersion: string | null; synced?: boolean; syncError?: string }
+
+export interface MobilePairingInvitation {
+  version: 1
+  host: string
+  sshPort: number
+  remoteWsPort: number
+  token: string
+  expiresAt: string
+  relayWssUrl?: string
+}
 
 export type InstallationProfile = 'progressive' | 'complete'
 export type CapabilityPackStatus = 'installed' | 'missing' | 'incompatible' | 'error'

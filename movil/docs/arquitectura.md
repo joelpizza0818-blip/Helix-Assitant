@@ -43,3 +43,15 @@ La sesión debe mantener un único consumidor del socket. Al perderse la conexi�
 - crear un nuevo handshake y no reutilizar un socket muerto;
 - deduplicar eventos por `event_id` cuando el relay lo provea;
 - nunca repetir automáticamente una acción sensible.
+
+## Pairing por QR — diseño aprobado, no implementado
+
+El objetivo de producto es QR efímero con alternativa manual:
+
+1. Desktop crea invitación de un solo uso que vence en 5 minutos y muestra el QR/código.
+2. La invitación solo contiene versión, endpoint WSS y secreto temporal; nunca incluye el token maestro del agente, API keys ni claves privadas.
+3. Escanear crea una solicitud pendiente; Desktop muestra y confirma antes de vincular.
+4. Después de aceptar, móvil recibe credencial única por dispositivo y la guarda en almacenamiento seguro.
+5. Desktop lista y revoca dispositivos individualmente; revocar cierra la sesión activa y bloquea reconexiones.
+
+El checkout actual solo genera un token temporal de 30 minutos y permite copiar JSON. No hay escáner QR, flujo de aprobación ni credenciales/scopes por dispositivo. No tratar este diseño como funcionalidad entregada.

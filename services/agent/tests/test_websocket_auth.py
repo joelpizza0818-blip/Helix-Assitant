@@ -2,8 +2,10 @@ import asyncio
 import base64
 from http import HTTPStatus
 import json
+import time
 import sys
 import textwrap
+from pathlib import Path
 
 import pytest
 import websockets
@@ -89,6 +91,37 @@ def test_websocket_handshake_accepts_valid_token():
         {"Authorization": f"Bearer {EXPECTED_TOKEN}"},
         EXPECTED_TOKEN,
     )
+
+
+def test_websocket_handshake_accepts_a_live_mobile_pairing_token(tmp_path: Path):
+    pairing_file = tmp_path / "mobile-pairing.json"
+    pairing_file.write_text(
+        json.dumps({"token": "mobile-token", "expires_at": time.time() + 60}),
+        encoding="utf-8",
+    )
+
+    assert authenticate_websocket_handshake(
+        None,
+        {"Authorization": "Bearer mobile-token"},
+        EXPECTED_TOKEN,
+        pairing_file,
+    ) is None
+
+
+def test_websocket_handshake_rejects_an_expired_mobile_pairing_token(tmp_path: Path):
+    pairing_file = tmp_path / "mobile-pairing.json"
+    pairing_file.write_text(
+        json.dumps({"token": "mobile-token", "expires_at": time.time() - 1}),
+        encoding="utf-8",
+    )
+
+    response = authenticate_websocket_handshake(
+        None,
+        {"Authorization": "Bearer mobile-token"},
+        EXPECTED_TOKEN,
+        pairing_file,
+    )
+    assert response[0] == HTTPStatus.UNAUTHORIZED
 
 
 def test_modern_websockets_rejects_with_http_401():

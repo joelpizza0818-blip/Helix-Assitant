@@ -167,6 +167,8 @@ export class PythonManager {
         ].filter(Boolean).join(path.delimiter),
         HELIX_SETTINGS_PATH: this.settingsPath,
         HELIX_LOG_DIR: path.join(path.dirname(this.settingsPath), 'logs'),
+        HELIX_WS_PAIRING_FILE: path.join(path.dirname(this.settingsPath), 'mobile-pairing.json'),
+        HELIX_MOBILE_RELAY_URL_FILE: path.join(path.dirname(this.settingsPath), 'mobile-relay.json'),
         ...websocketTokenEnvironment(this.getWebSocketToken())
       }
     })

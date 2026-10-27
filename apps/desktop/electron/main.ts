@@ -17,6 +17,8 @@ import {
 import { autoUpdater } from 'electron-updater'
 import path from 'path'
 import fs from 'fs'
+import { randomBytes } from 'crypto'
+import { networkInterfaces } from 'os'
 import { pathToFileURL } from 'url'
 import { PythonManager } from './python-manager'
 import { IPCBridge } from './ipc'
@@ -172,6 +174,88 @@ interface AdminBackup { version: string; createdAt: string; currentVersion: stri
 interface AdminConfig { autoUpdate: boolean; checkIntervalHours: number; channel: 'stable' | 'beta'; publicVersion: string; backups: AdminBackup[] }
 
 function adminConfigPath(): string { return path.join(app.getPath('userData'), 'admin-config.json') }
+
+interface MobilePairingInvitation {
+  version: 1
+  host: string
+  sshPort: number
+  remoteWsPort: number
+  token: string
+  expiresAt: string
+  relayWssUrl?: string
+}
+
+function mobilePairingPath(): string {
+  return path.join(app.getPath('userData'), 'mobile-pairing.json')
+}
+
+function mobileRelayConfigPath(): string {
+  return path.join(app.getPath('userData'), 'mobile-relay.json')
+}
+
+function readMobileRelayUrl(): string {
+  const candidates = [
+    mobileRelayConfigPath(),
+    process.env.HELIX_MOBILE_RELAY_WSS_URL?.trim(),
+    // The no-domain launcher writes this only while its tunnel is alive.
+    path.resolve(app.getAppPath(), '../..', '.helix-relay-url.json'),
+  ]
+  for (const candidate of candidates) {
+    if (!candidate) continue
+    try {
+      const raw = candidate.endsWith('.json') ? JSON.parse(fs.readFileSync(candidate, 'utf8')).url : candidate
+      if (typeof raw === 'string' && (raw.startsWith('ws://') || raw.startsWith('wss://'))) return raw.trim()
+    } catch { /* try the next source */ }
+  }
+  return ''
+}
+
+function saveMobileRelayUrl(value: unknown): string {
+  if (typeof value !== 'string') throw new TypeError('Relay URL must be a string.')
+  const url = value.trim()
+  if (!url) {
+    try { fs.rmSync(mobileRelayConfigPath(), { force: true }) } catch { /* best effort */ }
+    return ''
+  }
+  let parsed: URL
+  try { parsed = new URL(url) } catch { throw new TypeError('Relay URL is invalid.') }
+  if (parsed.protocol !== 'ws:' && parsed.protocol !== 'wss:') {
+    throw new TypeError('Relay URL must use ws:// or wss://.')
+  }
+  fs.writeFileSync(mobileRelayConfigPath(), JSON.stringify({ url }, null, 2), { encoding: 'utf8', mode: 0o600 })
+  return url
+}
+
+function desktopLanAddress(): string {
+  const interfaces = networkInterfaces()
+  for (const entries of Object.values(interfaces)) {
+    for (const entry of entries ?? []) {
+      if (entry.family === 'IPv4' && !entry.internal && entry.address) return entry.address
+    }
+  }
+  return '127.0.0.1'
+}
+
+function createMobilePairing(): MobilePairingInvitation {
+  if (!pythonManager) throw new Error('The HELIX Desktop agent is not running.')
+  const token = randomBytes(32).toString('hex')
+  const expiresAt = new Date(Date.now() + 30 * 60 * 1000)
+  fs.writeFileSync(mobilePairingPath(), JSON.stringify({ token, expires_at: expiresAt.getTime() / 1000 }), {
+    encoding: 'utf8',
+    mode: 0o600,
+  })
+  const relayWssUrl = readMobileRelayUrl()
+  return {
+    version: 1,
+    host: desktopLanAddress(),
+    sshPort: 22,
+    remoteWsPort: wsPort,
+    token,
+    expiresAt: expiresAt.toISOString(),
+    ...(relayWssUrl ? { relayWssUrl } : {}),
+  }
+}
+
 function readAdminConfig(): AdminConfig {
   const fallback: AdminConfig = { autoUpdate: true, checkIntervalHours: 24, channel: 'stable', publicVersion: app.getVersion(), backups: [] }
   try {
@@ -403,6 +487,8 @@ function createConfirmationWindow(): BrowserWindow {
 }
 
 async function startPythonAgent(): Promise<void> {
+  // Pairing invitations never survive a Desktop restart.
+  try { fs.rmSync(mobilePairingPath(), { force: true }) } catch { /* best effort */ }
   const agentCandidates = isDev
     ? [
         path.resolve(app.getAppPath(), '..', '..', 'services', 'agent'),
@@ -530,6 +616,9 @@ function setupIPC(): void {
     authenticated: adminAuthenticated,
   }))
   ipcMain.handle('helix:app-version', () => app.getVersion())
+  ipcMain.handle('helix:create-mobile-pairing', () => createMobilePairing())
+  ipcMain.handle('helix:get-mobile-relay-url', () => readMobileRelayUrl())
+  ipcMain.handle('helix:set-mobile-relay-url', (_event, value: unknown) => saveMobileRelayUrl(value))
   ipcMain.handle('helix:get-capabilities', () => capabilityManager?.snapshot() ?? {
     profile: 'complete', packs: [], missingCount: 0, ready: true,
   })
@@ -1034,6 +1123,7 @@ app.on('before-quit', (event) => {
     clipboardHistory?.stop()
     await browserExtensionBridge?.close()
     await pythonManager?.stop()
+    try { fs.rmSync(mobilePairingPath(), { force: true }) } catch { /* best effort revocation */ }
     shutdownComplete = true
     app.quit()
   })().catch((error: unknown) => {

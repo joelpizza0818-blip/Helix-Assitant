@@ -19,6 +19,7 @@ import UpdateSection from './sections/UpdateSection'
 import AdminSection from './sections/AdminSection'
 import ProfilesSection from './sections/ProfilesSection'
 import CapabilitiesSection from './sections/CapabilitiesSection'
+import MobileSection from './sections/MobileSection'
 import {
   adminRequest,
   desktopSupabase,
@@ -49,6 +50,7 @@ type Section =
   | 'profiles'
   | 'admin'
   | 'capabilities'
+  | 'mobile'
 
 interface NavItem {
   id: Section
@@ -76,6 +78,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'profiles', category: 'Operations', label: 'Perfil', keywords: 'github login user rank account', icon: <NavIcon d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2m8-10a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" /> },
   { id: 'updates', category: 'Operations', label: 'Updates', keywords: 'installer version check update nsis tauri', icon: <NavIcon d="M20 7v5h-5M4 17v-5h5m-3.5-3A7 7 0 0 1 18 6l2 2M4 16l2 2a7 7 0 0 0 12.5-3" /> },
   { id: 'admin', category: 'Operations', label: 'Admin Logs', keywords: 'logs streaming diagnostics errors buffer ring', icon: <NavIcon d="M12 2l8 4v5c0 5-3.5 9-8 11-4.5-2-8-6-8-11V6l8-4zm0 6v5m0 3h.01" /> },
+  { id: 'mobile', category: 'Operations', label: 'Vincular móvil', keywords: 'mobile phone android ios ssh websocket pairing remote control', icon: <NavIcon d="M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm3 17h4" /> },
 ]
 
 function NavIcon({ d }: { d: string }) {
@@ -436,6 +439,7 @@ export default function Toolbox() {
               {activeSection === 'browser-companion' && <BrowserExtensionSection />}
               {activeSection === 'updates' && <UpdateSection />}
               {activeSection === 'capabilities' && <CapabilitiesSection />}
+              {activeSection === 'mobile' && <MobileSection />}
               {activeSection === 'profiles' && (
                 <ProfilesSection
                   configured={desktopSupabaseConfigured}

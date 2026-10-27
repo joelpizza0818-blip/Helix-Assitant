@@ -204,6 +204,17 @@ contextBridge.exposeInMainWorld('helix', {
   onOAuthCallback: (fn: (url: string) => void): (() => void) =>
     createEventListener('helix:oauth-callback', fn),
   getAppVersion: (): Promise<string> => ipcRenderer.invoke('helix:app-version'),
+  createMobilePairing: (): Promise<{
+    version: 1
+    host: string
+    sshPort: number
+    remoteWsPort: number
+    token: string
+    expiresAt: string
+    relayWssUrl?: string
+  }> => ipcRenderer.invoke('helix:create-mobile-pairing'),
+  getMobileRelayUrl: (): Promise<string> => ipcRenderer.invoke('helix:get-mobile-relay-url'),
+  setMobileRelayUrl: (url: string): Promise<string> => ipcRenderer.invoke('helix:set-mobile-relay-url', url),
   getAdminStatus: (): Promise<{ configured: boolean; authenticated: boolean }> =>
     ipcRenderer.invoke('helix:admin-status'),
   validateAdmin: (accessToken: string): Promise<{ authenticated: boolean }> =>

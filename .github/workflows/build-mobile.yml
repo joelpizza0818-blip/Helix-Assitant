@@ -20,6 +20,20 @@ jobs:
       - name: Check out HELIX
         uses: actions/checkout@v4
 
+      - name: Validate mobile release tag
+        if: startsWith(github.ref, 'refs/tags/mobile-v')
+        run: |
+          version="$(awk '/^version:/ { gsub(/"/, "", $2); print $2; exit }' pubspec.yaml)"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Invalid mobile version in movil/pubspec.yaml: $version"
+            exit 1
+          fi
+          expected_tag="mobile-v$version"
+          if [[ "$GITHUB_REF_NAME" != "$expected_tag" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match pubspec version $expected_tag."
+            exit 1
+          fi
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -42,12 +56,22 @@ jobs:
         run: |
           cp build/app/outputs/flutter-apk/app-release.apk HELIX-Mobile.apk
           sha256sum HELIX-Mobile.apk > HELIX-Mobile.apk.sha256
+          sha256sum --check HELIX-Mobile.apk.sha256
 
       - name: Publish Android release assets
         if: startsWith(github.ref, 'refs/tags/mobile-v')
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          name: HELIX Mobile ${{ github.ref_name }} - APK de prueba (sin firma oficial)
+          body: |
+            **APK de prueba; no es una distribución Android firmada oficialmente por HELIX.**
+
+            Este workflow no configura una clave privada de distribución. El APK queda firmado con la clave debug predeterminada de Android/Gradle. No lo instales como una actualización de una versión firmada con otra clave.
+
+            Se adjunta `HELIX-Mobile.apk.sha256` para verificar la integridad del archivo descargado. SHA-256 no verifica la identidad del editor ni sustituye una firma de distribución.
+
+            Esta publicación es una prerelease de prueba y no debe anunciarse como versión estable.
+          prerelease: true
           files: |
             movil/HELIX-Mobile.apk
             movil/HELIX-Mobile.apk.sha256
@@ -55,6 +79,9 @@ jobs:
       - name: Publish APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: helix-mobile-android
-          path: movil/build/app/outputs/flutter-apk/app-release.apk
+          name: helix-mobile-android-test
+          path: |
+            movil/HELIX-Mobile.apk
+            movil/HELIX-Mobile.apk.sha256
           if-no-files-found: error
+          retention-days: 30
