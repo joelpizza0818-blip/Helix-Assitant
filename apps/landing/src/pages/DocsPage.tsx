@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { HelixLogo } from '../components/HelixLogo/HelixLogo';
+import { ResponsiveSiteNavigation } from '../components/ResponsiveSiteNavigation';
 import './DocsPage.css';
 
 type DocSection = 'intro' | 'install' | 'models' | 'tools' | 'voice' | 'mcp' | 'faq';
@@ -10,17 +10,7 @@ export const DocsPage: React.FC = () => {
 
   return (
     <div className="docs-page" id="top">
-      <header className="docs-header">
-        <Link to="/" className="docs-header__brand" aria-label="Back to the HELIX main page">
-          <HelixLogo size="sm" showText />
-        </Link>
-        <div className="docs-header__links">
-          <Link to="/" className="docs-header__link">Home</Link>
-          <Link to="/features" className="docs-header__link">What's New</Link>
-          <Link to="/privacy" className="docs-header__link">Privacy</Link>
-          <Link to="/download" className="docs-header__cta">Download</Link>
-        </div>
-      </header>
+      <ResponsiveSiteNavigation />
 
       <div className="docs-layout">
         <aside className="docs-sidebar">

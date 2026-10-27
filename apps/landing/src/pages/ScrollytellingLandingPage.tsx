@@ -518,8 +518,10 @@ export const ScrollytellingLandingPage: React.FC = () => {
           <a href="#story" onClick={closeMenu}>The experience <span>02</span></a>
           <a href="#showcase" onClick={closeMenu}>See HELIX at work <span>03</span></a>
           <Link to="/features" onClick={closeMenu}>What's New <span>04</span></Link>
-          <Link to="/docs" onClick={closeMenu}>Documentation <span>05</span></Link>
-          <Link to="/privacy" onClick={closeMenu}>Privacy Policy <span>06</span></Link>
+          <Link to="/announcements" onClick={closeMenu}>Announcements <span>05</span></Link>
+          <Link to="/docs" onClick={closeMenu}>Documentation <span>06</span></Link>
+          <Link to="/privacy" onClick={closeMenu}>Privacy Policy <span>07</span></Link>
+          <Link to="/admin" onClick={closeMenu}>Admin panel <span>08</span></Link>
           <div className="scrolly-menu__account">
             <Link to="/login" onClick={closeMenu}>Log in</Link>
             <Link to="/register" onClick={closeMenu}>Create an account</Link>

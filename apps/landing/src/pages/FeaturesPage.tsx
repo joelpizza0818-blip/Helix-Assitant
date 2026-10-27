@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { HelixLogo } from '../components/HelixLogo/HelixLogo';
+import { ResponsiveSiteNavigation } from '../components/ResponsiveSiteNavigation';
+import { fetchPublicInstallers, type InstallerPlatform, type LandingInstaller } from '../lib/landingContent';
 import './FeaturesPage.css';
 
 const configuredApiUrl = (import.meta.env.VITE_API_URL ?? '').trim().replace(/\/+$/, '');
@@ -12,8 +13,57 @@ interface Release {
   tag?: string;
   date: string;
   title: string;
-  editions: ('Normal' | 'Lite' | 'CLI')[];
+  summary: string;
+  editions: ('Normal' | 'Lite' | 'CLI' | 'Mobile')[];
   changes: string[];
+  platform?: InstallerPlatform;
+  installerUrl?: string;
+  checksumUrl?: string;
+  releaseUrl?: string;
+}
+
+function platformLabel(platform: InstallerPlatform): string {
+  return { windows: 'Windows', linux: 'Linux', macos: 'macOS', android: 'Android', ios: 'iOS' }[platform]
+}
+
+function releaseFromInstaller(installer: LandingInstaller): Release {
+  const edition = { normal: 'Normal', lite: 'Lite', mobile: 'Mobile' }[installer.edition] as Release['editions'][number]
+  return {
+    version: installer.version,
+    tag: 'ADMIN-SELECTED PUBLIC RELEASE',
+    date: new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' })
+      .format(new Date(installer.publishedAt ?? installer.createdAt)),
+    title: `HELIX ${edition} ${installer.version} · ${platformLabel(installer.platform)}`,
+    summary: `This is the ${edition} installer currently selected for public distribution on ${platformLabel(installer.platform)}.`,
+    editions: [edition],
+    changes: [
+      `Installer selected for ${platformLabel(installer.platform)}.`,
+      'A SHA-256 checksum is provided with this release.',
+    ],
+    platform: installer.platform,
+    installerUrl: installer.installerUrl ?? undefined,
+    checksumUrl: installer.checksumUrl ?? undefined,
+    releaseUrl: installer.releaseUrl,
+  }
+}
+
+function cleanMarkdownSummary(body: string): string {
+  if (!body) return 'Actualización publicada con mejoras funcionales y de estabilidad.';
+
+  const summary = body
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 20)
+    .slice(0, 3)
+    .join(' ')
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\[(.*?)\]\(.*?\)/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!summary) return 'Actualización publicada con mejoras funcionales y de estabilidad.';
+  return summary.length > 180 ? `${summary.slice(0, 177).trimEnd()}…` : summary;
 }
 
 function cleanMarkdownChanges(body: string): string[] {
@@ -40,24 +90,36 @@ function cleanMarkdownChanges(body: string): string[] {
 
 const DEFAULT_RELEASES: Release[] = [
   {
-    version: '0.2.6',
+    version: '0.2.13',
     tag: 'LATEST CONFIRMED RELEASE',
     date: 'October 2026',
-    title: 'HELIX v0.2.6 — Persistencia, localización & UX mejorada',
+    title: 'HELIX v0.2.13 — Estabilidad del agente y transporte MCP',
+    summary: 'La release Normal corrige el transporte de mensajes MCP con caracteres no ASCII y mejora el arranque del agente Python. Su instalador Windows x64 y checksum se verificaron en GitHub Releases.',
+    editions: ['Normal'],
+    changes: [
+      'Corrección del manejo de caracteres no ASCII en respuestas JSON de MCP.',
+      'Mejoras en el arranque del agente Python y en la configuración de dependencias.',
+      'Instalador Windows x64 publicado con checksum SHA-256 verificado.',
+      'La publicación del canal Lite y del paquete CLI debe verificarse de forma independiente.',
+    ],
+  },
+  {
+    version: '0.2.12',
+    date: 'October 2026',
+    title: 'HELIX v0.2.12 — Proveedores y releases separados',
+    summary: 'Se corrigió la conversión de nombres de herramientas para Google y se mejoró la clasificación de errores de cuota, facturación y disponibilidad.',
     editions: ['Normal', 'Lite', 'CLI'],
     changes: [
-      'Blindaje de seguridad en ejecución de comandos con aislamiento de subprocesos y sandboxes en Toolbox.',
-      'Protección estricta contra inyección HTML, XSS y timing attacks en difusión de actualizaciones del servidor.',
-      'Modularización de componentes del agente y desacoplamiento de dependencias de runtime.',
-      'Buscador interactivo en tiempo real de ajustes y categorización visual en Toolbox.',
-      'Efectos de sonido hápticos con Web Audio API sintetizado para acciones del sistema.',
-      'Renderizador Markdown limpio en CLI con soporte de modo --plain y estabilización multi-SO en CI/CD.',
+      'Normal y Lite cuentan con releases externas verificadas.',
+      'helix-assistant-cli@0.2.12 quedó publicado como latest en npm.',
+      'La conversación real con Google recibió 429 por cuota agotada; no se presenta como una prueba exitosa del proveedor.',
     ],
   },
   {
     version: '0.2.4',
     date: 'October 2026',
     title: 'HELIX v0.2.4 — Percepción & Admin Logs',
+    summary: 'Se incorporaron los modelos locales de voz y gestos al runtime empaquetado y se añadieron registros administrativos en desktop.',
     editions: ['Normal', 'Lite', 'CLI'],
     changes: [
       'Empaquetado integral y resolución dinámica de modelos de IA (MediaPipe HandLandmarker y OpenWakeWord).',
@@ -69,9 +131,10 @@ const DEFAULT_RELEASES: Release[] = [
   },
   {
     version: '0.2.2',
-    tag: 'LATEST CONFIRMED LITE RELEASE',
+    tag: 'LITE CHANNEL HISTORY',
     date: 'October 2026',
     title: 'HELIX Lite v0.2.2 (Tauri)',
+    summary: 'Release del canal Lite para Windows x64 con verificación de integridad y degradación ante sesiones remotas sin hardware disponible.',
     editions: ['Lite'],
     changes: [
       'Canal de release independiente para instalador Windows x64 NSIS con arquitectura Rust/Tauri ultraligera.',
@@ -84,6 +147,7 @@ const DEFAULT_RELEASES: Release[] = [
     tag: 'CLI & HARDWARE STABILITY',
     date: 'October 2026',
     title: 'HELIX CLI & Perception Fixes',
+    summary: 'Correcciones del ciclo de captura de cámara, limpieza de tareas de audio y lanzamiento del CLI como paquete npm.',
     editions: ['Normal', 'CLI'],
     changes: [
       'Lanzamiento oficial del CLI en npm como helix-assistant-cli con ejecución directa npx.',
@@ -95,7 +159,8 @@ const DEFAULT_RELEASES: Release[] = [
 
 export function FeaturesPage() {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [releases, setReleases] = useState<Release[]>(DEFAULT_RELEASES);
+  const [releases, setReleases] = useState<Release[]>([]);
+  const [releaseError, setReleaseError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [notifyEmail, setNotifyEmail] = useState('');
   const [notifyStatus, setNotifyStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
@@ -103,58 +168,19 @@ export function FeaturesPage() {
 
   useEffect(() => {
     let active = true;
-    const fetchLatestReleases = async () => {
-      try {
-        const res = await fetch('https://api.github.com/repos/joelpizza0818-blip/Helix-Assitant/releases?per_page=8');
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!Array.isArray(data) || data.length === 0) return;
-
-        const dynamicReleases: Release[] = data
-          .filter((item: any) => !item.draft && item.tag_name && item.tag_name !== 'capability-packs')
-          .map((item: any, idx: number) => {
-            const isLite = item.tag_name.startsWith('lite-');
-            const isCli =
-              (item.name || '').toLowerCase().includes('cli') ||
-              (item.body || '').toLowerCase().includes('cli');
-            const version = item.tag_name.replace(/^(v|lite-v)/, '');
-            const date = item.published_at
-              ? new Date(item.published_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-              : 'October 2026';
-
-            const editions: ('Normal' | 'Lite' | 'CLI')[] = isLite
-              ? ['Lite']
-              : isCli
-              ? ['Normal', 'CLI']
-              : ['Normal'];
-
-            const tag = idx === 0
-              ? (isLite ? 'LATEST CONFIRMED LITE RELEASE' : 'LATEST CONFIRMED RELEASE')
-              : isLite
-              ? 'LITE CHANNEL'
-              : undefined;
-
-            return {
-              version,
-              tag,
-              date,
-              title: item.name || `HELIX ${item.tag_name}`,
-              editions,
-              changes: cleanMarkdownChanges(item.body),
-            };
-          });
-
-        if (active && dynamicReleases.length > 0) {
-          setReleases(dynamicReleases.slice(0, 5));
+    const controller = new AbortController();
+    fetchPublicInstallers(controller.signal)
+      .then((installers) => {
+        if (active) setReleases(installers.map(releaseFromInstaller));
+      })
+      .catch((loadError: unknown) => {
+        if (active && !controller.signal.aborted) {
+          setReleaseError(loadError instanceof Error ? loadError.message : 'Could not load published releases.')
         }
-      } catch (e) {
-        // Fall back gracefully to DEFAULT_RELEASES
-      }
-    };
-
-    fetchLatestReleases();
+      })
     return () => {
       active = false;
+      controller.abort();
     };
   }, []);
 
@@ -225,30 +251,25 @@ export function FeaturesPage() {
 
   return (
     <div className="features-page" id="top">
-      <header className="features-header">
-        <Link to="/" className="features-header__brand" aria-label="Back to HELIX">
-          <HelixLogo size="sm" showText />
-        </Link>
-        <div className="features-header__links">
-          <Link to="/" className="features-header__link">Home</Link>
-          <Link to="/docs" className="features-header__link">Documentation</Link>
-          <Link to="/privacy" className="features-header__link">Privacy</Link>
-          <Link to="/download" className="features-header__cta">Download</Link>
-        </div>
-      </header>
+      <ResponsiveSiteNavigation />
 
       <div
         className="features-scroll-wrapper"
         ref={containerRef}
-        style={{ height: `${Math.max(260, releases.length * 85)}vh` }}
+        style={{
+          height: releases.length ? `${Math.max(150, releases.length * 85)}vh` : 'auto',
+          minHeight: releases.length ? undefined : '0',
+        }}
       >
         <div className="features-stage">
           <div className="features-intro">
             <span className="features-eyebrow">VERSION HISTORY & PATCHES</span>
             <h1>What's New in HELIX</h1>
             <p>
-              Browse the latest confirmed published release for each desktop edition.
+              Only the versions selected for public distribution by a HELIX admin are shown here.
             </p>
+            {releaseError && <p className="features-release-error" role="alert">{releaseError}</p>}
+            {!releaseError && releases.length === 0 && <p className="features-release-empty">No installer versions have been selected for public distribution yet.</p>}
           </div>
 
           <div className="features-cards-viewport">
@@ -286,6 +307,8 @@ export function FeaturesPage() {
 
                     <h2 className="features-card-title">{release.title}</h2>
 
+                    <p className="features-card-summary">{release.summary}</p>
+
                     <ul className="features-changes-list">
                       {release.changes.map((change, cIdx) => (
                         <li key={cIdx}>
@@ -301,15 +324,19 @@ export function FeaturesPage() {
 
                     <div className="features-card-footer">
                       <span className="features-step-label">
-                        Version {index + 1} of {totalCards}
+                        {release.platform ? platformLabel(release.platform) : 'HELIX'} · {index + 1} of {totalCards}
                       </span>
-                      <Link to="/download" className="features-card-download">
-                        Install v{release.version}
+                      <div className="features-card-actions">
+                        {release.checksumUrl && <a href={release.checksumUrl} target="_blank" rel="noreferrer">SHA-256</a>}
+                        {release.releaseUrl && <a href={release.releaseUrl} target="_blank" rel="noreferrer">Release</a>}
+                        <Link to="/download" className="features-card-download">
+                          Install v{release.version}
                         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ marginLeft: 6 }}>
                           <line x1="5" y1="12" x2="19" y2="12" />
                           <polyline points="12 5 19 12 12 19" />
                         </svg>
-                      </Link>
+                        </Link>
+                      </div>
                     </div>
                   </article>
                 </div>

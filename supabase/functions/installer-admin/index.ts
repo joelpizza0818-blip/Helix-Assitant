@@ -11,7 +11,7 @@ function releaseTag(version: string): string {
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
   'Cache-Control': 'no-store',
 }
 
@@ -119,6 +119,239 @@ interface UserProfile {
   displayName: string
   avatarUrl: string | null
   rank: 'user' | 'admin' | 'master-admin'
+}
+
+const ANNOUNCEMENT_CATEGORIES = new Set([
+  'RELEASE',
+  'FEATURE',
+  'SECURITY',
+  'MOBILE',
+  'ECOSYSTEM',
+  'COMPATIBILITY',
+])
+const INSTALLER_PLATFORMS = new Set(['windows', 'linux', 'macos', 'android', 'ios'])
+const INSTALLER_EDITIONS = new Set(['normal', 'lite', 'mobile'])
+
+interface AnnouncementPayload {
+  category: string
+  title: string
+  summary: string
+  content: string[]
+  links: Array<{ text: string; url: string; external: boolean }>
+}
+
+interface InstallerPayload {
+  platform: 'windows' | 'linux' | 'macos' | 'android' | 'ios'
+  edition: 'normal' | 'lite' | 'mobile'
+  version: string
+  installerUrl: string
+  checksumUrl: string
+  releaseUrl: string
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isHttpsUrl(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length > 2048) return false
+  try {
+    return new URL(value).protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+function parseAnnouncementPayload(value: unknown): AnnouncementPayload | null {
+  if (
+    !isRecord(value)
+    || typeof value.category !== 'string'
+    || !ANNOUNCEMENT_CATEGORIES.has(value.category)
+    || typeof value.title !== 'string'
+    || !value.title.trim()
+    || value.title.trim().length > 180
+    || typeof value.summary !== 'string'
+    || !value.summary.trim()
+    || value.summary.trim().length > 700
+    || !Array.isArray(value.content)
+    || value.content.length > 20
+    || !value.content.every((item) => typeof item === 'string' && item.trim().length > 0 && item.length <= 1500)
+    || !Array.isArray(value.links)
+    || value.links.length > 10
+  ) return null
+
+  const links: AnnouncementPayload['links'] = []
+  for (const item of value.links) {
+    if (
+      !isRecord(item)
+      || typeof item.text !== 'string'
+      || !item.text.trim()
+      || item.text.trim().length > 80
+      || typeof item.url !== 'string'
+      || item.url.length > 2048
+      || (item.external !== undefined && typeof item.external !== 'boolean')
+      || !(isHttpsUrl(item.url) || (item.url.startsWith('/') && !item.url.startsWith('//')))
+    ) return null
+    links.push({ text: item.text.trim(), url: item.url, external: item.external === true })
+  }
+
+  return {
+    category: value.category,
+    title: value.title.trim(),
+    summary: value.summary.trim(),
+    content: value.content.map((item) => item.trim()),
+    links,
+  }
+}
+
+function parseInstallerPayload(value: unknown): InstallerPayload | null {
+  if (
+    !isRecord(value)
+    || typeof value.platform !== 'string'
+    || !INSTALLER_PLATFORMS.has(value.platform)
+    || typeof value.edition !== 'string'
+    || !INSTALLER_EDITIONS.has(value.edition)
+    || typeof value.version !== 'string'
+    || !/^[vV]?\d+(?:\.\d+){1,3}(?:[-+][0-9A-Za-z.-]+)?$/.test(value.version)
+    || value.version.length > 40
+    || !isHttpsUrl(value.installerUrl)
+    || !isHttpsUrl(value.checksumUrl)
+    || !isHttpsUrl(value.releaseUrl)
+  ) return null
+  const isMobile = value.edition === 'mobile'
+  if (isMobile !== (value.platform === 'android' || value.platform === 'ios')) return null
+
+  return {
+    platform: value.platform as InstallerPayload['platform'],
+    edition: value.edition as InstallerPayload['edition'],
+    version: value.version.replace(/^[vV]/, ''),
+    installerUrl: value.installerUrl,
+    checksumUrl: value.checksumUrl,
+    releaseUrl: value.releaseUrl,
+  }
+}
+
+interface GitHubReleaseRecord {
+  tag_name: string
+  html_url: string
+  draft: boolean
+  prerelease: boolean
+  published_at: string | null
+  created_at: string
+  assets: unknown[]
+}
+
+async function fetchInstallerHistory(): Promise<GitHubReleaseRecord[]> {
+  const owner = Deno.env.get('GITHUB_INSTALLER_OWNER') ?? 'joelpizza0818-blip'
+  const repository = Deno.env.get('GITHUB_INSTALLER_REPO') ?? 'Helix-Assitant'
+  const token = Deno.env.get('GITHUB_INSTALLER_TOKEN')
+  const releases: GitHubReleaseRecord[] = []
+
+  for (let page = 1; page <= 20; page += 1) {
+    const headers: Record<string, string> = {
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'User-Agent': 'HELIX-installer-admin',
+    }
+    if (token) headers.Authorization = `Bearer ${token}`
+
+    let response: Response
+    try {
+      response = await fetch(
+        `${GITHUB_API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}/releases?per_page=100&page=${page}`,
+        { headers, signal: AbortSignal.timeout(12000) },
+      )
+    } catch (error) {
+      console.error('Could not fetch installer release history:', error)
+      throw new Error('Could not contact GitHub to load installer history.')
+    }
+    if (!response.ok) throw new Error(`GitHub installer history lookup failed (HTTP ${response.status}).`)
+
+    const payload: unknown = await response.json().catch(() => null)
+    if (!Array.isArray(payload)) throw new Error('GitHub returned an invalid installer history response.')
+    if (payload.length === 0) break
+
+    for (const candidate of payload) {
+      if (
+        isRecord(candidate)
+        && typeof candidate.tag_name === 'string'
+        && typeof candidate.html_url === 'string'
+        && typeof candidate.draft === 'boolean'
+        && typeof candidate.prerelease === 'boolean'
+        && Array.isArray(candidate.assets)
+        && typeof candidate.created_at === 'string'
+        && (candidate.published_at === null || typeof candidate.published_at === 'string')
+      ) {
+        releases.push({
+          tag_name: candidate.tag_name,
+          html_url: candidate.html_url,
+          draft: candidate.draft,
+          prerelease: candidate.prerelease,
+          published_at: candidate.published_at,
+          created_at: candidate.created_at,
+          assets: candidate.assets,
+        })
+      }
+    }
+    if (payload.length < 100) break
+  }
+
+  return releases
+}
+
+function findReleaseAsset(release: GitHubReleaseRecord, expectedNames: string[]): string | null {
+  for (const candidate of release.assets) {
+    if (!isRecord(candidate) || typeof candidate.name !== 'string' || typeof candidate.browser_download_url !== 'string') continue
+    if (!expectedNames.includes(candidate.name) || !isHttpsUrl(candidate.browser_download_url)) continue
+    const assetUrl = new URL(candidate.browser_download_url)
+    if (assetUrl.hostname === 'github.com') return assetUrl.toString()
+  }
+  return null
+}
+
+function historyRows(releases: GitHubReleaseRecord[], profileId: string): Array<Record<string, unknown>> {
+  const rows: Array<Record<string, unknown>> = []
+  for (const release of releases) {
+    if (release.draft || !isHttpsUrl(release.html_url)) continue
+    const tagUrl = new URL(release.html_url)
+    if (tagUrl.hostname !== 'github.com') continue
+    const releaseDate = release.published_at ?? release.created_at
+    const normal = release.tag_name.match(/^v(\d+\.\d+\.\d+)$/)
+    const lite = release.tag_name.match(/^lite-v(\d+\.\d+\.\d+)$/)
+    const mobile = release.tag_name.match(/^mobile-v(\d+\.\d+\.\d+)$/)
+    const assetsFor = (platform: 'windows' | 'android' | 'ios', edition: 'normal' | 'lite' | 'mobile', version: string) => {
+      let installerNames: string[]
+      if (edition === 'normal') installerNames = ['HELIX-Setup.exe', `HELIX-Setup-${version}.exe`]
+      else if (edition === 'lite') installerNames = ['HELIX-Lite-Setup.exe']
+      else installerNames = platform === 'android' ? ['HELIX-Mobile.apk'] : ['HELIX-Mobile.ipa']
+      const installerUrl = findReleaseAsset(release, installerNames)
+      const checksumUrl = installerUrl
+        ? findReleaseAsset(release, [`${installerNames[0]}.sha256`, `${installerNames[1] ?? installerNames[0]}.sha256`])
+        : null
+      rows.push({
+        platform,
+        edition,
+        version,
+        installer_url: installerUrl,
+        checksum_url: checksumUrl,
+        release_url: release.html_url,
+        is_published: false,
+        is_prerelease: release.prerelease,
+        release_date: releaseDate,
+        created_by_profile_id: profileId,
+      })
+    }
+
+    if (normal) assetsFor('windows', 'normal', normal[1])
+    else if (lite) assetsFor('windows', 'lite', lite[1])
+    else if (mobile) {
+      const hasAndroid = findReleaseAsset(release, ['HELIX-Mobile.apk']) !== null
+      const hasIos = findReleaseAsset(release, ['HELIX-Mobile.ipa']) !== null
+      if (hasAndroid || !hasIos) assetsFor('android', 'mobile', mobile[1])
+      if (hasIos) assetsFor('ios', 'mobile', mobile[1])
+    }
+  }
+  return rows
 }
 
 async function syncUserProfile(
@@ -316,6 +549,66 @@ async function verifyLiteRelease(version: string): Promise<{ ok: true } | { ok: 
   return { ok: true }
 }
 
+async function verifyMobileRelease(
+  version: string,
+  platform: 'android' | 'ios',
+  installerUrl: string,
+  checksumUrl: string,
+  releaseUrl: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const owner = Deno.env.get('GITHUB_INSTALLER_OWNER') ?? 'joelpizza0818-blip'
+  const repository = Deno.env.get('GITHUB_INSTALLER_REPO') ?? 'Helix-Assitant'
+  const token = Deno.env.get('GITHUB_INSTALLER_TOKEN')
+  const tag = `mobile-v${version}`
+  const installerName = platform === 'android' ? 'HELIX-Mobile.apk' : 'HELIX-Mobile.ipa'
+  let response: Response
+  const headers: Record<string, string> = {
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+    'User-Agent': 'HELIX-installer-admin',
+  }
+  if (token) headers.Authorization = `Bearer ${token}`
+
+  try {
+    response = await fetch(
+      `${GITHUB_API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}/releases/tags/${encodeURIComponent(tag)}`,
+      { headers, signal: AbortSignal.timeout(8000) },
+    )
+  } catch (error) {
+    console.error('Could not verify the mobile release:', error)
+    return { ok: false, error: 'Could not verify the mobile release right now.' }
+  }
+  if (response.status === 404) return { ok: false, error: `Mobile release ${tag} does not exist.` }
+  if (!response.ok) return { ok: false, error: `Mobile release verification failed (HTTP ${response.status}).` }
+
+  const release: unknown = await response.json().catch(() => null)
+  if (
+    !isRecord(release)
+    || release.tag_name !== tag
+    || release.draft !== false
+    || release.prerelease !== false
+    || !Array.isArray(release.assets)
+  ) return { ok: false, error: `Mobile release ${tag} is not a stable, published release.` }
+
+  const expectedReleaseUrl = `https://github.com/${owner}/${repository}/releases/tag/${tag}`
+  const assetBase = `https://github.com/${owner}/${repository}/releases/download/${tag}/`
+  const expectedInstaller = `${assetBase}${installerName}`
+  const expectedChecksum = `${expectedInstaller}.sha256`
+  const names = new Set<string>()
+  for (const asset of release.assets) {
+    if (isRecord(asset) && typeof asset.name === 'string') names.add(asset.name)
+  }
+  if (
+    releaseUrl !== expectedReleaseUrl
+    || installerUrl !== expectedInstaller
+    || checksumUrl !== expectedChecksum
+    || !names.has(installerName)
+    || !names.has(`${installerName}.sha256`)
+  ) return { ok: false, error: `Mobile release ${tag} is missing the expected installer or SHA-256 asset.` }
+
+  return { ok: true }
+}
+
 function isPolicyBody(value: unknown): value is {
   publicVersion: string
   channel: 'stable' | 'beta'
@@ -340,7 +633,7 @@ function isPolicyBody(value: unknown): value is {
 
 Deno.serve(async (request: Request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
-  if (!['GET', 'POST', 'PUT'].includes(request.method)) {
+  if (!['GET', 'POST', 'PUT', 'DELETE'].includes(request.method)) {
     return jsonResponse(405, { error: 'Method not allowed.' })
   }
 
@@ -367,6 +660,7 @@ Deno.serve(async (request: Request) => {
 
   const route = new URL(request.url).pathname.split('/installer-admin/')[1] ?? ''
   const isAdmin = profile.rank === 'admin' || profile.rank === 'master-admin'
+  const routeParts = route.split('/').filter(Boolean)
 
   if ((route === 'authorization' || route === 'profile') && request.method === 'GET') {
     return jsonResponse(200, {
@@ -542,6 +836,407 @@ Deno.serve(async (request: Request) => {
     }
     if (!data) return jsonResponse(404, { error: 'Error report was not found.' })
     return jsonResponse(200, { success: true, report: data })
+  }
+
+  if (routeParts[0] === 'announcements') {
+    if (!isAdmin) return jsonResponse(403, { error: 'Admin rank required to manage announcements.' })
+    if (routeParts.length === 1 && request.method === 'GET') {
+      const { data, error } = await admin
+        .from('landing_announcements')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(1000)
+      if (error) {
+        console.error('Could not load landing announcements:', error.message)
+        return jsonResponse(503, { error: 'Could not load landing announcements.' })
+      }
+      return jsonResponse(200, {
+        success: true,
+        announcements: (data ?? []).map((item) => ({
+          id: item.id,
+          category: item.category,
+          title: item.title,
+          summary: item.summary,
+          content: item.content,
+          links: item.links,
+          isPublished: item.is_published,
+          publishedAt: item.published_at,
+          createdAt: item.created_at,
+        })),
+      })
+    }
+
+    if (routeParts.length === 1 && request.method === 'POST') {
+      const payload = parseAnnouncementPayload(await request.json().catch(() => null))
+      if (!payload) return jsonResponse(400, { error: 'Announcement fields are invalid.' })
+      const { data, error } = await admin
+        .from('landing_announcements')
+        .insert({
+          category: payload.category,
+          title: payload.title,
+          summary: payload.summary,
+          content: payload.content,
+          links: payload.links,
+          created_by_profile_id: profile.profileId,
+        })
+        .select('*')
+        .single()
+      if (error) {
+        console.error('Could not create landing announcement:', error.message)
+        return jsonResponse(503, { error: 'Could not create the announcement.' })
+      }
+      return jsonResponse(201, {
+        success: true,
+        announcement: {
+          id: data.id,
+          category: data.category,
+          title: data.title,
+          summary: data.summary,
+          content: data.content,
+          links: data.links,
+          isPublished: data.is_published,
+          publishedAt: data.published_at,
+          createdAt: data.created_at,
+        },
+      })
+    }
+
+    if (routeParts.length === 3 && routeParts[2] === 'publication' && request.method === 'PUT') {
+      const announcementId = routeParts[1]
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(announcementId)) {
+        return jsonResponse(400, { error: 'Announcement ID is invalid.' })
+      }
+      const body: unknown = await request.json().catch(() => null)
+      if (!isRecord(body) || typeof body.isPublished !== 'boolean') {
+        return jsonResponse(400, { error: 'Announcement publication state is invalid.' })
+      }
+      const { data, error } = await admin
+        .from('landing_announcements')
+        .update({
+          is_published: body.isPublished,
+          published_at: body.isPublished ? new Date().toISOString() : null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', announcementId)
+        .select('id, is_published, published_at')
+        .maybeSingle()
+      if (error) {
+        console.error('Could not change announcement publication state:', error.message)
+        return jsonResponse(503, { error: 'Could not change announcement publication state.' })
+      }
+      if (!data) return jsonResponse(404, { error: 'Announcement was not found.' })
+      return jsonResponse(200, {
+        success: true,
+        isPublished: data.is_published,
+        publishedAt: data.published_at,
+      })
+    }
+
+    if (routeParts.length === 2 && request.method === 'PUT') {
+      const announcementId = routeParts[1]
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(announcementId)) {
+        return jsonResponse(400, { error: 'Announcement ID is invalid.' })
+      }
+      const payload = parseAnnouncementPayload(await request.json().catch(() => null))
+      if (!payload) return jsonResponse(400, { error: 'Announcement fields are invalid.' })
+      const { data, error } = await admin
+        .from('landing_announcements')
+        .update({
+          category: payload.category,
+          title: payload.title,
+          summary: payload.summary,
+          content: payload.content,
+          links: payload.links,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', announcementId)
+        .select('*')
+        .maybeSingle()
+      if (error) {
+        console.error('Could not update landing announcement:', error.message)
+        return jsonResponse(503, { error: 'Could not update the announcement.' })
+      }
+      if (!data) return jsonResponse(404, { error: 'Announcement was not found.' })
+      return jsonResponse(200, {
+        success: true,
+        announcement: {
+          id: data.id,
+          category: data.category,
+          title: data.title,
+          summary: data.summary,
+          content: data.content,
+          links: data.links,
+          isPublished: data.is_published,
+          publishedAt: data.published_at,
+          createdAt: data.created_at,
+        },
+      })
+    }
+
+    if (routeParts.length === 2 && request.method === 'DELETE') {
+      const announcementId = routeParts[1]
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(announcementId)) {
+        return jsonResponse(400, { error: 'Announcement ID is invalid.' })
+      }
+      const { data, error } = await admin
+        .from('landing_announcements')
+        .delete()
+        .eq('id', announcementId)
+        .eq('is_published', false)
+        .select('id')
+        .maybeSingle()
+      if (error) {
+        console.error('Could not delete landing announcement:', error.message)
+        return jsonResponse(503, { error: 'Could not delete the announcement.' })
+      }
+      if (!data) return jsonResponse(409, { error: 'Unpublish the announcement before deleting it.' })
+      return jsonResponse(200, { success: true })
+    }
+
+    return jsonResponse(404, { error: 'Announcement route not found.' })
+  }
+
+  if (routeParts[0] === 'installers') {
+    if (!isAdmin) return jsonResponse(403, { error: 'Admin rank required to manage installers.' })
+    if (routeParts.length === 2 && routeParts[1] === 'import-history' && request.method === 'POST') {
+      try {
+        const history = historyRows(await fetchInstallerHistory(), profile.profileId)
+        const { data, error } = history.length
+          ? await admin
+            .from('landing_installer_catalog')
+            .upsert(history, { onConflict: 'platform,edition,version', ignoreDuplicates: true })
+            .select('id')
+          : { data: [], error: null }
+        if (error) {
+          console.error('Could not import installer release history:', error.message)
+          return jsonResponse(503, { error: 'Could not import GitHub installer history.' })
+        }
+        return jsonResponse(200, {
+          success: true,
+          imported: data?.length ?? 0,
+          found: history.length,
+        })
+      } catch (error) {
+        console.error('Could not import installer release history:', error)
+        return jsonResponse(503, {
+          error: error instanceof Error ? error.message : 'Could not import GitHub installer history.',
+        })
+      }
+    }
+
+    if (routeParts.length === 1 && request.method === 'GET') {
+      const { data, error } = await admin
+        .from('landing_installer_catalog')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(2000)
+      if (error) {
+        console.error('Could not load landing installer catalog:', error.message)
+        return jsonResponse(503, { error: 'Could not load installer history.' })
+      }
+      return jsonResponse(200, {
+        success: true,
+        installers: (data ?? []).map((item) => ({
+          id: item.id,
+          platform: item.platform,
+          edition: item.edition,
+          version: item.version,
+          installerUrl: item.installer_url,
+          checksumUrl: item.checksum_url,
+          releaseUrl: item.release_url,
+          isPublished: item.is_published,
+          isPrerelease: item.is_prerelease,
+          publishedAt: item.published_at,
+          releaseDate: item.release_date,
+          createdAt: item.created_at,
+        })),
+      })
+    }
+
+    if (routeParts.length === 1 && request.method === 'POST') {
+      const payload = parseInstallerPayload(await request.json().catch(() => null))
+      if (!payload) return jsonResponse(400, { error: 'Installer fields are invalid.' })
+      const { data, error } = await admin
+        .from('landing_installer_catalog')
+        .insert({
+          platform: payload.platform,
+          edition: payload.edition,
+          version: payload.version,
+          installer_url: payload.installerUrl,
+          checksum_url: payload.checksumUrl,
+          release_url: payload.releaseUrl,
+          release_date: new Date().toISOString(),
+          created_by_profile_id: profile.profileId,
+        })
+        .select('*')
+        .single()
+      if (error) {
+        if (error.code === '23505') return jsonResponse(409, { error: 'That version already exists for this platform and edition.' })
+        console.error('Could not create installer catalog entry:', error.message)
+        return jsonResponse(503, { error: 'Could not create the installer entry.' })
+      }
+      return jsonResponse(201, {
+        success: true,
+        installer: {
+          id: data.id,
+          platform: data.platform,
+          edition: data.edition,
+          version: data.version,
+          installerUrl: data.installer_url,
+          checksumUrl: data.checksum_url,
+          releaseUrl: data.release_url,
+          isPublished: data.is_published,
+          isPrerelease: data.is_prerelease,
+          publishedAt: data.published_at,
+          releaseDate: data.release_date,
+          createdAt: data.created_at,
+        },
+      })
+    }
+
+    if (routeParts.length === 3 && routeParts[2] === 'publication' && request.method === 'PUT') {
+      const installerId = routeParts[1]
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(installerId)) {
+        return jsonResponse(400, { error: 'Installer ID is invalid.' })
+      }
+      const body: unknown = await request.json().catch(() => null)
+      if (!isRecord(body) || typeof body.isPublished !== 'boolean') {
+        return jsonResponse(400, { error: 'Installer publication state is invalid.' })
+      }
+
+      if (body.isPublished) {
+        const { data: installer, error: installerError } = await admin
+          .from('landing_installer_catalog')
+          .select('platform, edition, version, installer_url, checksum_url, release_url, is_prerelease')
+          .eq('id', installerId)
+          .maybeSingle()
+        if (installerError) {
+          console.error('Could not load installer before publishing:', installerError.message)
+          return jsonResponse(503, { error: 'Could not verify the installer before publishing.' })
+        }
+        if (!installer) return jsonResponse(404, { error: 'Installer entry was not found.' })
+        if (!installer.installer_url || !installer.checksum_url) {
+          return jsonResponse(422, { error: 'An installer asset and SHA-256 checksum are required before publication.' })
+        }
+        if (installer.is_prerelease) {
+          return jsonResponse(422, { error: 'Pre-releases cannot be selected for public distribution.' })
+        }
+        if (installer.platform === 'linux' || installer.platform === 'macos') {
+          return jsonResponse(422, {
+            error: 'Linux and macOS installers cannot be published until their packaging workflow and artifacts are verified.',
+          })
+        }
+        if (installer.platform === 'windows' && installer.edition === 'normal') {
+          const verified = await verifyRelease(installer.version, 'stable')
+          if (!verified.ok) return jsonResponse(422, { error: verified.error })
+        }
+        if (installer.platform === 'windows' && installer.edition === 'lite') {
+          const verified = await verifyLiteRelease(installer.version)
+          if (!verified.ok) return jsonResponse(422, { error: verified.error })
+        }
+        if (installer.edition === 'mobile' && (installer.platform === 'android' || installer.platform === 'ios')) {
+          const verified = await verifyMobileRelease(
+            installer.version,
+            installer.platform,
+            installer.installer_url,
+            installer.checksum_url,
+            installer.release_url,
+          )
+          if (!verified.ok) return jsonResponse(422, { error: verified.error })
+        }
+        const { data, error } = await admin.rpc('publish_landing_installer', {
+          p_installer_id: installerId,
+          p_updated_by_user_id: auth.githubId,
+        })
+        if (error) {
+          console.error('Could not publish landing installer:', error.message)
+          return jsonResponse(503, { error: 'Could not publish the installer.' })
+        }
+        const published = Array.isArray(data) ? data[0] : null
+        if (!published) return jsonResponse(404, { error: 'Installer entry was not found.' })
+        return jsonResponse(200, {
+          success: true,
+          installer: {
+            id: published.id,
+            platform: published.platform,
+            edition: published.edition,
+            version: published.version,
+            installerUrl: published.installer_url,
+            checksumUrl: published.checksum_url,
+            releaseUrl: published.release_url,
+            isPublished: published.is_published,
+            isPrerelease: published.is_prerelease,
+            publishedAt: published.published_at,
+            releaseDate: published.release_date,
+            createdAt: published.created_at,
+          },
+        })
+      }
+
+      const { data: current, error: currentError } = await admin
+        .from('landing_installer_catalog')
+        .select('platform, edition, is_published')
+        .eq('id', installerId)
+        .maybeSingle()
+      if (currentError) {
+        console.error('Could not load installer before unpublishing:', currentError.message)
+        return jsonResponse(503, { error: 'Could not change installer publication state.' })
+      }
+      if (!current) return jsonResponse(404, { error: 'Installer entry was not found.' })
+      if (current.is_published && current.platform === 'windows' && ['normal', 'lite'].includes(current.edition)) {
+        return jsonResponse(409, { error: 'Publish a replacement Windows version before hiding this installer.' })
+      }
+      const { data, error } = await admin
+        .from('landing_installer_catalog')
+        .update({ is_published: false, published_at: null, updated_at: new Date().toISOString() })
+        .eq('id', installerId)
+        .select('*')
+        .maybeSingle()
+      if (error) {
+        console.error('Could not unpublish landing installer:', error.message)
+        return jsonResponse(503, { error: 'Could not unpublish the installer.' })
+      }
+      if (!data) return jsonResponse(404, { error: 'Installer entry was not found.' })
+      return jsonResponse(200, {
+        success: true,
+        installer: {
+          id: data.id,
+          platform: data.platform,
+          edition: data.edition,
+          version: data.version,
+          installerUrl: data.installer_url,
+          checksumUrl: data.checksum_url,
+          releaseUrl: data.release_url,
+          isPublished: data.is_published,
+          isPrerelease: data.is_prerelease,
+          publishedAt: data.published_at,
+          releaseDate: data.release_date,
+          createdAt: data.created_at,
+        },
+      })
+    }
+
+    if (routeParts.length === 2 && request.method === 'DELETE') {
+      const installerId = routeParts[1]
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(installerId)) {
+        return jsonResponse(400, { error: 'Installer ID is invalid.' })
+      }
+      const { data, error } = await admin
+        .from('landing_installer_catalog')
+        .delete()
+        .eq('id', installerId)
+        .eq('is_published', false)
+        .select('id')
+        .maybeSingle()
+      if (error) {
+        console.error('Could not delete installer catalog entry:', error.message)
+        return jsonResponse(503, { error: 'Could not delete the installer entry.' })
+      }
+      if (!data) return jsonResponse(409, { error: 'Unpublish the installer before deleting it.' })
+      return jsonResponse(200, { success: true })
+    }
+
+    return jsonResponse(404, { error: 'Installer route not found.' })
   }
 
   if (route === 'lite-policy') {

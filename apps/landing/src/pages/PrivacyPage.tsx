@@ -1,22 +1,13 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { HelixLogo } from '../components/HelixLogo/HelixLogo';
+import { ResponsiveSiteNavigation } from '../components/ResponsiveSiteNavigation';
 import './PrivacyPage.css';
 
 export const PrivacyPage: React.FC = () => {
   return (
     <div className="privacy-page" id="top">
-      <header className="privacy-header">
-        <Link to="/" className="privacy-header__brand" aria-label="Return to HELIX main page">
-          <HelixLogo size="sm" showText />
-        </Link>
-        <div className="privacy-header__links">
-          <Link to="/" className="privacy-header__link">Home</Link>
-          <Link to="/features" className="privacy-header__link">What's New</Link>
-          <Link to="/docs" className="privacy-header__link">Documentation</Link>
-          <Link to="/download" className="privacy-header__cta">Download</Link>
-        </div>
-      </header>
+      <ResponsiveSiteNavigation />
 
       <main className="privacy-content">
         <div className="privacy-container">

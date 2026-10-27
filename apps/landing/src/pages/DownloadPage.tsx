@@ -1,18 +1,23 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { HelixLogo } from '../components/HelixLogo/HelixLogo';
+import { ResponsiveSiteNavigation } from '../components/ResponsiveSiteNavigation';
 import { InstallerDownloadButton } from '../components/Download/InstallerDownloadButton';
 import { PrivacyModal } from '../components/PrivacyModal/PrivacyModal';
-import { getLatestInstallerVersion, getLatestLiteRelease, type LiteReleaseDownload } from '../lib/downloads';
-import { useAuth } from '../hooks/useAuth';
+import { getLatestInstallerVersion, getLatestLiteRelease, type LiteReleaseDownload, type MobileReleaseDownload } from '../lib/downloads';
+import { fetchPublicInstallers, type LandingInstaller } from '../lib/landingContent';
 import './DownloadPage.css';
 
 export const DownloadPage: React.FC = () => {
-  const { user } = useAuth();
   const [installerVersion, setInstallerVersion] = useState<string | null>(null);
   const [versionError, setVersionError] = useState(false);
   const [liteRelease, setLiteRelease] = useState<LiteReleaseDownload | null>(null);
   const [liteReleaseError, setLiteReleaseError] = useState(false);
+  const [mobileRelease, setMobileRelease] = useState<MobileReleaseDownload | null>(null);
+  const [mobileReleaseError, setMobileReleaseError] = useState(false);
+  const [iosRelease, setIosRelease] = useState<MobileReleaseDownload | null>(null);
+  const [iosReleaseError, setIosReleaseError] = useState(false);
+  const [catalogInstallers, setCatalogInstallers] = useState<LandingInstaller[]>([]);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
   const [litePrivacyOpen, setLitePrivacyOpen] = useState(false);
   const [selectedOS, setSelectedOS] = useState<'windows' | 'macos' | 'linux'>('windows');
   const [cliCopied, setCliCopied] = useState(false);
@@ -43,6 +48,34 @@ export const DownloadPage: React.FC = () => {
         setLiteReleaseError(true);
       });
 
+    fetchPublicInstallers(controller.signal)
+      .then((installers) => {
+        setCatalogInstallers(installers)
+        const android = installers.find((item) => item.platform === 'android' && item.edition === 'mobile')
+        const ios = installers.find((item) => item.platform === 'ios' && item.edition === 'mobile')
+        setMobileRelease(android?.installerUrl && android.checksumUrl ? {
+          version: android.version,
+          installerUrl: android.installerUrl,
+          checksumUrl: android.checksumUrl,
+          releaseUrl: android.releaseUrl,
+        } : null)
+        setIosRelease(ios?.installerUrl && ios.checksumUrl ? {
+          version: ios.version,
+          installerUrl: ios.installerUrl,
+          checksumUrl: ios.checksumUrl,
+          releaseUrl: ios.releaseUrl,
+        } : null)
+        setMobileReleaseError(!android?.installerUrl || !android.checksumUrl)
+        setIosReleaseError(!ios?.installerUrl || !ios.checksumUrl)
+      })
+      .catch((err: unknown) => {
+        if (controller.signal.aborted) return;
+        console.error('Failed to load the public installer catalog.', err);
+        setCatalogError(err instanceof Error ? err.message : 'Published installer catalog is unavailable.')
+        setMobileReleaseError(true)
+        setIosReleaseError(true)
+      });
+
     return () => controller.abort();
   }, []);
 
@@ -56,24 +89,7 @@ export const DownloadPage: React.FC = () => {
 
   return (
     <div className="download-page" id="top">
-      {/* Modern Header */}
-      <header className="download-header">
-        <Link to="/" className="download-header__brand" aria-label="Back to HELIX home">
-          <HelixLogo size="sm" showText />
-        </Link>
-        <div className="download-header__links">
-          <Link to="/" className="download-header__link">Home</Link>
-          <Link to="/features" className="download-header__link">What's New</Link>
-          <Link to="/docs" className="download-header__link">Documentation</Link>
-          <Link to="/privacy" className="download-header__link">Privacy</Link>
-          {user ? (
-            <span className="download-header__user">{user.email?.split('@')[0]}</span>
-          ) : (
-            <Link to="/login" className="download-header__link">Log In</Link>
-          )}
-          <Link to="/download" className="download-header__cta">Download</Link>
-        </div>
-      </header>
+      <ResponsiveSiteNavigation />
 
       <main className="download-main">
         <div className="download-container">
@@ -335,6 +351,124 @@ export const DownloadPage: React.FC = () => {
               </div>
             </article>
           </div>
+
+          {selectedOS !== 'windows' && (
+            <section className="download-public-catalog" aria-live="polite">
+              <span className="download-section-eyebrow">ADMIN-SELECTED PUBLIC INSTALLERS</span>
+              <h3>{selectedOS === 'macos' ? 'macOS' : 'Linux'} installer versions</h3>
+              {catalogError ? (
+                <p className="download-note" role="alert">{catalogError}</p>
+              ) : catalogInstallers.filter((item) => item.platform === selectedOS && item.edition !== 'mobile').length === 0 ? (
+                <p className="download-note">No installer version has been selected for public distribution on this system.</p>
+              ) : (
+                <div className="download-public-catalog__grid">
+                  {catalogInstallers
+                    .filter((item) => item.platform === selectedOS && item.edition !== 'mobile')
+                    .map((item) => (
+                      <article className="download-public-catalog__item" key={item.id}>
+                        <div>
+                          <span>{item.edition.toUpperCase()}</span>
+                          <h4>HELIX {item.edition === 'lite' ? 'Lite' : 'Normal'} v{item.version}</h4>
+                        </div>
+                        <div className="download-public-catalog__links">
+                          {item.installerUrl && <a href={item.installerUrl}>Download installer</a>}
+                          {item.checksumUrl && <a href={item.checksumUrl} target="_blank" rel="noreferrer">SHA-256</a>}
+                          <a href={item.releaseUrl} target="_blank" rel="noreferrer">Release notes</a>
+                        </div>
+                      </article>
+                    ))}
+                </div>
+              )}
+            </section>
+          )}
+
+          <section className="download-mobile-section" aria-labelledby="download-mobile-title">
+            <div className="download-source-header">
+              <span className="download-section-eyebrow">HELIX MOBILE · ANDROID &amp; IOS</span>
+              <h3 id="download-mobile-title">Connect to your HELIX desktop from your phone</h3>
+              <p>The Flutter mobile client connects to a running HELIX desktop through an authenticated relay or SSH tunnel.</p>
+            </div>
+            <div className="download-mobile-card">
+              <div className="download-mobile-meta">
+                <span className="download-mobile-badge">
+                  {mobileRelease
+                    ? `ANDROID RELEASE · v${mobileRelease.version}`
+                    : mobileReleaseError
+                    ? 'ANDROID PACKAGE UNAVAILABLE'
+                    : 'CHECKING ANDROID RELEASE'}
+                </span>
+              </div>
+              <div className="download-mobile-row">
+                <div>
+                  <h4>HELIX Mobile</h4>
+                  <p>
+                    {mobileRelease
+                      ? 'The Android package selected for public release is available. Review its notes and SHA-256 checksum before installing.'
+                      : mobileReleaseError
+                      ? 'No Android installer has been selected for public distribution.'
+                      : 'Checking the admin-selected Android release.'}
+                  </p>
+                </div>
+                {mobileRelease ? (
+                  <div className="download-mobile-actions">
+                    <a className="download-action-btn download-action-btn--primary" href={mobileRelease.installerUrl}>
+                      Download Android APK
+                    </a>
+                    <a className="download-checksum-link" href={mobileRelease.checksumUrl} target="_blank" rel="noreferrer">
+                      SHA-256 checksum
+                    </a>
+                    <a className="download-checksum-link" href={mobileRelease.releaseUrl} target="_blank" rel="noreferrer">
+                      Release notes on GitHub
+                    </a>
+                  </div>
+                ) : (
+                  <span className="download-note" role="status">
+                    {mobileReleaseError ? 'Not selected for public release' : 'Checking availability…'}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="download-mobile-card">
+                <div className="download-mobile-meta">
+                  <span className="download-mobile-badge">
+                    {iosRelease
+                      ? `IOS RELEASE · v${iosRelease.version}`
+                      : iosReleaseError
+                      ? 'IOS PACKAGE NOT SELECTED'
+                      : 'CHECKING IOS RELEASE'}
+                  </span>
+                </div>
+                <div className="download-mobile-row">
+                  <div>
+                    <h4>HELIX Mobile for iOS</h4>
+                    <p>
+                      {iosRelease
+                        ? 'The iOS build selected for public release is available. Review its release notes and SHA-256 checksum before installing.'
+                        : iosReleaseError
+                        ? 'No iOS installer has been selected for public distribution.'
+                        : 'Checking the admin-selected iOS release.'}
+                    </p>
+                  </div>
+                  {iosRelease ? (
+                    <div className="download-mobile-actions">
+                      <a className="download-action-btn download-action-btn--primary" href={iosRelease.installerUrl}>
+                        Download iOS build
+                      </a>
+                      <a className="download-checksum-link" href={iosRelease.checksumUrl} target="_blank" rel="noreferrer">
+                        SHA-256 checksum
+                      </a>
+                      <a className="download-checksum-link" href={iosRelease.releaseUrl} target="_blank" rel="noreferrer">
+                        Release notes
+                      </a>
+                    </div>
+                  ) : (
+                    <span className="download-note" role="status">
+                      {iosReleaseError ? 'Not selected for public release' : 'Checking availability…'}
+                    </span>
+                  )}
+                </div>
+              </div>
+          </section>
 
           {/* HELIX CLI Quickstart */}
           <section className="download-source-section" style={{ marginTop: '3rem' }}>

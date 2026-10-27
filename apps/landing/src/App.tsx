@@ -7,6 +7,8 @@ import { FeaturesPage } from './pages/FeaturesPage';
 import { ScrollytellingLandingPage } from './pages/ScrollytellingLandingPage';
 import { PrivacyPage } from './pages/PrivacyPage';
 import { DocsPage } from './pages/DocsPage';
+import { AnnouncementsPage } from './pages/AnnouncementsPage';
+import { AdminPage } from './pages/AdminPage';
 import { RequireAuth } from './components/Auth/RequireAuth';
 
 function CanonicalManager() {
@@ -28,6 +30,8 @@ function CanonicalManager() {
       '/': 'HELIX — Local-first AI desktop agent',
       '/features': 'HELIX capabilities and releases',
       '/whats-new': 'What’s new in HELIX',
+      '/announcements': 'HELIX announcements and newsroom',
+      '/admin': 'HELIX landing administration',
       '/download': 'Download HELIX',
       '/docs': 'HELIX documentation',
       '/privacy': 'HELIX privacy and security',
@@ -39,6 +43,7 @@ function CanonicalManager() {
       '/download': 'Choose the supported HELIX desktop installer for Windows or use the CLI on macOS and Linux.',
       '/docs': 'Read HELIX setup, usage, architecture, and security documentation.',
       '/privacy': 'Understand how HELIX handles local data, accounts, and update notifications.',
+      '/announcements': 'Read HELIX release notes, product updates, and announcements selected for public release.',
     };
     document.title = titles[location.pathname] ?? 'HELIX — Local-first AI desktop agent';
     let description = document.querySelector<HTMLMetaElement>('meta[name="description"]');
@@ -62,6 +67,8 @@ function App() {
         <Route path="/landing-candidate" element={<ScrollytellingLandingPage />} />
         <Route path="/features" element={<FeaturesPage />} />
         <Route path="/whats-new" element={<FeaturesPage />} />
+        <Route path="/announcements" element={<AnnouncementsPage />} />
+        <Route path="/admin" element={<RequireAuth><AdminPage /></RequireAuth>} />
         <Route path="/privacy" element={<PrivacyPage />} />
         <Route path="/docs" element={<DocsPage />} />
         <Route path="/login" element={<LoginPage />} />

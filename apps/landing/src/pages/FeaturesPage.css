@@ -112,6 +112,16 @@
   line-height: 1.5;
 }
 
+.features-intro .features-release-error {
+  margin-top: 12px;
+  color: #ffb4a8;
+}
+
+.features-intro .features-release-empty {
+  margin-top: 12px;
+  color: #ffbd8b;
+}
+
 .features-cards-viewport {
   width: min(100%, 1080px);
   height: min(64vh, 580px);
@@ -213,6 +223,14 @@
   color: #fff;
 }
 
+.features-card-summary {
+  margin: 0 0 18px;
+  max-width: 60ch;
+  color: #d4d4d4;
+  font-size: clamp(0.82rem, 1.1vw, 0.96rem);
+  line-height: 1.55;
+}
+
 .features-changes-list {
   list-style: none;
   padding: 0;
@@ -246,6 +264,23 @@
   justify-content: space-between;
   padding-top: 14px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.features-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.features-card-actions > a:not(.features-card-download) {
+  color: #aaa;
+  font-size: 0.78rem;
+  text-decoration: none;
+}
+
+.features-card-actions > a:not(.features-card-download):hover {
+  color: #fff;
+  text-decoration: underline;
 }
 
 .features-step-label {
