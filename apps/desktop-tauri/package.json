@@ -3,6 +3,7 @@
   "version": "0.3.1",
   "private": true,
   "scripts": {
+    "build": "npm run build:desktop-tauri --prefix ..\\..",
     "tauri": "tauri"
   },
   "dependencies": {

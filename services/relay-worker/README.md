@@ -11,9 +11,13 @@ From the repository root:
 
 ```powershell
 npm install
+npm run build --workspace=@helix/relay-worker
 npm run test:relay-worker
 npm run dev:relay-worker
 ```
+
+The build type-checks the Worker and runs Wrangler's local dry-run bundle
+without deploying it.
 
 The local Worker exposes `/health`. Configure the public `https://` Worker
 origin in HELIX Desktop; Desktop and Mobile derive the room-specific REST and

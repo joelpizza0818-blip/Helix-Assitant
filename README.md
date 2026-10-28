@@ -92,6 +92,7 @@ npm run dev:desktop
 npm run dev:landing
 npm run dev:server
 npm run build:desktop
+npm run build:desktop-tauri
 npm run build:landing
 npm run build:server
 ```
