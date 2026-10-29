@@ -49,6 +49,31 @@ class HelixApp extends StatelessWidget {
             TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
           ),
         ),
+        dividerTheme: const DividerThemeData(
+          color: Color(0xFF2B2D30),
+          thickness: 1,
+          space: 1,
+        ),
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+            backgroundColor: orange,
+            foregroundColor: Colors.white,
+            minimumSize: const Size(48, 48),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+        ),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(
+            foregroundColor: const Color(0xFFF4F5F6),
+            minimumSize: const Size(48, 48),
+            side: const BorderSide(color: Color(0xFF3A3C3F)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+        ),
       ),
       home: const ChatScreen(),
     );

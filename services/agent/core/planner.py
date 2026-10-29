@@ -1,5 +1,6 @@
 import json
 import logging
+import inspect
 from dataclasses import dataclass
 from typing import List
 
@@ -38,7 +39,12 @@ class Planner:
         context: dict,
         image_contexts: List[ChatMessage] | None = None,
     ) -> Plan:
-        tools = self.tool_registry.get_tool_schemas()
+        schema_getter = self.tool_registry.get_tool_schemas
+        if "query" in inspect.signature(schema_getter).parameters:
+            tools = schema_getter(query=task_description)
+        else:
+            tools = schema_getter()
+        tools = [self._compact_tool_schema(tool) for tool in tools]
         prompt = self._build_planning_prompt(task_description, tools, context)
         
         messages = [
@@ -169,6 +175,39 @@ class Planner:
             )
         return set()
 
+    @staticmethod
+    def _compact_tool_schema(tool: dict) -> dict:
+        def compact_parameter(value, depth=0):
+            if not isinstance(value, dict) or depth > 8:
+                return value
+            allowed = {
+                "type", "description", "properties", "required", "items",
+                "enum", "additionalProperties", "format",
+            }
+            compacted = {
+                key: item
+                for key, item in value.items()
+                if key in allowed
+            }
+            if isinstance(compacted.get("description"), str):
+                compacted["description"] = compacted["description"][:180]
+            if isinstance(compacted.get("properties"), dict):
+                compacted["properties"] = {
+                    name: compact_parameter(item, depth + 1)
+                    for name, item in compacted["properties"].items()
+                }
+            if isinstance(compacted.get("items"), dict):
+                compacted["items"] = compact_parameter(
+                    compacted["items"], depth + 1
+                )
+            return compacted
+
+        return {
+            "name": tool.get("name"),
+            "description": str(tool.get("description", ""))[:220],
+            "parameters": compact_parameter(tool.get("parameters", {})),
+        }
+
     def _build_planning_prompt(self, task: str, tools: List[dict], context: dict) -> str:
         safe_context = {
             key: context[key]
@@ -193,7 +232,10 @@ class Planner:
         Runtime and command guidance: {get_runtime_command_context(self.tool_registry)}
         Available Tools: {json.dumps(tools, ensure_ascii=False, default=str)}
         
-        Prefer the shortest reliable path. For a clear single-action task, use one
+        Prefer the shortest reliable path. Combine actions when one tool can safely
+        perform them, and omit separate observation or verification steps unless
+        they are needed to prevent an incorrect or irreversible result. For a clear
+        single-action task, use one
         direct tool step; do not add planning/delegation steps without a dependency
         or real need. Use commands and paths for the detected operating system and
         configured shell. If a reliable direct action is not apparent, continue with

@@ -42,6 +42,17 @@ VIRTUAL_CURSOR_INJECTION_JS = """
   `;
   cursor.appendChild(dot);
   document.documentElement.appendChild(cursor);
+  const frame = document.createElement('div');
+  frame.setAttribute('aria-hidden', 'true');
+  frame.style.cssText = `
+    position: fixed;
+    inset: 0;
+    border: 3px solid #ee6018;
+    box-shadow: inset 0 0 14px rgba(238, 96, 24, 0.85), 0 0 12px rgba(238, 96, 24, 0.75);
+    pointer-events: none !important;
+    z-index: 2147483646 !important;
+  `;
+  document.documentElement.appendChild(frame);
 
   window.__helixMoveCursor = function(x, y) {
     cursor.style.opacity = '1';

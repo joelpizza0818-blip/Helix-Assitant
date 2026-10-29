@@ -13,7 +13,7 @@ directory and are never trusted merely because they contain a skill name.
 
 - `agent-orchestration`: bounded planning, delegation, recovery, and evidence.
 - `context-compression`: preserve important context while reducing token use.
-- `browser-companion`: paired browser control with explicit window ownership.
+- `browser-companion`: paired browser control in a dedicated HELIX tab; other tabs are not shared, but the normal browser profile and cookies are used.
 - `voice-companion`: response speech, fallback behavior, and privacy boundaries.
 - `sandbox-operations`: safe shell execution and sandbox-aware verification.
 - `skill-authoring`: validation and registration of user-provided skills.

@@ -56,21 +56,21 @@ export default function BrowserExtensionSection() {
     <section className="toolbox-section browser-extension">
       <h2 className="toolbox-section__title">Browser DOM Companion</h2>
       <p className="toolbox-section__desc">
-        HELIX can inspect the active page in Chrome or Edge, including visible text, links, and form labels.
+        HELIX opens and controls its own dedicated tab in your paired Chrome or Edge browser.
       </p>
       {error && <p className="toolbox-error" role="alert">{error}</p>}
       <div className="toolbox-card">
         <div className="toolbox-card__header">
           <span className="toolbox-card__title">Local bridge</span>
-          <span className={`browser-extension__status${info?.listening ? ' browser-extension__status--ready' : ''}`}>
-            {info?.listening ? 'Bridge ready' : 'Bridge unavailable'}
+          <span className={`browser-extension__status${info?.extensionConnected ? ' browser-extension__status--ready' : ''}`}>
+            {info?.extensionConnected ? 'Extension connected' : 'Waiting for extension'}
           </span>
         </div>
         {!info?.listening && info?.error && (
           <p className="toolbox-error" role="alert">{info.error}</p>
         )}
         <p className="text-xs text-muted browser-extension__privacy">
-          Page content is sent only to the local HELIX agent and kept in memory. Form values, including passwords, are not collected.
+          Only tabs opened by HELIX are shared with the agent; other tabs are not controlled. The dedicated tab uses your regular browser profile and cookies. Snapshots omit form values, but page content may be sent to your configured AI provider as part of a request.
         </p>
         <label className="form-label browser-extension__token-label" htmlFor="browser-pairing-token">
           Extension pairing token
@@ -101,7 +101,7 @@ export default function BrowserExtensionSection() {
           </ol>
         </div>
         <p className="text-xs text-muted browser-extension__permission">
-          This extension requests access to all HTTP/HTTPS sites so it can follow your active tab. Browser-internal pages cannot be read.
+          The extension needs site access to inspect HELIX tabs on HTTP/HTTPS pages. It does not send content from your other tabs. Browser-internal pages cannot be read.
         </p>
         <button
           type="button"

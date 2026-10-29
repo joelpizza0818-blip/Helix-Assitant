@@ -28,6 +28,7 @@ model User {
   modelConfigs  ModelConfiguration[]
   permissions   Permission[]
   confirmationPolicies ConfirmationPolicy[]
+  communityItems CommunityItem[]
 
   @@map("users")
 }
@@ -198,6 +199,25 @@ model ConfirmationPolicy {
   @@unique([userId, toolName])
   @@index([userId])
   @@map("confirmation_policies")
+}
+
+model CommunityItem {
+  id            String   @id @default(uuid())
+  creatorId     String   @map("creator_id")
+  type          String   @db.VarChar(16)
+  name          String   @db.VarChar(80)
+  description   String   @db.VarChar(600)
+  manifest      Json
+  status        String   @default("PENDING") @db.VarChar(16)
+  reviewNote    String?  @map("review_note") @db.VarChar(1000)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  creator User @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@index([status, type, createdAt])
+  @@index([creatorId, createdAt])
+  @@map("community_items")
 }
 
 model ReleasePolicy {

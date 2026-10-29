@@ -110,6 +110,7 @@ const CORE_GESTURES = [
 ]
 
 export default function VisionSection({ settings, onSave }: Props) {
+  const supportsGestureWindowSequence = typeof window.helix?.openAgentPanel === 'function'
   const [sensitivityDraft, setSensitivityDraft] = useState(settings.gesture_sensitivity)
   const [activeMappings, setActiveMappings] = useState<Record<string, { action: string; customCommand?: string }>>(
     settings.gesture_mappings || {
@@ -405,6 +406,33 @@ export default function VisionSection({ settings, onSave }: Props) {
         <p className="text-xs text-muted" style={{ marginBottom: 14 }}>
           Map recognized hand gestures to native OS actions, LLM tasks, or custom terminal scripts.
         </p>
+
+        {supportsGestureWindowSequence && (
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, marginBottom: 16 }}>
+            <div className="toolbox-card__header">
+              <div>
+                <span className="toolbox-card__title">Gesture window sequence</span>
+                <p className="text-xs text-muted" style={{ margin: '4px 0 0' }}>
+                  Open: Chat → Settings → Subagents. Close in reverse order.
+                </p>
+              </div>
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  checked={settings.gesture_window_sequence_enabled !== false}
+                  onChange={(event) => onSave({
+                    gesture_window_sequence_enabled: event.target.checked,
+                  })}
+                  aria-label="Enable gesture window sequence"
+                />
+                <span className="toggle__slider" />
+              </label>
+            </div>
+            <p className="text-xs text-muted" style={{ margin: '8px 0 0' }}>
+              Uses the Index Pointing Up and Closed Fist gestures. Turn off to restore the previous two-window behavior.
+            </p>
+          </div>
+        )}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {CORE_GESTURES.map((g) => {

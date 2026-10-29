@@ -21,6 +21,8 @@ export class PythonManager {
   private wsToken: string | null = null
   private settingsPath: string = ''
   private packagedAgent: string | null = null
+  private browserExtensionToken = ''
+  private browserControlMode = ''
   private restartCount: number = 0
   private maxRestarts: number = 5
   private stopping: boolean = false
@@ -34,12 +36,16 @@ export class PythonManager {
     agentDir: string,
     wsPort: number,
     settingsPath: string,
-    packagedAgent?: string
+    packagedAgent?: string,
+    browserExtensionToken?: string,
+    browserControlMode?: 'extension' | 'playwright',
   ): Promise<number> {
     this.agentDir = agentDir
     this.wsPort = await this.findAvailablePort(wsPort)
     this.settingsPath = settingsPath
     this.packagedAgent = packagedAgent ?? null
+    this.browserExtensionToken = browserExtensionToken ?? ''
+    this.browserControlMode = browserControlMode ?? ''
     if (this.wsPort !== wsPort) {
       console.warn(`[PythonManager] Port ${wsPort} is already in use; using ${this.wsPort} instead`)
     }
@@ -169,6 +175,8 @@ export class PythonManager {
         HELIX_LOG_DIR: path.join(path.dirname(this.settingsPath), 'logs'),
         HELIX_WS_PAIRING_FILE: path.join(path.dirname(this.settingsPath), 'mobile-pairing.json'),
         HELIX_MOBILE_RELAY_URL_FILE: path.join(path.dirname(this.settingsPath), 'mobile-relay.json'),
+        HELIX_BROWSER_EXTENSION_TOKEN: this.browserExtensionToken,
+        HELIX_BROWSER_CONTROL_MODE: this.browserControlMode,
         ...websocketTokenEnvironment(this.getWebSocketToken())
       }
     })

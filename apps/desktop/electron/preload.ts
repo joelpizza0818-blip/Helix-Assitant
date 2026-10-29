@@ -52,6 +52,10 @@ contextBridge.exposeInMainWorld('helix', {
     ipcRenderer.send('helix:open-toolbox')
   },
 
+  openAgentPanel: (): void => {
+    ipcRenderer.send('helix:open-agent-panel')
+  },
+
   setFloatingWindowMode: (mode: 'full' | 'suppressed'): Promise<void> =>
     ipcRenderer.invoke('helix:set-floating-window-mode', mode),
 
@@ -59,6 +63,8 @@ contextBridge.exposeInMainWorld('helix', {
   openExternal: (url: string): void => {
     ipcRenderer.send('helix:open-external', url)
   },
+  openManagedBrowserTab: (url: string): Promise<void> =>
+    ipcRenderer.invoke('helix:open-managed-browser-tab', url),
 
   // Request/response operations
   getSettings: (): Promise<unknown> =>
@@ -74,9 +80,89 @@ contextBridge.exposeInMainWorld('helix', {
     ipcRenderer.invoke('helix:get-memory-status'),
   clearMemory: (): Promise<{ cleared: boolean }> =>
     ipcRenderer.invoke('helix:clear-memory'),
+  getUserMemories: (): Promise<unknown[]> =>
+    ipcRenderer.invoke('helix:get-user-memories'),
+  saveUserMemory: (text: string, category: string): Promise<unknown> =>
+    ipcRenderer.invoke('helix:save-user-memory', text, category),
+  updateUserMemory: (memoryId: string, text: string, category: string): Promise<unknown> =>
+    ipcRenderer.invoke('helix:update-user-memory', memoryId, text, category),
+  deleteUserMemory: (memoryId: string): Promise<{ deleted: boolean; memory_id: string }> =>
+    ipcRenderer.invoke('helix:delete-user-memory', memoryId),
 
   getTasks: (): Promise<unknown[]> =>
     ipcRenderer.invoke('helix:get-tasks'),
+
+  getSubagentProfiles: (): Promise<unknown[]> =>
+    ipcRenderer.invoke('helix:get-subagent-profiles'),
+
+  getSubagentStatus: (): Promise<unknown[]> =>
+    ipcRenderer.invoke('helix:get-subagent-status'),
+
+  getSubagentRoutingOptions: (): Promise<unknown> =>
+    ipcRenderer.invoke('helix:get-subagent-routing-options'),
+
+  setSubagentRoute: (
+    profileId: string,
+    provider: string | null,
+    model: string | null,
+    keySlot: number | null,
+  ): Promise<unknown> =>
+    ipcRenderer.invoke('helix:set-subagent-route', {
+      profile_id: profileId,
+      provider,
+      model,
+      key_slot: keySlot,
+    }),
+
+  createSubagentProfile: (profile: {
+    name: string
+    role: string
+    description: string
+    capabilities: string[]
+    color: string
+    instructions: string
+  }): Promise<unknown> =>
+    ipcRenderer.invoke('helix:create-subagent-profile', profile),
+
+  updateSubagentProfile: (
+    profileId: string,
+    profile: {
+      name: string
+      role: string
+      description: string
+      capabilities: string[]
+      color: string
+      instructions: string
+    },
+  ): Promise<unknown> =>
+    ipcRenderer.invoke('helix:update-subagent-profile', {
+      ...profile,
+      profile_id: profileId,
+    }),
+
+  chatWithSubagent: (profileId: string, message: string): Promise<unknown> =>
+    ipcRenderer.invoke('helix:chat-subagent', profileId, message),
+
+  getSubagentMemories: (profileId: string): Promise<unknown[]> =>
+    ipcRenderer.invoke('helix:get-subagent-memories', profileId),
+
+  saveSubagentMemory: (
+    profileId: string,
+    text: string,
+    category: string,
+  ): Promise<unknown> =>
+    ipcRenderer.invoke('helix:save-subagent-memory', profileId, text, category),
+
+  updateSubagentMemory: (
+    profileId: string,
+    memoryId: string,
+    text: string,
+    category: string,
+  ): Promise<unknown> =>
+    ipcRenderer.invoke('helix:update-subagent-memory', profileId, memoryId, text, category),
+
+  deleteSubagentMemory: (profileId: string, memoryId: string): Promise<unknown> =>
+    ipcRenderer.invoke('helix:delete-subagent-memory', profileId, memoryId),
 
   getProviders: (): Promise<unknown[]> =>
     ipcRenderer.invoke('helix:get-providers'),

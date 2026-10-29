@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import threading
 from typing import List, Optional, Tuple
 from .capability_registry import CapabilityRegistry
 from .provider_registry import ProviderRegistry
@@ -20,6 +21,8 @@ class TaskRequirements:
     quality_preference: str = "balanced"
     preferred_provider: Optional[str] = None
     preferred_model: Optional[str] = None
+    preferred_key_slot: Optional[int] = None
+    strict_model_route: bool = False
 
 @dataclass
 class RouteCandidate:
@@ -40,15 +43,49 @@ class ModelRouter:
         self.default_quality_preference = "balanced"
         self.default_provider: Optional[str] = None
         self.default_model: Optional[str] = None
+        self._selection_lock = threading.Lock()
+        self._candidate_cursors = {}
 
     def mark_model_unavailable(self, provider_id: str, model_id: str) -> None:
         self.unavailable_models.add((provider_id, model_id))
 
     def get_best_candidate(self, requirements: TaskRequirements) -> Optional[RouteCandidate]:
-        candidates = self._get_all_candidates(requirements)
+        return self.get_balanced_candidate(
+            self._get_all_candidates(requirements)
+        )
+
+    def get_balanced_candidate(
+        self,
+        candidates: List[RouteCandidate],
+    ) -> Optional[RouteCandidate]:
         if not candidates:
             return None
-        return sorted(candidates, key=lambda c: c.score, reverse=True)[0]
+        best_score = max(candidate.score for candidate in candidates)
+        best_candidates = [
+            candidate for candidate in candidates
+            if candidate.score == best_score
+        ]
+        routes = []
+        seen_credentials = set()
+        for candidate in best_candidates:
+            credential = self.key_manager.get_key(
+                candidate.provider_id,
+                candidate.key_slot,
+            )
+            if not credential or credential in seen_credentials:
+                continue
+            seen_credentials.add(credential)
+            routes.append(candidate)
+        if not routes:
+            return None
+        route_key = tuple(
+            (route.provider_id, route.model_id, route.key_slot)
+            for route in routes
+        )
+        with self._selection_lock:
+            index = self._candidate_cursors.get(route_key, 0)
+            self._candidate_cursors[route_key] = index + 1
+        return routes[index % len(routes)]
 
     def get_fallback_candidates(
         self,
@@ -136,6 +173,11 @@ class ModelRouter:
         for model in models:
             if (model.provider, model.id) in self.unavailable_models:
                 continue
+            if reqs.strict_model_route and (
+                model.provider != preferred_provider
+                or model.id != preferred_model
+            ):
+                continue
             score = 100 + model.priority
             if preferred_model == model.id:
                 score += 500
@@ -153,6 +195,11 @@ class ModelRouter:
                 score += 20 if model.capabilities.cost_tier == "low" else 0
 
             for slot, _key in self.key_manager.get_available_keys(model.provider):
+                if (
+                    reqs.preferred_key_slot is not None
+                    and slot != reqs.preferred_key_slot
+                ):
+                    continue
                 candidates.append(RouteCandidate(
                     provider_id=model.provider,
                     model_id=model.id,

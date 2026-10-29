@@ -16,6 +16,7 @@ const DEFAULT_SETTINGS: HelixSettings = {
   camera_enabled: true,
   camera_device_index: 0,
   gesture_sensitivity: 0.8,
+  gesture_window_sequence_enabled: true,
   start_with_windows: true,
   start_minimized: true,
   display_index: 0,

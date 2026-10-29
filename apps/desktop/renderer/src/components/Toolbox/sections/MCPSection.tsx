@@ -12,6 +12,21 @@ interface Props {
 
 const blankServer = { name: '', command: '' }
 
+const defaultRecommendedIntegrations = [
+  { id: 'obsidian', label: 'Obsidian / Helix Vault', detail: 'Bóveda local y notas del usuario' },
+  { id: 'vscode', label: 'VS Code', detail: 'Workspace y edición local' },
+  { id: 'cursor', label: 'Cursor', detail: 'Proyecto de código y editor de IA' },
+  { id: 'github', label: 'GitHub', detail: 'Repos, issues y PRs' },
+  { id: 'linear', label: 'Linear', detail: 'Tareas y roadmap del equipo' },
+  { id: 'gmail', label: 'Gmail', detail: 'Correo y mensajes relevantes' },
+  { id: 'notion', label: 'Notion', detail: 'Base de conocimiento' },
+  { id: 'claude-desktop', label: 'Claude Desktop', detail: 'Entorno de IA local' },
+  { id: 'word', label: 'Word', detail: 'Documentos y texto' },
+  { id: 'excel', label: 'Excel', detail: 'Tablas y análisis' },
+  { id: 'powerpoint', label: 'PowerPoint', detail: 'Presentaciones' },
+  { id: 'chatgpt', label: 'ChatGPT', detail: 'Workflows de IA' },
+]
+
 export default function MCPSection({ settings, onSave, saveError }: Props) {
   const servers = settings.mcp_servers ?? []
   const [draft, setDraft] = useState(blankServer)
@@ -73,6 +88,27 @@ export default function MCPSection({ settings, onSave, saveError }: Props) {
       <p className="toolbox-section__desc">
         Connect local Model Context Protocol servers over stdio to add their tools to HELIX. URL/HTTP servers are not supported. Only add launch commands from sources you trust; enabled servers run locally.
       </p>
+
+      <div className="toolbox-card" style={{ marginBottom: 16 }}>
+        <div className="toolbox-card__header">
+          <span className="toolbox-card__title">Recommended default integrations</span>
+        </div>
+        <p className="text-xs text-muted">
+          HELIX keeps a ready catalog for common tools, but none of these are installed automatically. Users opt in individually.
+        </p>
+        <div className="toolbox-skill-list">
+          {defaultRecommendedIntegrations.map((integration) => (
+            <div className="toolbox-skill-item" key={integration.id}>
+              <div>
+                <div className="toolbox-card__title" style={{ fontSize: 14 }}>{integration.label}</div>
+                <div className="text-xs text-muted">{integration.detail}</div>
+              </div>
+              <span className="status-badge">default</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {(error || saveError) && <p className="toolbox-error" role="alert">{error || saveError}</p>}
       <div className="toolbox-card">
         <div className="toolbox-card__header">

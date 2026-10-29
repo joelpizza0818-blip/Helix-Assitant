@@ -190,7 +190,7 @@ class TaskManager:
                     task.completed_at = task.completed_at or now
                 if status == TaskStatus.RUNNING:
                     task.progress = max(task.progress, 5)
-                    task.execution_summary.progress_label = "Running"
+                    task.execution_summary.progress_label = "Thinking…"
                 elif status == TaskStatus.COMPLETED:
                     task.progress = 100
                     task.execution_summary.progress_label = "Completed"
@@ -344,9 +344,9 @@ class TaskManager:
             ))
             task.execution_summary.model_input = input_summary
             task.execution_summary.progress_label = (
-                "Model request in progress"
+                "Thinking…"
                 if safe_request.get("status") == "attempting"
-                else "Model request recorded"
+                else task.execution_summary.progress_label
             )
         await self.event_bus.publish(
             "TASK_DETAILS_CHANGED",
@@ -369,9 +369,23 @@ class TaskManager:
                 for existing in task.execution_summary.steps
                 if existing.get("id") != step["id"]
             ] + [step]
-            task.current_action = step["label"]
+            task.current_action = "Thinking…"
             task.progress = min(90, max(task.progress, 10 + iteration * 5))
-            task.execution_summary.progress_label = step["label"]
+            task.execution_summary.progress_label = "Thinking…"
+        await self.event_bus.publish("TASK_DETAILS_CHANGED", {"task_id": task_id})
+
+    async def set_progress_label(
+        self,
+        task_id: str,
+        label: str,
+        current_action: Optional[str] = None,
+    ) -> None:
+        async with self.lock:
+            task = self.tasks.get(task_id)
+            if task is None:
+                return
+            task.execution_summary.progress_label = label
+            task.current_action = current_action or label
         await self.event_bus.publish("TASK_DETAILS_CHANGED", {"task_id": task_id})
 
     async def record_tool_call(
@@ -393,7 +407,7 @@ class TaskManager:
             task.execution_summary.tool_calls = (task.execution_summary.tool_calls + [call])[-50:]
             task.current_action = f"Tool: {call['tool']}"
             task.progress = min(95, max(task.progress, 15 + len(task.execution_summary.tool_calls) * 5))
-            task.execution_summary.progress_label = f"Tool {call['status']}"
+            task.execution_summary.progress_label = "Thinking…"
         await self.event_bus.publish("TASK_DETAILS_CHANGED", {"task_id": task_id})
 
     async def record_result(self, task_id: str, status: str, result: object = None) -> None:

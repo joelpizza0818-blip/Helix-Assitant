@@ -1,11 +1,66 @@
 import logging
-import asyncio
+from pathlib import Path
 from urllib.parse import urlparse
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 class BrowserSession:
+    _VIRTUAL_CURSOR_SCRIPT = """
+(() => {
+    const install = () => {
+        if (document.getElementById('helix-virtual-cursor')) return;
+        const host = document.createElement('div');
+        host.id = 'helix-virtual-cursor';
+        host.setAttribute('aria-hidden', 'true');
+        host.style.cssText = 'position:fixed;inset:0;z-index:2147483647;pointer-events:none;';
+        const shadow = host.attachShadow({ mode: 'closed' });
+        shadow.innerHTML = `
+            <style>
+                :host { all: initial; }
+                .frame { position:fixed; inset:0; border:3px solid #ee6018;
+                    box-shadow:inset 0 0 14px rgba(238,96,24,.85), 0 0 12px rgba(238,96,24,.75);
+                    pointer-events:none; }
+                .cursor { position:fixed; left:0; top:0; width:28px; height:36px;
+                    opacity:0; transform:translate3d(-100px,-100px,0);
+                    transition:transform 20ms linear; will-change:transform; }
+                .cursor svg { width:100%; height:100%; overflow:visible;
+                    filter:drop-shadow(0 1px 2px rgba(0,0,0,.7)); }
+                .pulse { position:fixed; width:28px; height:28px; margin:-14px 0 0 -14px;
+                    border:2px solid #ee6018; border-radius:50%; opacity:0;
+                    transform:scale(.35); }
+                .pulse.active { animation:helix-click 420ms ease-out; }
+                @keyframes helix-click {
+                    0% { opacity:.9; transform:scale(.35); }
+                    100% { opacity:0; transform:scale(1.7); }
+                }
+            </style>
+            <div class="frame"></div>
+            <div class="cursor"><svg viewBox="0 0 28 36" xmlns="http://www.w3.org/2000/svg">
+                <path d="M3 2v25l6.4-6.1 4.1 9.2 4.1-1.8-4.1-9.1H23L3 2Z"
+                    fill="#ee6018" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/>
+            </svg></div>
+            <div class="pulse"></div>`;
+        (document.documentElement || document).appendChild(host);
+        const cursor = shadow.querySelector('.cursor');
+        const pulse = shadow.querySelector('.pulse');
+        window.__helixMoveCursor = (x, y) => {
+            cursor.style.opacity = '1';
+            cursor.style.transform = `translate3d(${x}px,${y}px,0)`;
+        };
+        window.__helixClickCursor = (x, y) => {
+            pulse.style.left = `${x}px`;
+            pulse.style.top = `${y}px`;
+            pulse.classList.remove('active');
+            void pulse.offsetWidth;
+            pulse.classList.add('active');
+        };
+    };
+    if (document.documentElement) install();
+    else document.addEventListener('DOMContentLoaded', install, { once: true });
+})();
+"""
+
     default_headless = True
     default_browser_type = 'chromium'
     default_search_provider = 'google'
@@ -49,25 +104,33 @@ class BrowserSession:
         self._page = None
 
     async def start(self):
-        if self._browser:
+        if self.is_running():
             return
             
         from playwright.async_api import async_playwright
         self._playwright = await async_playwright().start()
         
         browser_class = getattr(self._playwright, self.browser_type)
-        self._browser = await browser_class.launch(headless=self.headless)
-        self._context = await self._browser.new_context(
+        profile_path = Path.home() / ".helix" / "browser-profile" / self.browser_type
+        profile_path.mkdir(parents=True, exist_ok=True)
+        self._context = await browser_class.launch_persistent_context(
+            user_data_dir=str(profile_path),
+            headless=self.headless,
             accept_downloads=not self.block_downloads,
         )
-        self._page = await self._context.new_page()
+        self._page = self._context.pages[0] if self._context.pages else await self._context.new_page()
+        await self._install_virtual_cursor()
         logger.info(f"BrowserSession started: {self.browser_type} (headless={self.headless})")
+
+    async def _install_virtual_cursor(self):
+        if not self._context or not self._page:
+            raise RuntimeError("Browser not started")
+        await self._context.add_init_script(self._VIRTUAL_CURSOR_SCRIPT)
+        await self._page.evaluate(self._VIRTUAL_CURSOR_SCRIPT)
 
     async def stop(self):
         if self._context:
             await self._context.close()
-        if self._browser:
-            await self._browser.close()
         if self._playwright:
             await self._playwright.stop()
             
@@ -78,7 +141,7 @@ class BrowserSession:
         logger.info("BrowserSession stopped.")
 
     def is_running(self) -> bool:
-        return self._browser is not None
+        return self._context is not None
 
     async def navigate(self, url: str):
         if not self._page:
@@ -97,8 +160,83 @@ class BrowserSession:
     async def click(self, selector: str):
         if not self._page:
             raise RuntimeError("Browser not started")
-        logger.info(f"Clicking selector: {selector}")
-        await self._page.click(selector)
+        logger.info("Clicking browser target: %s", selector)
+        if selector.isdecimal():
+            selector = f'[data-helix-control="{selector}"]'
+        if selector.startswith(("#", ".", "[", "//", "button", "a[href", "input")):
+            await self._page.locator(selector).first.click()
+            return
+        await self._page.get_by_text(selector, exact=True).first.click()
+
+    async def _validate_mouse_coordinates(self, x: int, y: int) -> None:
+        if not self._page:
+            raise RuntimeError("Browser not started")
+        viewport = self._page.viewport_size
+        if viewport is None:
+            viewport = await self._page.evaluate(
+                "() => ({ width: window.innerWidth, height: window.innerHeight })"
+            )
+        if not (0 <= x < viewport["width"] and 0 <= y < viewport["height"]):
+            raise ValueError(
+                f"Coordinates ({x}, {y}) are outside the page viewport "
+                f"({viewport['width']} x {viewport['height']})."
+            )
+
+    async def _show_virtual_cursor(self, x: int, y: int, *, clicked: bool = False) -> None:
+        if not self._page:
+            return
+        await self._page.evaluate(
+            """({ x, y, clicked }) => {
+                window.__helixMoveCursor?.(x, y);
+                if (clicked) window.__helixClickCursor?.(x, y);
+            }""",
+            {"x": x, "y": y, "clicked": clicked},
+        )
+
+    async def move_mouse(self, x: int, y: int) -> None:
+        if not self._page:
+            raise RuntimeError("Browser not started")
+        await self._validate_mouse_coordinates(x, y)
+        await self._show_virtual_cursor(x, y)
+        await self._page.mouse.move(x, y, steps=8)
+
+    async def click_at(self, x: int, y: int, button: str = "left") -> None:
+        if not self._page:
+            raise RuntimeError("Browser not started")
+        await self._validate_mouse_coordinates(x, y)
+        await self._show_virtual_cursor(x, y, clicked=True)
+        await self._page.mouse.click(x, y, button=button)
+
+    async def double_click_at(self, x: int, y: int) -> None:
+        if not self._page:
+            raise RuntimeError("Browser not started")
+        await self._validate_mouse_coordinates(x, y)
+        await self._show_virtual_cursor(x, y, clicked=True)
+        await self._page.mouse.dblclick(x, y)
+
+    async def drag(self, x: int, y: int, end_x: int, end_y: int) -> None:
+        if not self._page:
+            raise RuntimeError("Browser not started")
+        await self._validate_mouse_coordinates(x, y)
+        await self._validate_mouse_coordinates(end_x, end_y)
+        await self._show_virtual_cursor(x, y)
+        await self._page.mouse.move(x, y, steps=8)
+        await self._page.mouse.down()
+        try:
+            await self._show_virtual_cursor(end_x, end_y)
+            await self._page.mouse.move(end_x, end_y, steps=12)
+        finally:
+            await self._page.mouse.up()
+
+    async def scroll_at(self, x: int, y: int, direction: str, amount: int) -> None:
+        if not self._page:
+            raise RuntimeError("Browser not started")
+        await self._validate_mouse_coordinates(x, y)
+        await self._show_virtual_cursor(x, y)
+        await self._page.mouse.move(x, y, steps=8)
+        delta_x = amount if direction == "right" else -amount if direction == "left" else 0
+        delta_y = amount if direction == "down" else -amount if direction == "up" else 0
+        await self._page.mouse.wheel(delta_x, delta_y)
 
     async def click_text(self, text: str):
         if not self._page:
@@ -110,7 +248,14 @@ class BrowserSession:
         if not self._page:
             raise RuntimeError("Browser not started")
         logger.info(f"Typing into {selector}")
-        await self._page.fill(selector, text)
+        if selector.isdecimal():
+            selector = f'[data-helix-control="{selector}"]'
+        if selector.startswith("label="):
+            locator = self._page.get_by_label(selector.split("=", 1)[1]).first
+        else:
+            locator = self._page.locator(selector).first
+        await locator.click()
+        await locator.fill(text)
 
     async def get_text(self, selector: str) -> str:
         if not self._page:
@@ -122,24 +267,55 @@ class BrowserSession:
             raise RuntimeError("Browser not started")
         return await self._page.content()
 
+    async def get_visible_text(self, max_chars: int = 12000) -> str:
+        if not self._page:
+            raise RuntimeError("Browser not started")
+        text = await self._page.locator("body").inner_text()
+        controls = await self._page.locator(
+            "a, button, input, textarea, select, [role='button']"
+        ).evaluate_all(
+            """elements => elements.slice(0, 100).map((element, index) => {
+                element.setAttribute('data-helix-control', String(index));
+                const label = element.getAttribute('aria-label')
+                    || element.innerText
+                    || element.getAttribute('placeholder')
+                    || element.getAttribute('title')
+                    || '';
+                return `[${index}] selector=[data-helix-control="${index}"] ${element.tagName.toLowerCase()} ${label.trim()}`;
+            }).join('\\n')"""
+        )
+        snapshot = f"URL: {self._page.url}\nTitle: {await self._page.title()}\n\n{text}"
+        if controls:
+            snapshot += f"\n\nInteractive controls:\n{controls}"
+        return snapshot[:max_chars]
+
     async def screenshot(self) -> bytes:
         if not self._page:
             raise RuntimeError("Browser not started")
-        return await self._page.screenshot(full_page=True)
+        await self._page.wait_for_timeout(80)
+        return await self._page.screenshot(type="jpeg", quality=65)
 
     async def scroll(self, direction: str, amount: int):
         if not self._page:
             raise RuntimeError("Browser not started")
-        script = ""
-        if direction == 'up':
-            script = f"window.scrollBy(0, -{amount});"
-        elif direction == 'down':
-            script = f"window.scrollBy(0, {amount});"
-        elif direction == 'left':
-            script = f"window.scrollBy(-{amount}, 0);"
-        elif direction == 'right':
-            script = f"window.scrollBy({amount}, 0);"
-        await self._page.evaluate(script)
+        delta_x = amount if direction == "right" else -amount if direction == "left" else 0
+        delta_y = amount if direction == "down" else -amount if direction == "up" else 0
+        await self._page.mouse.wheel(delta_x, delta_y)
+
+    async def press_key(self, key: str):
+        if not self._page:
+            raise RuntimeError("Browser not started")
+        await self._page.keyboard.press(key)
+
+    async def go_back(self):
+        if not self._page:
+            raise RuntimeError("Browser not started")
+        await self._page.go_back(wait_until="domcontentloaded")
+
+    async def refresh(self):
+        if not self._page:
+            raise RuntimeError("Browser not started")
+        await self._page.reload(wait_until="domcontentloaded")
 
     async def wait_for_selector(self, selector: str, timeout: float = 10.0):
         if not self._page:

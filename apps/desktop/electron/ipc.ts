@@ -2,6 +2,11 @@ import { app, BrowserWindow, ipcMain } from 'electron'
 import WebSocket from 'ws'
 import type { BrowserPageSnapshot } from './browser-extension-bridge'
 import { websocketAuthHeaders } from './websocket-auth'
+import {
+  getLastGestureWindowToClose,
+  getNextGestureWindowToOpen,
+  type GestureWindowId,
+} from './gesture-window-sequence'
 
 interface AgentMessage {
   type: string
@@ -9,16 +14,24 @@ interface AgentMessage {
   timestamp?: string
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
 // Map of request-id -> resolver for two-way request/response over WebSocket
 type ResponseResolver = (data: unknown, error?: string) => void
 
 const RECONNECT_DELAY_MS = 3000
+const MOBILE_DEVICE_ID_PATTERN = /^[A-Za-z0-9_-]{20,64}$/
+const CONFIRMATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const MOBILE_CONFIRMATION_TTL_MS = 5 * 60 * 1000
 
 export class IPCBridge {
   private ws: WebSocket | null = null
   private mainWindow: BrowserWindow | null = null
   private toolboxWindow: BrowserWindow | null = null
   private confirmationWindow: BrowserWindow | null = null
+  private agentsWindow: BrowserWindow | null = null
   private activeConfirmationId: string | null = null
   private activeConfirmation: Record<string, unknown> | null = null
   private pendingRequests: Map<string, ResponseResolver> = new Map()
@@ -29,17 +42,24 @@ export class IPCBridge {
   private wsTokenProvider: (() => string) | null = null
   private reconnecting: boolean = false
   private settingsAppliedHandler: ((settings: Record<string, unknown>) => void) | null = null
+  private gestureWindowSequenceEnabled = true
   private capabilityRequiredHandler: ((payload: Record<string, unknown>) => Promise<void>) | null = null
   private agentEventHandler: ((message: AgentMessage) => void) | null = null
+  private readonly pendingMobileConfirmations = new Map<
+    string,
+    { deviceId: string; expiresAt: number }
+  >()
 
   setupHandlers(
     mainWindow: BrowserWindow,
     toolboxWindow: BrowserWindow,
     confirmationWindow: BrowserWindow,
+    agentsWindow: BrowserWindow,
   ): void {
     this.mainWindow = mainWindow
     this.toolboxWindow = toolboxWindow
     this.confirmationWindow = confirmationWindow
+    this.agentsWindow = agentsWindow
     confirmationWindow.webContents.on('did-finish-load', () => {
       this.sendActiveConfirmation()
     })
@@ -87,6 +107,90 @@ export class IPCBridge {
       return this._request({ type: 'GET_TASKS', payload: {} })
     })
 
+    ipcMain.handle('helix:get-subagent-profiles', async () => {
+      return this._request({ type: 'GET_SUBAGENT_PROFILES', payload: {} })
+    })
+
+    ipcMain.handle('helix:get-subagent-status', async () => {
+      return this._request({ type: 'GET_SUBAGENT_STATUS', payload: {} })
+    })
+
+    ipcMain.handle('helix:get-subagent-routing-options', async () => {
+      return this._request({ type: 'GET_SUBAGENT_ROUTING_OPTIONS', payload: {} })
+    })
+
+    ipcMain.handle('helix:set-subagent-route', async (_event, route: {
+      profile_id: string
+      provider: string | null
+      model: string | null
+      key_slot: number | null
+    }) => {
+      return this._request({ type: 'SET_SUBAGENT_ROUTE', payload: route })
+    })
+
+    ipcMain.handle('helix:create-subagent-profile', async (_event, profile: {
+      name: string
+      role: string
+      description: string
+      capabilities: string[]
+      color: string
+      instructions: string
+    }) => this._request({ type: 'CREATE_SUBAGENT_PROFILE', payload: profile }))
+
+    ipcMain.handle('helix:update-subagent-profile', async (_event, profile: {
+      profile_id: string
+      name: string
+      role: string
+      description: string
+      capabilities: string[]
+      color: string
+      instructions: string
+    }) => this._request({ type: 'UPDATE_SUBAGENT_PROFILE', payload: profile }))
+
+    ipcMain.handle('helix:chat-subagent', async (_event, profileId: string, message: string) => {
+      return this._request({
+        type: 'CHAT_SUBAGENT',
+        payload: { profile_id: profileId, message },
+      }, 120000)
+    })
+
+    ipcMain.handle('helix:get-subagent-memories', async (_event, profileId: string) => {
+      return this._request({
+        type: 'GET_SUBAGENT_MEMORIES',
+        payload: { profile_id: profileId },
+      })
+    })
+
+    ipcMain.handle('helix:save-subagent-memory', async (
+      _event,
+      profileId: string,
+      text: string,
+      category: string,
+    ) => this._request({
+      type: 'SAVE_SUBAGENT_MEMORY',
+      payload: { profile_id: profileId, text, category },
+    }))
+
+    ipcMain.handle('helix:update-subagent-memory', async (
+      _event,
+      profileId: string,
+      memoryId: string,
+      text: string,
+      category: string,
+    ) => this._request({
+      type: 'UPDATE_SUBAGENT_MEMORY',
+      payload: { profile_id: profileId, memory_id: memoryId, text, category },
+    }))
+
+    ipcMain.handle('helix:delete-subagent-memory', async (
+      _event,
+      profileId: string,
+      memoryId: string,
+    ) => this._request({
+      type: 'DELETE_SUBAGENT_MEMORY',
+      payload: { profile_id: profileId, memory_id: memoryId },
+    }))
+
     ipcMain.handle('helix:get-providers', async () => {
       return this._request({ type: 'GET_PROVIDERS', payload: {} })
     })
@@ -96,12 +200,15 @@ export class IPCBridge {
     })
 
     ipcMain.handle('helix:get-settings', async () => {
-      return this._request({ type: 'GET_SETTINGS', payload: {} })
+      const settings = await this._request({ type: 'GET_SETTINGS', payload: {} })
+      this._updateGestureWindowSequenceSetting(settings)
+      return settings
     })
 
     ipcMain.handle('helix:save-settings', async (event, settings: Record<string, unknown>) => {
       const result = await this._request({ type: 'SAVE_SETTINGS', payload: { settings } })
       this._applyStartupSettings(result)
+      this._updateGestureWindowSequenceSetting(result)
       if (result && typeof result === 'object') {
         this.settingsAppliedHandler?.(result as Record<string, unknown>)
       }
@@ -122,6 +229,28 @@ export class IPCBridge {
 
     ipcMain.handle('helix:clear-memory', async () => {
       return this._request({ type: 'CLEAR_MEMORY', payload: {} })
+    })
+
+    ipcMain.handle('helix:get-user-memories', async () => {
+      return this._request({ type: 'GET_USER_MEMORIES', payload: {} })
+    })
+
+    ipcMain.handle('helix:save-user-memory', async (_event, text: string, category: string) => {
+      return this._request({ type: 'SAVE_USER_MEMORY', payload: { text, category } })
+    })
+
+    ipcMain.handle('helix:update-user-memory', async (_event, memoryId: string, text: string, category: string) => {
+      return this._request({
+        type: 'UPDATE_USER_MEMORY',
+        payload: { memory_id: memoryId, text, category },
+      })
+    })
+
+    ipcMain.handle('helix:delete-user-memory', async (_event, memoryId: string) => {
+      return this._request({
+        type: 'DELETE_USER_MEMORY',
+        payload: { memory_id: memoryId },
+      })
     })
 
     ipcMain.handle('helix:validate-key', async (_event, provider: string, slot: number, key: string) => {
@@ -176,7 +305,7 @@ export class IPCBridge {
   }
 
   sendMobileUserText(deviceId: string, text: string): boolean {
-    if (!/^[A-Za-z0-9_-]{20,64}$/.test(deviceId) || !text.trim() || text.length > 50_000) {
+    if (!MOBILE_DEVICE_ID_PATTERN.test(deviceId) || !text.trim() || text.length > 50_000) {
       throw new TypeError('Mobile message is invalid.')
     }
     return this._sendToPython({
@@ -188,6 +317,78 @@ export class IPCBridge {
         input_source: 'mobile',
         source_device_id: deviceId,
       },
+      timestamp: new Date().toISOString(),
+    })
+  }
+
+  async getMobileSkillSuggestions(): Promise<Array<{ name: string; description: string }>> {
+    const response = await this._request({ type: 'GET_SKILLS', payload: {} })
+    if (!Array.isArray(response)) {
+      throw new Error('HELIX Desktop returned an invalid skills list.')
+    }
+    return response.flatMap((skill) => {
+      if (!isRecord(skill)) return []
+      const { name, description } = skill
+      if (
+        typeof name !== 'string'
+        || !/^[A-Za-z0-9_.-]{1,80}$/.test(name)
+        || typeof description !== 'string'
+      ) {
+        return []
+      }
+      return [{ name, description: description.slice(0, 500) }]
+    }).slice(0, 256)
+  }
+
+  registerMobileConfirmation(payload: Record<string, unknown>): void {
+    const requestId = payload.id
+    const deviceId = payload.source_device_id
+    if (
+      typeof requestId !== 'string'
+      || !CONFIRMATION_ID_PATTERN.test(requestId)
+      || typeof deviceId !== 'string'
+      || !MOBILE_DEVICE_ID_PATTERN.test(deviceId)
+      || payload.conversation_id !== `mobile_${deviceId}`
+    ) {
+      throw new TypeError('Mobile confirmation request metadata is invalid.')
+    }
+    this.pendingMobileConfirmations.set(requestId, {
+      deviceId,
+      expiresAt: Date.now() + MOBILE_CONFIRMATION_TTL_MS,
+    })
+  }
+
+  resolveMobileConfirmation(payload: Record<string, unknown>): void {
+    if (typeof payload.request_id === 'string') {
+      this.pendingMobileConfirmations.delete(payload.request_id)
+    }
+  }
+
+  sendMobileConfirmation(
+    deviceId: string,
+    requestId: string,
+    approved: boolean,
+  ): boolean {
+    if (
+      !MOBILE_DEVICE_ID_PATTERN.test(deviceId)
+      || !CONFIRMATION_ID_PATTERN.test(requestId)
+      || typeof approved !== 'boolean'
+    ) {
+      throw new TypeError('Mobile confirmation response is invalid.')
+    }
+    const pending = this.pendingMobileConfirmations.get(requestId)
+    if (
+      !pending
+      || pending.deviceId !== deviceId
+      || pending.expiresAt <= Date.now()
+    ) {
+      this.pendingMobileConfirmations.delete(requestId)
+      return false
+    }
+    this.pendingMobileConfirmations.delete(requestId)
+    return this._sendToPython({
+      type: approved ? 'CONFIRMATION_GRANTED' : 'CONFIRMATION_REJECTED',
+      payload: { request_id: requestId, source_device_id: deviceId },
       timestamp: new Date().toISOString(),
     })
   }
@@ -420,6 +621,18 @@ export class IPCBridge {
     }
 
     if (channel === 'helix:confirmation-request') {
+      if (message.payload.source_device_id !== undefined) {
+        const requestId = message.payload.id
+        const deviceId = message.payload.source_device_id
+        if (
+          typeof requestId !== 'string'
+          || typeof deviceId !== 'string'
+          || this.pendingMobileConfirmations.get(requestId)?.deviceId !== deviceId
+        ) {
+          console.error('[IPCBridge] Ignoring an unregistered mobile confirmation request.')
+        }
+        return
+      }
       this.activeConfirmation = message.payload
       this.activeConfirmationId = typeof message.payload.id === 'string' ? message.payload.id : null
       this._sendToAll(channel, message.payload)
@@ -447,6 +660,7 @@ export class IPCBridge {
     }
 
     if (channel === 'helix:confirmation-resolved') {
+      if (message.payload.source_device_id !== undefined) return
       this._sendToAll(channel, message.payload)
       if (
         this.activeConfirmationId
@@ -465,6 +679,9 @@ export class IPCBridge {
       if (this.toolboxWindow && !this.toolboxWindow.isDestroyed()) {
         this.toolboxWindow.webContents.send(channel, message.payload)
       }
+      if (this.agentsWindow && !this.agentsWindow.isDestroyed()) {
+        this.agentsWindow.webContents.send(channel, message.payload)
+      }
       return
     }
 
@@ -477,6 +694,38 @@ export class IPCBridge {
     const toolboxWindow = this.toolboxWindow
     const floatingVisible = floatingWindow && !floatingWindow.isDestroyed() && floatingWindow.isVisible()
     const toolboxVisible = toolboxWindow && !toolboxWindow.isDestroyed() && toolboxWindow.isVisible()
+
+    if (this.gestureWindowSequenceEnabled) {
+      const windows: Record<GestureWindowId, BrowserWindow | null> = {
+        floating: floatingWindow,
+        toolbox: toolboxWindow,
+        agents: this.agentsWindow,
+      }
+      const visibleWindows = new Set<GestureWindowId>(
+        (Object.entries(windows) as [GestureWindowId, BrowserWindow | null][])
+          .filter((entry): entry is [GestureWindowId, BrowserWindow] =>
+            Boolean(entry[1] && !entry[1].isDestroyed() && entry[1].isVisible()),
+          )
+          .map(([windowId]) => windowId),
+      )
+
+      if (payload.action === 'HIDE_FLOATING_OR_TOOLBOX') {
+        const windowId = getLastGestureWindowToClose(visibleWindows)
+        const windowToHide = windowId ? windows[windowId] : null
+        windowToHide?.hide()
+        return
+      }
+
+      if (payload.action === 'SHOW_FLOATING_OR_TOOLBOX') {
+        const windowId = getNextGestureWindowToOpen(visibleWindows)
+        const windowToShow = windowId ? windows[windowId] : null
+        if (!windowToShow || windowToShow.isDestroyed()) return
+        if (windowToShow.isMinimized()) windowToShow.restore()
+        windowToShow.show()
+        windowToShow.focus()
+        return
+      }
+    }
 
     if (payload.action === 'HIDE_FLOATING_OR_TOOLBOX') {
       const windowToHide = floatingVisible ? floatingWindow : toolboxVisible ? toolboxWindow : null
@@ -493,10 +742,18 @@ export class IPCBridge {
     }
   }
 
+  private _updateGestureWindowSequenceSetting(settings: unknown): void {
+    if (!isRecord(settings) || typeof settings.gesture_window_sequence_enabled !== 'boolean') return
+    this.gestureWindowSequenceEnabled = settings.gesture_window_sequence_enabled
+  }
+
   private _sendToAll(channel: string, data: unknown): void {
     this.mainWindow?.webContents.send(channel, data)
     if (this.toolboxWindow && !this.toolboxWindow.isDestroyed()) {
       this.toolboxWindow.webContents.send(channel, data)
+    }
+    if (this.agentsWindow && !this.agentsWindow.isDestroyed()) {
+      this.agentsWindow.webContents.send(channel, data)
     }
   }
 }

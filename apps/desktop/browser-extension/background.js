@@ -1,17 +1,63 @@
 const HELIX_PORT = 47831
 const HELIX_URL = `http://127.0.0.1:${HELIX_PORT}/page`
-const PAGE_REFRESH_ALARM = 'helix-active-page-refresh'
 const COMMAND_POLL_ALARM = 'helix-browser-command-poll'
 let queuedActiveSnapshot = null
+let pollingCommands = false
+let pollAgain = false
+const MANAGED_TABS_KEY = 'helixManagedBrowserTabs'
 
 async function readPairingToken() {
   const { pairingToken } = await chrome.storage.local.get('pairingToken')
   return typeof pairingToken === 'string' ? pairingToken.trim() : ''
 }
 
-async function isActiveTab(tabId) {
-  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
-  return tab?.id === tabId
+async function getManagedTabs() {
+  const { [MANAGED_TABS_KEY]: tabIds } = await chrome.storage.local.get(MANAGED_TABS_KEY)
+  return Array.isArray(tabIds)
+    ? tabIds.filter((tabId) => Number.isSafeInteger(tabId) && tabId >= 0)
+    : []
+}
+
+async function isManagedTab(tabId) {
+  return (await getManagedTabs()).includes(tabId)
+}
+
+async function registerManagedTab(tabId) {
+  const tabIds = await getManagedTabs()
+  await chrome.storage.local.set({
+    [MANAGED_TABS_KEY]: Array.from(new Set([...tabIds, tabId])),
+  })
+}
+
+async function unregisterManagedTab(tabId) {
+  await chrome.storage.local.set({
+    [MANAGED_TABS_KEY]: (await getManagedTabs()).filter((value) => value !== tabId),
+  })
+}
+
+function waitForTabComplete(tabId, checkCurrent = false) {
+  return new Promise((resolve, reject) => {
+    let timeout = null
+    let settled = false
+    const finish = (error, tab) => {
+      if (settled) return
+      settled = true
+      if (timeout) clearTimeout(timeout)
+      chrome.tabs.onUpdated.removeListener(onUpdated)
+      if (error) reject(error)
+      else resolve(tab)
+    }
+    const onUpdated = (updatedTabId, changeInfo, tab) => {
+      if (updatedTabId === tabId && changeInfo.status === 'complete') finish(null, tab)
+    }
+    chrome.tabs.onUpdated.addListener(onUpdated)
+    timeout = setTimeout(() => finish(new Error('Timed out waiting for the HELIX tab to finish loading.')), 30000)
+    if (checkCurrent) {
+      chrome.tabs.get(tabId).then((tab) => {
+        if (tab.status === 'complete') finish(null, tab)
+      }).catch((error) => finish(error))
+    }
+  })
 }
 
 async function publishSnapshot(snapshot) {
@@ -41,20 +87,30 @@ async function publishSnapshot(snapshot) {
   }
 }
 
-async function requestActiveTabSnapshot(tabId) {
-  if (!await isActiveTab(tabId)) return
+async function requestManagedTabSnapshot(tabId) {
+  if (!await isManagedTab(tabId)) return
   try {
+    await chrome.tabs.sendMessage(tabId, {
+      type: 'HELIX_BROWSER_CONTROL',
+      action: 'set_controlled',
+      active: true,
+    })
     const snapshot = await chrome.tabs.sendMessage(tabId, { type: 'HELIX_REFRESH_PAGE' })
     if (snapshot) await publishSnapshot(snapshot)
   } catch {
-    // Browser-internal and restricted pages do not allow content scripts.
+    // The managed tab may still be loading or may have navigated to a restricted page.
   }
 }
 
 async function pollCommands() {
-  const token = await readPairingToken()
-  if (!token) return
+  if (pollingCommands) {
+    pollAgain = true
+    return
+  }
+  pollingCommands = true
   try {
+    const token = await readPairingToken()
+    if (!token) return
     const response = await fetch(`http://127.0.0.1:${HELIX_PORT}/commands`, {
       headers: { Authorization: `Bearer ${token}` },
     })
@@ -64,16 +120,85 @@ async function pollCommands() {
       let result = { ok: false, error: 'Unsupported browser command.' }
       try {
         if (command.request.action === 'open_session') {
-          const tab = await chrome.tabs.create({ url: command.request.url || 'about:blank', active: false })
-          result = { ok: true, result: { session_id: String(tab.id), url: tab.pendingUrl || tab.url } }
+          const existingIds = await getManagedTabs()
+          let managedTab = null
+          for (const tabId of existingIds) {
+            try {
+              managedTab = await chrome.tabs.get(tabId)
+              break
+            } catch {
+              await unregisterManagedTab(tabId)
+            }
+          }
+          if (managedTab) {
+            const loading = waitForTabComplete(managedTab.id)
+            await chrome.tabs.update(managedTab.id, {
+              url: command.request.url || 'about:blank',
+              active: true,
+            })
+            managedTab = await loading
+          } else {
+            managedTab = await chrome.tabs.create({
+              url: command.request.url || 'about:blank',
+              active: true,
+            })
+            if (typeof managedTab.id !== 'number') throw new Error('Could not create the HELIX browser tab.')
+            await registerManagedTab(managedTab.id)
+            managedTab = await waitForTabComplete(managedTab.id, true)
+          }
+          await requestManagedTabSnapshot(managedTab.id)
+          result = { ok: true, result: { session_id: String(managedTab.id), url: managedTab.url } }
         } else if (command.request.action === 'navigate') {
-          const tab = await chrome.tabs.update(Number(command.request.session_id), { url: command.request.url, active: false })
-          result = { ok: true, result: { session_id: String(tab.id), url: tab.pendingUrl || tab.url } }
+          const tabId = Number(command.request.session_id)
+          if (!Number.isSafeInteger(tabId) || !await isManagedTab(tabId)) {
+            throw new Error('This tab is not managed by HELIX.')
+          }
+          const loading = waitForTabComplete(tabId)
+          await chrome.tabs.update(tabId, { url: command.request.url, active: true })
+          const loadedTab = await loading
+          await requestManagedTabSnapshot(tabId)
+          result = { ok: true, result: { session_id: String(loadedTab.id), url: loadedTab.url } }
         } else if (command.request.action === 'close') {
-          await chrome.tabs.remove(Number(command.request.session_id))
+          const tabId = Number(command.request.session_id)
+          if (!Number.isSafeInteger(tabId) || !await isManagedTab(tabId)) {
+            throw new Error('This tab is not managed by HELIX.')
+          }
+          await chrome.tabs.remove(tabId)
+          await unregisterManagedTab(tabId)
           result = { ok: true, result: { closed: true } }
+        } else if (command.request.action === 'screenshot') {
+          const tabId = Number(command.request.session_id)
+          if (!Number.isSafeInteger(tabId) || !await isManagedTab(tabId)) {
+            throw new Error('This tab is not managed by HELIX.')
+          }
+          const tab = await chrome.tabs.get(tabId)
+          const [activeTab] = await chrome.tabs.query({ active: true, windowId: tab.windowId })
+          if (activeTab?.id !== tabId) {
+            throw new Error('Activate the HELIX browser tab before requesting a screenshot.')
+          }
+          const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
+            format: 'jpeg',
+            quality: 65,
+          })
+          result = { ok: true, result: { data_url: dataUrl } }
+        } else if (command.request.action === 'go_back' || command.request.action === 'refresh') {
+          const tabId = Number(command.request.session_id)
+          if (!Number.isSafeInteger(tabId) || !await isManagedTab(tabId)) {
+            throw new Error('This tab is not managed by HELIX.')
+          }
+          const loading = waitForTabComplete(tabId)
+          if (command.request.action === 'go_back') await chrome.tabs.goBack(tabId)
+          else await chrome.tabs.reload(tabId)
+          await loading
+          await requestManagedTabSnapshot(tabId)
+          result = { ok: true, result: { session_id: String(tabId) } }
         } else {
-          const responseValue = await chrome.tabs.sendMessage(Number(command.request.session_id), { type: 'HELIX_BROWSER_CONTROL', ...command.request })
+          const tabId = Number(command.request.session_id)
+          if (!Number.isSafeInteger(tabId) || !await isManagedTab(tabId)) {
+            throw new Error('This tab is not managed by HELIX.')
+          }
+          const responseValue = await chrome.tabs.sendMessage(tabId, { type: 'HELIX_BROWSER_CONTROL', ...command.request })
+          if (responseValue?.ok === false) throw new Error(responseValue.error || 'Browser action failed.')
           result = responseValue || { ok: true }
         }
       } catch (error) {
@@ -87,48 +212,59 @@ async function pollCommands() {
     }
   } catch {
     // The desktop agent may be stopped; retry on the next alarm.
+  } finally {
+    pollingCommands = false
+    if (pollAgain) {
+      pollAgain = false
+      void pollCommands()
+    }
   }
 }
 
 chrome.runtime.onMessage.addListener((message, sender) => {
   if (message?.type !== 'HELIX_PAGE_SNAPSHOT' || typeof sender.tab?.id !== 'number') return
   void (async () => {
-    if (!await isActiveTab(sender.tab.id)) return
+    if (!await isManagedTab(sender.tab.id)) return
     queuedActiveSnapshot = message.snapshot
     await publishSnapshot(message.snapshot)
+    await pollCommands()
   })()
 })
 
 chrome.tabs.onActivated.addListener(({ tabId }) => {
-  void requestActiveTabSnapshot(tabId)
+  void requestManagedTabSnapshot(tabId)
 })
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === 'complete' && tab.active) {
-    void requestActiveTabSnapshot(tabId)
+    void requestManagedTabSnapshot(tabId)
+    void pollCommands()
   }
 })
 
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === COMMAND_POLL_ALARM) { void pollCommands(); return }
-  if (alarm.name !== PAGE_REFRESH_ALARM) return
-  void (async () => {
-    if (queuedActiveSnapshot) await publishSnapshot(queuedActiveSnapshot)
-    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
-    if (typeof tab?.id === 'number') await requestActiveTabSnapshot(tab.id)
-  })()
+chrome.tabs.onRemoved.addListener((tabId) => {
+  void unregisterManagedTab(tabId)
 })
 
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.alarms.create(PAGE_REFRESH_ALARM, { periodInMinutes: 1 })
   chrome.alarms.create(COMMAND_POLL_ALARM, { periodInMinutes: 0.5 })
 })
 
 chrome.runtime.onStartup.addListener(() => {
-  chrome.alarms.create(PAGE_REFRESH_ALARM, { periodInMinutes: 1 })
   chrome.alarms.create(COMMAND_POLL_ALARM, { periodInMinutes: 0.5 })
   void pollCommands()
-  void chrome.tabs.query({ active: true, lastFocusedWindow: true }).then(([tab]) => {
-    if (typeof tab?.id === 'number') void requestActiveTabSnapshot(tab.id)
+  void getManagedTabs().then(async (tabIds) => {
+    for (const tabId of tabIds) {
+      try {
+        await chrome.tabs.get(tabId)
+        await requestManagedTabSnapshot(tabId)
+      } catch {
+        await unregisterManagedTab(tabId)
+      }
+    }
   })
+})
+
+chrome.runtime.onMessage.addListener((message) => {
+  if (message?.type === 'HELIX_POLL_BROWSER_COMMANDS') void pollCommands()
 })

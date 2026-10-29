@@ -6,7 +6,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
-import WebSocket, { WebSocketServer } from 'ws'
+import WebSocket, { WebSocketServer, type RawData } from 'ws'
 
 import { MobileRelayClient } from './mobile-relay-client'
 
@@ -60,6 +60,11 @@ test('registers the Desktop, approves pairing, and routes messages to one device
   const port = (server.address() as AddressInfo).port
   let approvedDeviceName = ''
   let receivedMobileMessage: { deviceId: string; text: string } | null = null
+  let receivedMobileConfirmation: {
+    deviceId: string
+    requestId: string
+    approved: boolean
+  } | null = null
   const client = new MobileRelayClient(configPath, {
     approvePairing: async (deviceName) => {
       approvedDeviceName = deviceName
@@ -67,7 +72,14 @@ test('registers the Desktop, approves pairing, and routes messages to one device
     },
     receiveMobileText: async (deviceId, _deviceName, text) => {
       receivedMobileMessage = { deviceId, text }
-      return false
+      return true
+    },
+    getMobileSkillSuggestions: async () => [
+      { name: 'research', description: 'Research a topic.' },
+    ],
+    receiveMobileConfirmation: async (deviceId, requestId, approved) => {
+      receivedMobileConfirmation = { deviceId, requestId, approved }
+      return true
     },
   }, {
     encrypt: (value) => Buffer.from(value).toString('base64'),
@@ -109,25 +121,55 @@ test('registers the Desktop, approves pairing, and routes messages to one device
     }
     assert.ok(requests.includes(approvalRequest))
 
-    const rejectedMessage = once(socket, 'message')
     socket.send(JSON.stringify({
       type: 'USER_TEXT',
       source_device_id: 'abcdefghijklmnopqrstuvwxyz123456',
       source_device_name: 'Test phone',
       payload: { text: 'Read my desktop status' },
     }))
-    const [raw] = await rejectedMessage
+    for (let attempt = 0; attempt < 20 && !receivedMobileMessage; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
     assert.deepEqual(receivedMobileMessage, {
       deviceId: 'abcdefghijklmnopqrstuvwxyz123456',
       text: 'Read my desktop status',
     })
-    assert.deepEqual(JSON.parse(raw.toString()), {
-      type: 'error',
+    let skillsResponse: Record<string, unknown> | null = null
+    const skillsResponseListener = (raw: RawData) => {
+      const routed = JSON.parse(raw.toString()) as Record<string, unknown>
+      if (routed.type === 'skills_response') skillsResponse = routed
+    }
+    socket.on('message', skillsResponseListener)
+    socket.send(JSON.stringify({
+      type: 'SKILLS_REQUEST',
+      source_device_id: 'abcdefghijklmnopqrstuvwxyz123456',
+      source_device_name: 'Test phone',
+      payload: {},
+    }))
+    for (let attempt = 0; attempt < 20 && !skillsResponse; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    socket.off('message', skillsResponseListener)
+    assert.deepEqual(skillsResponse, {
+      type: 'skills_response',
       target_device_id: 'abcdefghijklmnopqrstuvwxyz123456',
       payload: {
-        conversation_id: 'mobile_abcdefghijklmnopqrstuvwxyz123456',
-        message: 'The request was denied on the Desktop.',
+        skills: [{ name: 'research', description: 'Research a topic.' }],
       },
+    })
+    const requestId = '7d1c9a50-cc15-4f4a-9ddb-0afc61fd9b83'
+    socket.send(JSON.stringify({
+      type: 'CONFIRMATION_RESPONSE',
+      source_device_id: 'abcdefghijklmnopqrstuvwxyz123456',
+      payload: { request_id: requestId, approved: true },
+    }))
+    for (let attempt = 0; attempt < 20 && !receivedMobileConfirmation; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    assert.deepEqual(receivedMobileConfirmation, {
+      deviceId: 'abcdefghijklmnopqrstuvwxyz123456',
+      requestId,
+      approved: true,
     })
 
     const routedMessage = once(socket, 'message')

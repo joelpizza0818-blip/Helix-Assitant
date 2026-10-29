@@ -105,13 +105,16 @@ Use a local `.env` or the deployment secret manager. Never commit keys, tokens, 
 |---|---|---|
 | Database | `DATABASE_URL`, `DIRECT_URL` | Prisma/PostgreSQL and migrations |
 | Supabase | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | API and authentication; service role is server-only |
-| Landing | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_API_URL` | Public/publishable web configuration |
+| Desktop and Landing | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_API_URL` | Public/publishable web configuration |
 | Administration | `ADMIN_TOKEN` or `HELIX_ADMIN_TOKEN` | Protected operations and broadcasts |
+| Community moderation | `HELIX_COMMUNITY_MODERATOR_EMAILS` | Server-side email allowlist; empty disables Community reviews |
 | SMTP | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_SECURE`, `SMTP_FROM` | Real release email delivery |
 | Providers | `OPENAI_API_KEY_*`, `ANTHROPIC_API_KEY_*`, `GOOGLE_API_KEY_*` | Configured AI providers |
 | Agent | `AGENT_WS_PORT`, `LOG_LEVEL`, `VOICE_ENABLED`, `CAMERA_ENABLED` | Runtime, logs, and perception |
 
 See [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md) before adding variables.
+
+Community submissions contain only HTTPS plugin destinations or skill instruction text. They remain private until approved by a moderator. Plugins open in HELIX's paired browser tab and use the user's regular browser session; skills install locally and never run uploaded scripts.
 
 ## Security and privacy
 

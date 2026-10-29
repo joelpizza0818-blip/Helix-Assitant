@@ -20,6 +20,27 @@ _SENSITIVE_FIELD = re.compile(
     r"(?:api[_-]?key|authorization|secret|password|credential|access[_-]?token)",
     re.IGNORECASE,
 )
+_CONTEXT_LIMIT_PATTERNS = (
+    re.compile(r"context.{0,30}(?:length|window|limit|exceed|maximum)", re.IGNORECASE),
+    re.compile(r"(?:length|window|limit|maximum).{0,30}context", re.IGNORECASE),
+    re.compile(r"(?:prompt|input|request).{0,30}(?:too long|too large|exceed.{0,12}limit)", re.IGNORECASE),
+    re.compile(r"too many tokens.{0,30}(?:prompt|input|request|context)", re.IGNORECASE),
+    re.compile(r"reduce the (?:length|size) of (?:the )?(?:messages|prompt|input)", re.IGNORECASE),
+    re.compile(r"413.{0,30}(?:payload|request).{0,20}(?:large|size)", re.IGNORECASE),
+)
+
+
+def _is_request_context_limit_error(error: Exception) -> bool:
+    code = str(getattr(error, "code", "")).upper()
+    if code in {
+        "CONTEXT_LENGTH_EXCEEDED",
+        "CONTEXT_WINDOW_EXCEEDED",
+        "PROMPT_TOO_LONG",
+        "REQUEST_TOO_LARGE",
+    }:
+        return True
+    message = str(error)
+    return any(pattern.search(message) for pattern in _CONTEXT_LIMIT_PATTERNS)
 
 
 def _safe_request_value(value: Any, field_name: str = "") -> Any:
@@ -111,8 +132,22 @@ class FallbackManager:
                 ) in execution_failed_candidates
             )
 
-        candidate = next(
-            (
+        candidates = self.model_router.get_fallback_candidates(
+            requirements,
+            exclude=[],
+            prefer_last_key=prefer_last_key,
+        )
+        available_candidates = [
+            option for option in candidates if not is_blocked(option)
+        ]
+        candidate = (
+            available_candidates[0]
+            if prefer_last_key and available_candidates
+            else self.model_router.get_balanced_candidate(available_candidates)
+        )
+        if candidate is None and excluded_api_keys:
+            excluded_api_keys.clear()
+            available_candidates = [
                 option
                 for option in self.model_router.get_fallback_candidates(
                     requirements,
@@ -120,9 +155,19 @@ class FallbackManager:
                     prefer_last_key=prefer_last_key,
                 )
                 if not is_blocked(option)
-            ),
-            None,
-        )
+            ]
+            candidate = (
+                available_candidates[0]
+                if prefer_last_key and available_candidates
+                else self.model_router.get_balanced_candidate(
+                    available_candidates
+                )
+            )
+            if candidate is not None:
+                logger.info(
+                    "Using the parent agent's credential as a last resort; "
+                    "no compatible alternative route is available"
+                )
         if not candidate:
             configured_providers = self.key_manager.get_configured_providers()
             if not configured_providers:
@@ -138,12 +183,16 @@ class FallbackManager:
         tried_candidates = set()
         attempts = 0
         last_error = None
+        context_retry_count = 0
+        retry_same_candidate = False
         
         while candidate:
             tried_tuple = (candidate.provider_id, candidate.model_id, candidate.key_slot)
-            if tried_tuple in tried_candidates:
+            if tried_tuple in tried_candidates and not retry_same_candidate:
                 break
-            tried_candidates.add(tried_tuple)
+            if not retry_same_candidate:
+                tried_candidates.add(tried_tuple)
+            retry_same_candidate = False
             attempts += 1
             task_id = context.get("_helix_task_id")
             request_payload = {
@@ -195,13 +244,40 @@ class FallbackManager:
                     retryable=False,
                     original_exception=error,
                 )
+                if _is_request_context_limit_error(e):
+                    e = AgentError(
+                        code="CONTEXT_LENGTH_EXCEEDED",
+                        message="The request exceeded the model's input context limit.",
+                        provider=candidate.provider_id,
+                        model=candidate.model_id,
+                        retryable=False,
+                        original_exception=error,
+                    )
+                    context["_helix_context_limit_encountered"] = True
+                    compact_context = context.get("_helix_context_recovery")
+                    if context_retry_count < 2 and callable(compact_context):
+                        if compact_context():
+                            context_retry_count += 1
+                            retry_same_candidate = True
+                            logger.info(
+                                "Request context exceeded model limit; compacted "
+                                "conversation and retrying provider=%s model=%s "
+                                "level=%s",
+                                candidate.provider_id,
+                                candidate.model_id,
+                                context.get("_helix_context_recovery_level"),
+                            )
+                            continue
                 last_error = e
                 safe_message = self._redact_key_values(e.message)
                 model_scoped_limit = prefer_last_key and e.code in {
                     "RATE_LIMIT",
                     "QUOTA_EXCEEDED",
                 }
-                if e.code != "INTERNAL_CLIENT_ERROR" and not model_scoped_limit:
+                if e.code not in {
+                    "INTERNAL_CLIENT_ERROR",
+                    "CONTEXT_LENGTH_EXCEEDED",
+                } and not model_scoped_limit:
                     self.key_manager.mark_key_failure(
                         candidate.provider_id,
                         candidate.key_slot,
@@ -247,6 +323,18 @@ class FallbackManager:
                     raise e
 
                 if not self.fallback_enabled:
+                    if e.code == "CONTEXT_LENGTH_EXCEEDED":
+                        raise AgentError(
+                            code=e.code,
+                            message=(
+                                "The request remained too large after HELIX "
+                                "compacted its conversation context."
+                            ),
+                            provider=candidate.provider_id,
+                            model=candidate.model_id,
+                            retryable=False,
+                            original_exception=error,
+                        ) from error
                     await self.event_bus.publish(
                         "PROVIDER_FAILED",
                         {"requirements": requirements.__dict__},
@@ -339,6 +427,19 @@ class FallbackManager:
                     },
                 )
                 candidate = next_candidate
+
+        if last_error and last_error.code == "CONTEXT_LENGTH_EXCEEDED":
+            raise AgentError(
+                code="CONTEXT_LENGTH_EXCEEDED",
+                message=(
+                    "The request remained too large after HELIX compacted its "
+                    "conversation context and tried compatible alternatives."
+                ),
+                provider=last_error.provider,
+                model=last_error.model,
+                retryable=False,
+                original_exception=last_error,
+            ) from last_error
 
         await self.event_bus.publish("PROVIDER_FAILED", {"requirements": requirements.__dict__})
         detail = f" Last error: {last_error.code}." if last_error else ""

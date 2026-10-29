@@ -45,9 +45,11 @@ operator's Cloudflare account.
   create a pending request. Desktop must approve the request.
 - Approval issues a unique mobile token; only its digest is stored. Desktop
   can list and revoke each device.
-- Mobile can send only `USER_TEXT` without a request ID. Desktop events are
-  limited to agent messages, status, task updates, and errors. The relay is not
-  an execution engine or a replacement for Desktop confirmation.
+- Mobile can send `USER_TEXT` and a narrowly validated
+  `CONFIRMATION_RESPONSE` for a pending request. Desktop events are limited to
+  agent messages, status, task updates, permission requests/resolutions, and
+  errors. The relay is not an execution engine or a replacement for Desktop
+  authorization.
 - WebSockets use Durable Object hibernation. Secrets are sent only in
   Authorization headers over HTTPS/WSS; no tokens are placed in URLs.
 

@@ -52,6 +52,82 @@ def test_router_returns_none_when_no_provider_configured(clean_env, model_router
     candidate = model_router.get_best_candidate(req)
     assert candidate is None
 
+def test_router_round_robins_unique_credentials_for_equal_best_routes(
+    google_only_env, model_router, key_manager, monkeypatch
+):
+    monkeypatch.setenv("GOOGLE_API_KEY_2", "test-google-key-2")
+    monkeypatch.setenv("GOOGLE_API_KEY_3", "test-google-key-3")
+    key_manager._load_keys()
+    key_manager.key_states = {
+        provider: {
+            slot: {
+                "health": KeyHealth.HEALTHY if key else KeyHealth.UNCONFIGURED,
+                "failures": 0,
+                "cooldown_until": 0,
+            }
+            for slot, key in enumerate(keys)
+        }
+        for provider, keys in key_manager.keys.items()
+    }
+    requirements = TaskRequirements(
+        text=True,
+        tool_calling=True,
+        preferred_provider="google",
+        preferred_model="gemini-3.8-flash",
+    )
+
+    slots = [
+        model_router.get_best_candidate(requirements).key_slot
+        for _ in range(6)
+    ]
+
+    assert slots == [0, 1, 2, 0, 1, 2]
+
+def test_router_does_not_count_duplicate_slots_as_separate_credentials(
+    google_only_env, model_router, key_manager, monkeypatch
+):
+    monkeypatch.setenv("GOOGLE_API_KEY_2", "test-google-key-1")
+    monkeypatch.setenv("GOOGLE_API_KEY_3", "test-google-key-2")
+    key_manager._load_keys()
+    key_manager.key_states = {
+        provider: {
+            slot: {
+                "health": KeyHealth.HEALTHY if key else KeyHealth.UNCONFIGURED,
+                "failures": 0,
+                "cooldown_until": 0,
+            }
+            for slot, key in enumerate(keys)
+        }
+        for provider, keys in key_manager.keys.items()
+    }
+    requirements = TaskRequirements(
+        text=True,
+        tool_calling=True,
+        preferred_provider="google",
+        preferred_model="gemini-3.8-flash",
+    )
+
+    slots = [
+        model_router.get_best_candidate(requirements).key_slot
+        for _ in range(4)
+    ]
+
+    assert slots == [0, 2, 0, 2]
+
+
+def test_strict_subagent_route_does_not_fallback_to_another_model(
+    all_providers_env, model_router
+):
+    candidate = model_router.get_best_candidate(TaskRequirements(
+        text=True,
+        preferred_provider="openai",
+        preferred_model="not-a-configured-model",
+        preferred_key_slot=0,
+        strict_model_route=True,
+    ))
+
+    assert candidate is None
+
 def test_fallback_candidates_exclude_already_tried(all_providers_env, model_router):
     req = TaskRequirements(text=True, vision=True)
     best = model_router.get_best_candidate(req)

@@ -10,7 +10,11 @@ from services.agent.core.orchestrator import Orchestrator
 from services.agent.core.task_manager import TaskStatus
 from services.agent.perception import speech_to_text
 from services.agent.perception.text_to_speech import TextToSpeech
-from services.agent.perception.voice_engine import VoiceEngine, VoiceState
+from services.agent.perception.voice_engine import (
+    VoiceEngine,
+    VoiceState,
+    markdown_to_speech,
+)
 from services.agent.perception.vad import VADDetector
 
 
@@ -203,6 +207,40 @@ def test_voice_engine_speaks_only_its_active_voice_conversation_response():
         "content": "¡Hola! ¿Cómo estás?",
     }
     assert engine.state == VoiceState.LISTENING
+
+
+def test_markdown_is_removed_before_voice_synthesis():
+    assert markdown_to_speech(
+        "# **Important**\n\n"
+        "- Read [the guide](https://example.com).\n"
+        "- `inline code`\n"
+        "> ~~Not this~~"
+    ) == "Important Read the guide. inline code Not this"
+
+
+def test_voice_engine_sends_plain_text_to_tts():
+    engine = VoiceEngine.__new__(VoiceEngine)
+    engine.tts = SimpleNamespace(provider="system", speak=AsyncMock())
+    engine.fallback_tts = SimpleNamespace(speak=AsyncMock())
+
+    asyncio.run(engine._speak_with_fallback("**Hola** *mundo*."))
+
+    engine.tts.speak.assert_awaited_once_with("Hola mundo.")
+    engine.fallback_tts.speak.assert_not_awaited()
+
+
+def test_voice_engine_reports_the_provider_used_after_fallback():
+    engine = VoiceEngine.__new__(VoiceEngine)
+    engine.tts = SimpleNamespace(
+        provider="edge_tts",
+        speak=AsyncMock(side_effect=RuntimeError("TTS unavailable")),
+    )
+    engine.fallback_tts = SimpleNamespace(provider="system", speak=AsyncMock())
+
+    spoken_provider = asyncio.run(engine._speak_with_fallback("Hola."))
+
+    assert spoken_provider == "system"
+    engine.fallback_tts.speak.assert_awaited_once_with("Hola.")
 
 
 def test_voice_engine_falls_back_to_system_voice_when_primary_tts_fails():

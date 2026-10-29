@@ -318,11 +318,13 @@ export default function AdminSection({ profile, onPendingReportsCount }: AdminSe
         <>
           {!isLiteRuntime && <div className="toolbox-card">
             <div className="toolbox-card__title">Política de versiones</div>
-            <label className="toggle">
-              <input type="checkbox" checked={config.autoUpdate} onChange={(event) => setConfig({ ...config, autoUpdate: event.target.checked })} />
-              <span className="toggle__slider" />
-              Actualizaciones automáticas
-            </label>
+            <div className="form-row" style={{ marginTop: '12px', marginBottom: '8px' }}>
+              <span className="form-label">Actualizaciones automáticas</span>
+              <label className="toggle">
+                <input type="checkbox" checked={config.autoUpdate} onChange={(event) => setConfig({ ...config, autoUpdate: event.target.checked })} />
+                <span className="toggle__slider" />
+              </label>
+            </div>
             <p className="text-xs text-muted">Si se desactiva, los usuarios aún pueden buscar actualizaciones manualmente.</p>
             <div className="form-row">
               <label className="form-label" htmlFor="update-channel">Canal</label>

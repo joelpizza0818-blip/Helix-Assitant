@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 
 from services.agent.ai.anthropic_provider import AnthropicProvider
 from services.agent.ai.base_provider import (
+    AgentError,
     ChatMessage,
     ChatResponse,
     ToolCall,
@@ -683,6 +684,7 @@ def test_tool_confirmation_is_required_and_resolved_by_request_id(monkeypatch):
             self.handlers = {}
             self.confirmation_payload = None
             self.events = []
+            self.confirmation_future = None
 
         async def subscribe(self, event, handler):
             self.handlers[event] = handler
@@ -693,7 +695,18 @@ def test_tool_confirmation_is_required_and_resolved_by_request_id(monkeypatch):
                 self.confirmation_payload = payload
                 await self.handlers["CONFIRMATION_GRANTED"](
                     "CONFIRMATION_GRANTED",
-                    {"request_id": payload["id"]},
+                    {
+                        "request_id": payload["id"],
+                        "source_device_id": "another-device-abcdefghijklmnopqrstuvwxyz",
+                    },
+                )
+                assert not self.confirmation_future.done()
+                await self.handlers["CONFIRMATION_GRANTED"](
+                    "CONFIRMATION_GRANTED",
+                    {
+                        "request_id": payload["id"],
+                        "source_device_id": payload.get("source_device_id"),
+                    },
                 )
 
     event_bus = ConfirmingEventBus()
@@ -713,17 +726,27 @@ def test_tool_confirmation_is_required_and_resolved_by_request_id(monkeypatch):
 
     async def request_confirmation():
         await loop._ensure_confirmation_subscriptions()
-        return await loop._request_tool_confirmation(
+        confirmation = asyncio.create_task(loop._request_tool_confirmation(
             tool,
             {"command": "echo hello"},
             "task-1",
-        )
+            conversation_id="mobile_abcdefghijklmnopqrstuvwxyz123456",
+            source_device_id="abcdefghijklmnopqrstuvwxyz123456",
+        ))
+        event_bus.confirmation_future = confirmation
+        return await confirmation
 
     assert asyncio.run(request_confirmation()) is True
     assert observed_timeout["seconds"] == 300
     assert event_bus.confirmation_payload["task_id"] == "task-1"
     assert event_bus.confirmation_payload["action"] == "shell_tool"
     assert event_bus.confirmation_payload["level"] == "EXECUTE"
+    assert event_bus.confirmation_payload["conversation_id"] == (
+        "mobile_abcdefghijklmnopqrstuvwxyz123456"
+    )
+    assert event_bus.confirmation_payload["source_device_id"] == (
+        "abcdefghijklmnopqrstuvwxyz123456"
+    )
     assert loop._pending_confirmations == {}
     assert event_bus.events[-1][0] == "CONFIRMATION_RESOLVED"
 
@@ -1101,3 +1124,18 @@ def test_provider_quota_failure_is_actionable_without_exposing_provider_details(
     assert "cuota" in message.lower()
     assert "clave es válida" in message
     assert "ProviderExhaustedError" not in message
+
+
+def test_context_limit_failure_is_reported_as_a_task_size_issue_not_provider_failure():
+    message = _conversation_failure_message(
+        AgentError(
+            code="CONTEXT_LENGTH_EXCEEDED",
+            message="The request remained too large after compaction.",
+            provider="google",
+            model="test-model",
+            retryable=False,
+        )
+    )
+
+    assert "compactar el historial" in message
+    assert "proveedores" not in message.lower()

@@ -1,10 +1,41 @@
 import logging
 import asyncio
 import os
+import re
 import uuid
 from enum import Enum
 
 logger = logging.getLogger(__name__)
+
+
+def markdown_to_speech(text: str) -> str:
+    """Return readable prose without Markdown presentation syntax."""
+    spoken = re.sub(r"!\[([^\]]*)\]\([^)]*\)", r"\1", text)
+    spoken = re.sub(r"\[([^\]]+)\]\((?:<[^>]*>|[^)]*)\)", r"\1", spoken)
+    spoken = re.sub(r"\[([^\]]+)\]\[[^\]]*\]", r"\1", spoken)
+    spoken = re.sub(r"(?m)^\s*\[[^\]]+\]:\s+\S+.*$", "", spoken)
+    spoken = re.sub(r"`{1,3}([^`]*?)`{1,3}", r"\1", spoken)
+    spoken = re.sub(r"(?m)^\s*(`{3,}|~{3,})[^\n]*$", "", spoken)
+    spoken = re.sub(r"(?m)^\s*\|?[\s:|-]+\|?\s*$", "", spoken)
+    spoken = re.sub(r"(?m)^\s*([-*_])(?:\s*\1){2,}\s*$", "", spoken)
+    spoken = re.sub(r"<(https?://[^ >]+)>", r"\1", spoken)
+    spoken = re.sub(r"</?[A-Za-z][^>]*>", "", spoken)
+    spoken = re.sub(r"(?m)^\s{0,3}#{1,6}\s+", "", spoken)
+    spoken = re.sub(r"(?m)^\s{0,3}>\s?", "", spoken)
+    spoken = re.sub(r"(?m)^(\s*)[-+*]\s+", r"\1", spoken)
+    spoken = re.sub(r"(?m)^(\s*)\d+[.)]\s+", r"\1", spoken)
+    for marker in ("***", "___", "**", "__", "~~", "*"):
+        spoken = re.sub(
+            rf"(?<!\\){re.escape(marker)}(?=\S)(.+?)(?<=\S)(?<!\\){re.escape(marker)}",
+            r"\1",
+            spoken,
+            flags=re.DOTALL,
+        )
+    spoken = re.sub(r"(?<![\w\\])_(?=\S)(.+?)(?<=\S)(?<!\\)_(?!\w)", r"\1", spoken, flags=re.DOTALL)
+    spoken = spoken.replace("|", " ")
+    spoken = re.sub(r"(?m)^\s*\\?[`*_~]+\s*$", "", spoken)
+    return re.sub(r"\s+", " ", spoken).strip()
+
 
 class VoiceState(Enum):
     IDLE = "IDLE"
@@ -410,9 +441,13 @@ class VoiceEngine:
             "WAKE_WORD_ALIASES": aliases or [],
         })
 
-    async def _speak_with_fallback(self, text: str) -> None:
+    async def _speak_with_fallback(self, text: str) -> str:
+        text = markdown_to_speech(text)
+        if not text:
+            return getattr(self.tts, "provider", "unknown")
         try:
             await self.tts.speak(text)
+            return getattr(self.tts, "provider", "unknown")
         except Exception:
             if getattr(self.tts, "provider", "system") == "system":
                 raise
@@ -421,6 +456,7 @@ class VoiceEngine:
                 getattr(self.tts, "provider", "unknown"),
             )
             await self.fallback_tts.speak(text)
+            return getattr(self.fallback_tts, "provider", "system")
 
     async def _handle_wake_event(self, _event_name: str, payload: dict):
         if self.state != VoiceState.IDLE:
@@ -684,14 +720,14 @@ class VoiceEngine:
             self._conversation_id,
         )
         try:
-            await self._speak_with_fallback(response)
+            spoken_provider = await self._speak_with_fallback(response)
         except Exception:
             logger.exception("Failed to speak the voice response.")
             await self._end_conversation()
             return
         logger.info(
             "TTS_COMPLETED provider=%s",
-            getattr(self.tts, "provider", "unknown"),
+            spoken_provider,
         )
 
         if input_source == "voice":

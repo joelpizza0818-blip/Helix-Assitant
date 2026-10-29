@@ -4,13 +4,17 @@ const ROOM_ID_PATTERN = /^[A-Za-z0-9_-]{20,64}$/
 const DEVICE_ID_PATTERN = /^[A-Za-z0-9_-]{20,64}$/
 const MAX_MESSAGE_BYTES = 1024 * 1024
 const MAX_MOBILE_TEXT_LENGTH = 50_000
+const CONFIRMATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const PAIRING_TTL_SECONDS = 5 * 60
 const PENDING_TTL_SECONDS = 5 * 60
 const DESKTOP_TO_MOBILE_TYPES = new Set([
   'agent_message',
   'status_update',
   'task_update',
+  'confirmation_request',
+  'confirmation_resolved',
   'error',
+  'skills_response',
 ])
 
 interface Env {
@@ -72,6 +76,10 @@ function validMessage(data: unknown): data is string | ArrayBuffer {
   return typeof data === 'string' || data instanceof ArrayBuffer
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
 function messageText(data: string | ArrayBuffer): string {
   return typeof data === 'string' ? data : new TextDecoder().decode(data)
 }
@@ -85,18 +93,16 @@ export function sanitizeMobileMessage(
   deviceId: string,
   deviceName = 'HELIX Mobile',
 ): {
-  type: 'USER_TEXT'
-  payload: {
-    text: string
-    conversation_id: string
-    conversation_history: []
-  }
+  type: 'USER_TEXT' | 'CONFIRMATION_RESPONSE' | 'SKILLS_REQUEST'
+  payload: Record<string, unknown>
   source_device_id: string
   source_device_name: string
 } | null {
   const payload = message.payload
   if (
-    message.type !== 'USER_TEXT'
+    (message.type !== 'USER_TEXT'
+      && message.type !== 'CONFIRMATION_RESPONSE'
+      && message.type !== 'SKILLS_REQUEST')
     || message.request_id !== undefined
     || !DEVICE_ID_PATTERN.test(deviceId)
     || !payload
@@ -105,6 +111,32 @@ export function sanitizeMobileMessage(
   ) {
     return null
   }
+  if (message.type === 'SKILLS_REQUEST') {
+    return {
+      type: 'SKILLS_REQUEST',
+      payload: {},
+      source_device_id: deviceId,
+      source_device_name: deviceName,
+    }
+  }
+  if (message.type === 'CONFIRMATION_RESPONSE') {
+    const requestId = (payload as Record<string, unknown>).request_id
+    const approved = (payload as Record<string, unknown>).approved
+    if (
+      typeof requestId !== 'string'
+      || !CONFIRMATION_ID_PATTERN.test(requestId)
+      || typeof approved !== 'boolean'
+    ) {
+      return null
+    }
+    return {
+      type: 'CONFIRMATION_RESPONSE',
+      payload: { request_id: requestId, approved },
+      source_device_id: deviceId,
+      source_device_name: deviceName,
+    }
+  }
+  if (message.type !== 'USER_TEXT') return null
   const text = (payload as Record<string, unknown>).text
   if (
     typeof text !== 'string'
@@ -147,9 +179,58 @@ export function sanitizeDesktopMessage(
   ) {
     return null
   }
+  const payload = message.payload as Record<string, unknown>
+  if (message.type === 'skills_response') {
+    const skills = payload.skills
+    if (
+      !Array.isArray(skills)
+      || skills.length > 256
+    ) {
+      return null
+    }
+    const safeSkills: Array<{ name: string; description: string }> = []
+    for (const skill of skills) {
+      if (!isRecord(skill)) return null
+      const { name, description } = skill
+      if (
+        typeof name !== 'string'
+        || !/^[A-Za-z0-9_.-]{1,80}$/.test(name)
+        || typeof description !== 'string'
+        || description.length > 500
+      ) {
+        return null
+      }
+      safeSkills.push({ name, description })
+    }
+    return {
+      type: message.type,
+      payload: { skills: safeSkills },
+      target_device_id: message.target_device_id,
+    }
+  }
+  if (
+    (message.type === 'confirmation_request'
+      && (
+        typeof payload.id !== 'string'
+        || !CONFIRMATION_ID_PATTERN.test(payload.id)
+        || payload.conversation_id !== `mobile_${message.target_device_id}`
+      ))
+    || (message.type === 'confirmation_resolved'
+      && (
+        typeof payload.request_id !== 'string'
+        || !CONFIRMATION_ID_PATTERN.test(payload.request_id)
+        || payload.conversation_id !== `mobile_${message.target_device_id}`
+      ))
+    || (message.type !== 'confirmation_request'
+      && message.type !== 'confirmation_resolved'
+      && payload.conversation_id !== undefined
+      && payload.conversation_id !== `mobile_${message.target_device_id}`)
+  ) {
+    return null
+  }
   return {
     type: message.type,
-    payload: message.payload as Record<string, unknown>,
+    payload,
     target_device_id: message.target_device_id,
   }
 }

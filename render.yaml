@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: helix-assistant-api
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build --workspace=@helix/server
+    startCommand: npm run start --workspace=@helix/server
+    healthCheckPath: /api/health/live
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CORS_ORIGIN
+        value: https://helix-assistant.vercel.app,null
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: HELIX_COMMUNITY_MODERATOR_EMAILS
+        value: ""

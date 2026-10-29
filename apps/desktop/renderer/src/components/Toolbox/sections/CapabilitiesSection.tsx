@@ -87,6 +87,9 @@ export default function CapabilitiesSection() {
       <p className="text-xs text-muted">
         Packs are accepted only after HTTPS, signature, size and SHA-256 validation. Downloads are staged atomically.
       </p>
+      <p className="text-xs text-muted">
+        Signed pack installation also requires HELIX_CAPABILITY_PUBLIC_KEY in the Desktop process environment. Configure the trusted public key and restart HELIX; signature checks cannot be disabled.
+      </p>
       <div className="form-row">
         <label className="form-label" htmlFor="installation-profile">Installation profile</label>
         <select

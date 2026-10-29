@@ -102,6 +102,23 @@ async def test_delegate_tool_allows_delegation_without_parent_credential():
     assert result.success is True
     assert manager.calls[0][1]["excluded_api_keys"] == []
 
+@pytest.mark.asyncio
+async def test_delegate_tool_preserves_mobile_task_correlation_for_child():
+    manager = StubAgentManager()
+    tool = DelegateTaskTool(manager, StubKeyManager(1, {"google": [(0, "key")]}))
+
+    await tool.execute_with_context(
+        {"task": "Check the requested action"},
+        parent_id="parent-id",
+        parent_credential=None,
+        conversation_id="mobile_abcdefghijklmnopqrstuvwxyz123456",
+        source_device_id="abcdefghijklmnopqrstuvwxyz123456",
+    )
+
+    child_context = manager.calls[0][1]["context"]
+    assert child_context["conversation_id"] == "mobile_abcdefghijklmnopqrstuvwxyz123456"
+    assert child_context["source_device_id"] == "abcdefghijklmnopqrstuvwxyz123456"
+
 
 def test_subagent_tool_registration_uses_the_active_provider_session():
     manager = StubAgentManager()

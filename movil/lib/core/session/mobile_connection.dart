@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import '../config/mobile_config.dart';
 import '../transport/ssh_tunnel.dart';
 import '../transport/websocket_transport.dart';
@@ -12,8 +14,19 @@ class MobileConnection {
       : _ssh = ssh ?? SshTunnelManagerImpl();
 
   final SshTunnelManager _ssh;
+  static const _deviceIdCharacters =
+      'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-';
+  final String _sourceDeviceId = _createSourceDeviceId();
   HelixSession? session;
   String? authenticatedToken;
+
+  static String _createSourceDeviceId() {
+    final random = Random.secure();
+    return List.generate(
+      32,
+      (_) => _deviceIdCharacters[random.nextInt(_deviceIdCharacters.length)],
+    ).join();
+  }
 
   Future<HelixSession> connect(MobileConfig config, String token) async {
     final invitationExpiresAt = config.invitationExpiresAt;
@@ -43,8 +56,12 @@ class MobileConnection {
       }
     }
     final transport = WebSocketHelixTransport(uri: uri, token: sessionToken);
-    final nextSession =
-        HelixSession(transport, requestTimeout: config.requestTimeout);
+    final nextSession = HelixSession(
+      transport,
+      requestTimeout: config.requestTimeout,
+      sourceDeviceId: _sourceDeviceId,
+      relaySkillsRequests: config.mode == MobileTransportMode.relay,
+    );
     session = nextSession;
     await nextSession.connect();
     authenticatedToken = sessionToken;

@@ -35,6 +35,8 @@ The Express/Prisma server, Supabase Edge Functions, and landing are separate ser
 | Perception | Optional voice, screen, camera and gesture signals | Hardware/privacy boundary |
 | Express/Prisma | Accounts, settings, tasks, models and update subscriptions | Network/database boundary |
 
+On Electron Desktop, the optional `gesture_window_sequence_enabled` setting makes the pointing-up gesture open the floating chat, Toolbox settings, and subagent window in that order. The closed-fist gesture hides the last visible window in reverse order. Disabling the setting preserves the existing two-window gesture behavior. This sequence is not supported by the Tauri shell, which does not expose the subagent window.
+
 ## Request lifecycle
 
 1. A request enters through the renderer, CLI, voice event, or gesture event.
@@ -50,6 +52,16 @@ The Express/Prisma server, Supabase Edge Functions, and landing are separate ser
 ## Context and compression
 
 Long tool outputs and conversation tails may be packed by the Context Compression Layer. Packed blocks retain a stable identifier and can be retrieved by the agent's context-retrieve tool. Compression reduces prompt size; it does not claim lossless semantic summarization unless the original block is retrieved.
+
+## User memory and browser control
+
+Explicit user memories are stored locally in `~/.helix/user_memories.json`, can be reviewed and edited in the Desktop Toolbox, and are limited to 100 entries of at most 500 characters each. HELIX filters credential-like values before saving and includes a bounded, quoted set of saved entries in model context; memory contents are data, not policy or system instructions.
+
+The `browser_control` tool uses HELIX's isolated Playwright browser profile for navigation and page interaction; it never moves the user's desktop pointer. It supports semantic DOM actions and a virtual page mouse (move, click, double-click, drag, and scroll) in CSS-pixel viewport coordinates. A HELIX-colored cursor overlay tracks actual Playwright mouse events inside the page. Mutating actions and explicit screenshot requests attach JPEG bytes to the model's vision context for post-action inspection and verification. Text entry does not submit by default. MCP servers remain opt-in local stdio integrations; the default catalog does not connect or install servers automatically.
+
+Subagents use a local persistent profile catalog, profile-scoped memories, turn-based peer messaging, and optional strict provider/model/key-slot routing. The desktop workspace exposes status, direct chat, memory editing, and route assignment. Resource leases serialize browser, desktop, and workspace tool families and are released around nested delegation. Implementation details and verification boundaries are documented in [SUBAGENT_ORCHESTRATION.md](./SUBAGENT_ORCHESTRATION.md).
+
+Voice responses have Markdown presentation syntax removed before text-to-speech synthesis so formatting markers are not spoken.
 
 ## Security invariants
 

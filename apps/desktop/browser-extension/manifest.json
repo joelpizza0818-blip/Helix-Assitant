@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "HELIX Desktop Companion",
   "version": "1.0.0",
-  "description": "Share the active Chrome or Edge page DOM with your local HELIX desktop agent.",
+  "description": "Control dedicated HELIX browser tabs with the local desktop agent.",
   "permissions": [
     "alarms",
     "storage",

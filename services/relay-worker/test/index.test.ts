@@ -57,7 +57,7 @@ describe('HELIX Cloudflare relay', () => {
     expect(response.status).toBe(401)
   })
 
-  it('limits paired mobile traffic to text and overwrites client-controlled routing data', () => {
+  it('limits paired mobile traffic to text and confirmation responses', () => {
     const deviceId = 'abcdefghijklmnopqrstuvwxyz123456'
     expect(sanitizeMobileMessage({
       type: 'USER_TEXT',
@@ -76,6 +76,70 @@ describe('HELIX Cloudflare relay', () => {
       },
       source_device_id: deviceId,
       source_device_name: 'Test phone',
+    })
+  })
+
+  it('accepts only a well-formed response to an agent confirmation request', () => {
+    const deviceId = 'abcdefghijklmnopqrstuvwxyz123456'
+    const requestId = '7d1c9a50-cc15-4f4a-9ddb-0afc61fd9b83'
+    expect(sanitizeMobileMessage({
+      type: 'CONFIRMATION_RESPONSE',
+      payload: { request_id: requestId, approved: true },
+    }, deviceId, 'Test phone')).toEqual({
+      type: 'CONFIRMATION_RESPONSE',
+      payload: { request_id: requestId, approved: true },
+      source_device_id: deviceId,
+      source_device_name: 'Test phone',
+    })
+
+    expect(sanitizeMobileMessage({
+      type: 'CONFIRMATION_RESPONSE',
+      payload: { request_id: requestId, approved: true, task_id: 'forged' },
+    }, deviceId)).toEqual({
+      type: 'CONFIRMATION_RESPONSE',
+      payload: { request_id: requestId, approved: true },
+      source_device_id: deviceId,
+      source_device_name: 'HELIX Mobile',
+    })
+    expect(sanitizeMobileMessage({
+      type: 'CONFIRMATION_RESPONSE',
+      payload: { request_id: 'not-a-uuid', approved: true },
+    }, deviceId)).toBeNull()
+  })
+
+  it('allows paired devices to request skill names and descriptions only', () => {
+    const deviceId = 'abcdefghijklmnopqrstuvwxyz123456'
+    expect(sanitizeMobileMessage({
+      type: 'SKILLS_REQUEST',
+      payload: {},
+    }, deviceId)).toEqual({
+      type: 'SKILLS_REQUEST',
+      payload: {},
+      source_device_id: deviceId,
+      source_device_name: 'HELIX Mobile',
+    })
+    expect(sanitizeMobileMessage({
+      type: 'SKILLS_REQUEST',
+      request_id: 'forged',
+      payload: {},
+    }, deviceId)).toBeNull()
+    expect(sanitizeDesktopMessage({
+      type: 'skills_response',
+      target_device_id: deviceId,
+      payload: {
+        skills: [{ name: 'research', description: 'Research a topic.' }],
+      },
+    })?.payload).toEqual({
+      skills: [{ name: 'research', description: 'Research a topic.' }],
+    })
+    expect(sanitizeDesktopMessage({
+      type: 'skills_response',
+      target_device_id: deviceId,
+      payload: {
+        skills: [{ name: 'research', description: 'Research a topic.', instructions: 'private' }],
+      },
+    })?.payload).toEqual({
+      skills: [{ name: 'research', description: 'Research a topic.' }],
     })
   })
 
@@ -98,6 +162,7 @@ describe('HELIX Cloudflare relay', () => {
 
   it('routes desktop events only to one valid device at a time', () => {
     const deviceId = 'abcdefghijklmnopqrstuvwxyz123456'
+    const requestId = '7d1c9a50-cc15-4f4a-9ddb-0afc61fd9b83'
     expect(sanitizeDesktopMessage({
       type: 'agent_message',
       target_device_id: deviceId,
@@ -115,6 +180,23 @@ describe('HELIX Cloudflare relay', () => {
       type: 'TASK_CANCEL',
       target_device_id: deviceId,
       payload: { task_id: 'task-1' },
+    })).toBeNull()
+    expect(sanitizeDesktopMessage({
+      type: 'confirmation_request',
+      target_device_id: deviceId,
+      payload: {
+        id: requestId,
+        conversation_id: `mobile_${deviceId}`,
+        action: 'open_file',
+      },
+    })?.type).toBe('confirmation_request')
+    expect(sanitizeDesktopMessage({
+      type: 'confirmation_request',
+      target_device_id: deviceId,
+      payload: {
+        id: requestId,
+        conversation_id: 'mobile_another-device',
+      },
     })).toBeNull()
   })
 })

@@ -6,7 +6,8 @@ import * as path from 'path'
 export const BROWSER_EXTENSION_PORT = 47831
 const MAX_BODY_BYTES = 500_000
 const MAX_PAGE_TEXT_LENGTH = 80_000
-const CONTROL_TIMEOUT_MS = 30_000
+const CONTROL_TIMEOUT_MS = 75_000
+const EXTENSION_STALE_MS = 90_000
 
 export interface BrowserPageSnapshot {
   title: string
@@ -14,6 +15,7 @@ export interface BrowserPageSnapshot {
   text: string
   links: Array<{ text: string; url: string }>
   forms: Array<{ label: string; type: string }>
+  controls?: Array<{ label: string; tag: string; selector: string }>
   captured_at: string
 }
 
@@ -22,18 +24,39 @@ export interface BrowserExtensionInfo {
   port: number
   extensionPath: string
   listening: boolean
+  extensionConnected: boolean
   lastPage: { title: string; url: string; captured_at: string } | null
   error: string | null
 }
 
 export interface BrowserControlRequest {
-  action: 'open_session' | 'navigate' | 'click' | 'type' | 'scroll' | 'snapshot' | 'close'
+  action:
+    | 'open_session'
+    | 'navigate'
+    | 'click'
+    | 'click_at'
+    | 'double_click_at'
+    | 'move_mouse'
+    | 'type'
+    | 'scroll'
+    | 'scroll_at'
+    | 'press_key'
+    | 'go_back'
+    | 'refresh'
+    | 'snapshot'
+    | 'screenshot'
+    | 'close'
   session_id?: string
   url?: string
   selector?: string
   text?: string
+  x?: number
+  y?: number
+  button?: 'left' | 'right' | 'middle'
+  key?: string
   direction?: 'up' | 'down' | 'left' | 'right'
   amount?: number
+  submit?: boolean
 }
 
 function isExtensionOrigin(origin: string | undefined): origin is string {
@@ -62,8 +85,10 @@ function validPageSnapshot(value: unknown): value is BrowserPageSnapshot {
     || page.text.length > MAX_PAGE_TEXT_LENGTH
     || !Array.isArray(page.links)
     || !Array.isArray(page.forms)
+    || (page.controls !== undefined && !Array.isArray(page.controls))
     || page.links.length > 120
     || page.forms.length > 80
+    || (Array.isArray(page.controls) && page.controls.length > 100)
   ) return false
 
   try {
@@ -97,8 +122,20 @@ function validPageSnapshot(value: unknown): value is BrowserPageSnapshot {
       && typeof item.type === 'string'
       && item.type.length <= 40
   }
+  const validControl = (control: unknown): boolean => {
+    if (!control || typeof control !== 'object') return false
+    const item = control as Record<string, unknown>
+    return typeof item.label === 'string'
+      && item.label.length <= 300
+      && typeof item.tag === 'string'
+      && item.tag.length <= 20
+      && typeof item.selector === 'string'
+      && item.selector.length <= 100
+  }
 
-  return page.links.every(validLink) && page.forms.every(validForm)
+  return page.links.every(validLink)
+    && page.forms.every(validForm)
+    && (page.controls === undefined || page.controls.every(validControl))
 }
 
 export class BrowserExtensionBridge {
@@ -106,6 +143,7 @@ export class BrowserExtensionBridge {
   private token = ''
   private startupError: string | null = null
   private lastPage: BrowserExtensionInfo['lastPage'] = null
+  private lastExtensionPollAt = 0
   private readonly pendingCommands = new Map<string, {
     request: BrowserControlRequest
     resolve: (value: unknown) => void
@@ -163,9 +201,42 @@ export class BrowserExtensionBridge {
       port: BROWSER_EXTENSION_PORT,
       extensionPath: this.extensionPath,
       listening: Boolean(this.server?.listening),
+      extensionConnected: Date.now() - this.lastExtensionPollAt <= EXTENSION_STALE_MS,
       lastPage: this.lastPage,
       error: this.startupError,
     }
+  }
+
+  async openManagedTab(input: string): Promise<void> {
+    if (typeof input !== 'string' || input.length > 2048) {
+      throw new TypeError('The plugin URL is invalid.')
+    }
+    let url: URL
+    try {
+      url = new URL(input)
+    } catch {
+      throw new TypeError('The plugin URL is invalid.')
+    }
+    const localHttp = url.protocol === 'http:'
+      && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
+    if (
+      (url.protocol !== 'https:' && !localHttp)
+      || url.username
+      || url.password
+    ) {
+      throw new TypeError('Plugins can only open secure HTTPS sites.')
+    }
+    const info = this.getInfo()
+    if (!info.listening) {
+      throw new Error('The HELIX browser bridge is not running.')
+    }
+    if (!info.extensionConnected) {
+      throw new Error('Connect the HELIX browser companion before opening a plugin.')
+    }
+    await this.enqueueControl({
+      action: 'open_session',
+      url: url.toString(),
+    })
   }
 
   async close(): Promise<void> {
@@ -216,7 +287,19 @@ export class BrowserExtensionBridge {
         sendJson(response, 403, { error: 'Only the paired browser extension can poll commands.' })
         return
       }
+      this.lastExtensionPollAt = Date.now()
       sendJson(response, 200, { commands: this.commandQueue.splice(0, 20) })
+      return
+    }
+
+    if (request.method === 'GET' && request.url === '/status') {
+      if (!isLocalAgentRequest(origin)) {
+        sendJson(response, 403, { error: 'Only the local HELIX agent can check browser status.' })
+        return
+      }
+      sendJson(response, 200, {
+        connected: Date.now() - this.lastExtensionPollAt <= EXTENSION_STALE_MS,
+      })
       return
     }
 
@@ -227,7 +310,7 @@ export class BrowserExtensionBridge {
         return
       }
       try {
-        const body = await this.readJson(request, 100_000)
+        const body = await this.readJson(request, 2_000_000)
         const pending = this.pendingCommands.get(commandResultMatch[1])
         if (!pending) {
           sendJson(response, 404, { error: 'Command is no longer pending.' })
@@ -310,7 +393,12 @@ export class BrowserExtensionBridge {
   private validControlRequest(value: unknown): value is BrowserControlRequest {
     if (!value || typeof value !== 'object') return false
     const request = value as Record<string, unknown>
-    if (!['open_session', 'navigate', 'click', 'type', 'scroll', 'snapshot', 'close'].includes(String(request.action))) return false
+    const actions = [
+      'open_session', 'navigate', 'click', 'click_at', 'double_click_at',
+      'move_mouse', 'type', 'scroll', 'scroll_at', 'press_key', 'go_back',
+      'refresh', 'snapshot', 'screenshot', 'close',
+    ]
+    if (!actions.includes(String(request.action))) return false
     if (request.session_id !== undefined && (typeof request.session_id !== 'string' || request.session_id.length > 80)) return false
     if (request.url !== undefined) {
       if (typeof request.url !== 'string' || request.url.length > 4096) return false
@@ -319,8 +407,28 @@ export class BrowserExtensionBridge {
     for (const key of ['selector', 'text']) {
       if (request[key] !== undefined && (typeof request[key] !== 'string' || request[key].length > 2000)) return false
     }
+    if (request.key !== undefined && (typeof request.key !== 'string' || request.key.length > 64)) return false
+    for (const key of ['x', 'y']) {
+      if (request[key] !== undefined && (
+        typeof request[key] !== 'number'
+        || !Number.isInteger(request[key])
+        || request[key] < 0
+        || request[key] > 10000
+      )) return false
+    }
+    if (
+      ['click_at', 'double_click_at', 'move_mouse', 'scroll_at'].includes(String(request.action))
+      && (request.x === undefined || request.y === undefined)
+    ) return false
+    if (request.button !== undefined && !['left', 'right', 'middle'].includes(String(request.button))) return false
     if (request.direction !== undefined && !['up', 'down', 'left', 'right'].includes(String(request.direction))) return false
-    return request.amount === undefined || (typeof request.amount === 'number' && Number.isInteger(request.amount) && request.amount > 0 && request.amount <= 5000)
+    if (request.amount !== undefined && (
+      typeof request.amount !== 'number'
+      || !Number.isInteger(request.amount)
+      || request.amount <= 0
+      || request.amount > 5000
+    )) return false
+    return request.submit === undefined || typeof request.submit === 'boolean'
   }
 
   private enqueueControl(request: BrowserControlRequest): Promise<unknown> {

@@ -2,6 +2,9 @@ import { createClient } from '@supabase/supabase-js'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+const communityApiUrl = import.meta.env.VITE_API_URL?.replace(/\/+$/, '')
+export const COMMUNITY_INSTALLED_PLUGINS_KEY = 'helix-community-plugins'
+export const COMMUNITY_INSTALLED_AGENTS_KEY = 'helix-community-agents'
 
 export const desktopSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey)
 export const desktopSupabase = supabaseUrl && supabaseAnonKey
@@ -92,6 +95,46 @@ export async function getAccessToken(): Promise<string | null> {
   const { data, error } = await desktopSupabase.auth.getSession()
   if (error) throw error
   return data.session?.access_token ?? null
+}
+
+export async function communityRequest<T>(
+  route: string,
+  init: RequestInit = {},
+  authenticated = false,
+): Promise<T> {
+  if (!communityApiUrl) {
+    throw new Error('Community service is not configured in this build (VITE_API_URL).')
+  }
+  const token = authenticated ? await getAccessToken() : null
+  if (authenticated && !token) {
+    throw new Error('Connect your GitHub profile before using this Community feature.')
+  }
+  const response = await fetch(`${communityApiUrl}/api/community${route}`, {
+    ...init,
+    headers: {
+      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...init.headers,
+    },
+    signal: init.signal ?? AbortSignal.timeout(15000),
+  })
+  const result = await response.json().catch(() => null) as {
+    success?: unknown
+    data?: unknown
+    error?: unknown
+  } | null
+  if (!response.ok) {
+    const error = result?.error
+    const message = error && typeof error === 'object'
+      && 'message' in error && typeof error.message === 'string'
+      ? error.message
+      : `Community service returned HTTP ${response.status}.`
+    throw new Error(message)
+  }
+  if (!result || result.success !== true || result.data === undefined) {
+    throw new Error('Community service returned an invalid response.')
+  }
+  return result.data as T
 }
 
 export async function adminRequest<T>(

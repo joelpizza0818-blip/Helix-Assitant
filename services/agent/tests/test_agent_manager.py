@@ -118,6 +118,31 @@ async def test_agent_failure_is_retained_as_failed_task_result():
     assert task.status == TaskStatus.FAILED
     assert task.error == "provider failed"
 
+@pytest.mark.asyncio
+async def test_subagent_retains_mobile_routing_for_task_updates_and_confirmations():
+    task_manager = TaskManager(EventBus())
+    loop = FakeReactLoop()
+    manager = await make_manager(loop, task_manager)
+    device_id = "abcdefghijklmnopqrstuvwxyz123456"
+
+    handle = await manager.delegate_task(
+        "Check the requested action",
+        role="research",
+        parent_id="parent-id",
+        context={
+            "input_source": "subagent delegation",
+            "conversation_id": f"mobile_{device_id}",
+            "source_device_id": device_id,
+        },
+    )
+    result = await handle
+    task_context = await task_manager.get_task_context(result["agent_id"])
+
+    assert task_context["conversation_id"] == f"mobile_{device_id}"
+    assert task_context["source_device_id"] == device_id
+    assert loop.execute_kwargs["conversation_id"] == f"mobile_{device_id}"
+    assert loop.execute_kwargs["source_device_id"] == device_id
+
 
 @pytest.mark.asyncio
 async def test_delegated_agent_excludes_parent_credential_without_persisting_or_logging_it(caplog):

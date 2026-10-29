@@ -5,12 +5,19 @@ import '../models/protocol_message.dart';
 import '../transport/helix_transport.dart';
 
 class HelixSession {
-  HelixSession(this.transport, {this.requestTimeout = const Duration(seconds: 30)}) {
+  HelixSession(
+    this.transport, {
+    this.requestTimeout = const Duration(seconds: 30),
+    this.sourceDeviceId,
+    this.relaySkillsRequests = false,
+  }) {
     _subscription = transport.messages.listen(_handleMessage);
   }
 
   final HelixTransport transport;
   final Duration requestTimeout;
+  final String? sourceDeviceId;
+  final bool relaySkillsRequests;
   final _events = StreamController<HelixMessage>.broadcast();
   final _pending = <String, Completer<HelixMessage>>{};
   late final StreamSubscription<HelixMessage> _subscription;
@@ -21,11 +28,14 @@ class HelixSession {
 
   Future<void> connect() => transport.connect();
 
-  Future<HelixMessage> request(String type, [Map<String, dynamic> payload = const {}]) async {
-    final requestId = '${DateTime.now().microsecondsSinceEpoch}-${_random.nextInt(1 << 32)}';
+  Future<HelixMessage> request(String type,
+      [Map<String, dynamic> payload = const {}]) async {
+    final requestId =
+        '${DateTime.now().microsecondsSinceEpoch}-${_random.nextInt(1 << 32)}';
     final completer = Completer<HelixMessage>();
     _pending[requestId] = completer;
-    await transport.send(HelixMessage(type: type, requestId: requestId, payload: payload));
+    await transport
+        .send(HelixMessage(type: type, requestId: requestId, payload: payload));
     try {
       return await completer.future.timeout(requestTimeout);
     } finally {
@@ -33,13 +43,53 @@ class HelixSession {
     }
   }
 
-  Future<void> sendUserText({required String text, required String conversationId}) => transport.send(
+  Future<void> sendUserText(
+          {required String text, required String conversationId}) =>
+      transport.send(
         HelixMessage(
           type: 'USER_TEXT',
           payload: {
             'text': text,
-            'conversation_id': conversationId,
+            'conversation_id': sourceDeviceId == null
+                ? conversationId
+                : 'mobile_$sourceDeviceId',
             'conversation_history': const <Map<String, String>>[],
+            if (sourceDeviceId != null) ...{
+              'input_source': 'mobile',
+              'source_device_id': sourceDeviceId,
+            },
+          },
+        ),
+      );
+
+  Future<List<Map<String, dynamic>>> requestSkills() async {
+    if (relaySkillsRequests) {
+      await transport.send(const HelixMessage(type: 'SKILLS_REQUEST'));
+      return const [];
+    }
+    final response = await request('GET_SKILLS');
+    final skills = response.payload['skills'];
+    if (skills is! List) {
+      throw const FormatException(
+          'HELIX Desktop returned an invalid skills list.');
+    }
+    return skills
+        .whereType<Map>()
+        .map((skill) => Map<String, dynamic>.from(skill))
+        .toList(growable: false);
+  }
+
+  Future<void> sendConfirmationResponse({
+    required String requestId,
+    required bool approved,
+  }) =>
+      transport.send(
+        HelixMessage(
+          type: 'CONFIRMATION_RESPONSE',
+          payload: {
+            'request_id': requestId,
+            'approved': approved,
+            if (sourceDeviceId != null) 'source_device_id': sourceDeviceId,
           },
         ),
       );
@@ -65,7 +115,9 @@ class HelixSession {
   Future<void> close() async {
     await _subscription.cancel();
     for (final pending in _pending.values) {
-      if (!pending.isCompleted) pending.completeError(StateError('HELIX session closed'));
+      if (!pending.isCompleted) {
+        pending.completeError(StateError('HELIX session closed'));
+      }
     }
     _pending.clear();
     await _events.close();

@@ -60,6 +60,7 @@ const APP_ICON_PATH = path.join(__dirname, '../assets/icon.ico')
 let floatingWindow: BrowserWindow | null = null
 let toolboxWindow: BrowserWindow | null = null
 let confirmationWindow: BrowserWindow | null = null
+let agentsWindow: BrowserWindow | null = null
 let trayManager: TrayManager | null = null
 let pythonManager: PythonManager | null = null
 let ipcBridge: IPCBridge | null = null
@@ -485,6 +486,34 @@ function createConfirmationWindow(): BrowserWindow {
   return win
 }
 
+function createAgentsWindow(): BrowserWindow {
+  const win = new BrowserWindow({
+    width: 1100,
+    height: 760,
+    minWidth: 760,
+    minHeight: 560,
+    frame: true,
+    titleBarStyle: 'default',
+    show: false,
+    backgroundColor: '#101010',
+    title: 'HELIX Subagents',
+    icon: APP_ICON_PATH,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  })
+  loadWithRetry(win, `${RENDERER_URL}#agents`)
+  win.setMenuBarVisibility(false)
+  win.on('close', (event) => {
+    event.preventDefault()
+    win.hide()
+  })
+  return win
+}
+
 async function startPythonAgent(): Promise<void> {
   // Pairing invitations never survive a Desktop restart.
   try { fs.rmSync(mobilePairingPath(), { force: true }) } catch { /* best effort */ }
@@ -544,18 +573,44 @@ async function startPythonAgent(): Promise<void> {
     agentDir,
     DEFAULT_WS_PORT,
     path.join(app.getPath('userData'), 'settings.json'),
-    packagedAgent
+    packagedAgent,
+    browserExtensionBridge?.getInfo().token,
+    'extension',
   )
   appendSystemLog('[Main]', `Python agent started on port ${wsPort} (packaged: ${Boolean(packagedAgent)})`)
   console.log('[Main] Python agent started')
 }
 
 function setupIPC(): void {
-  if (!floatingWindow || !toolboxWindow || !confirmationWindow) return
+  if (!floatingWindow || !toolboxWindow || !confirmationWindow || !agentsWindow) return
 
   ipcBridge = new IPCBridge()
   ipcBridge.onSettingsApplied(applyDesktopSettings)
-  ipcBridge.onAgentEvent((message) => mobileRelayClient?.sendAgentEvent(message))
+  ipcBridge.onAgentEvent((message) => {
+    if (
+      message.type === 'agent_update'
+      && typeof message.payload.promotion === 'string'
+      && Notification.isSupported()
+    ) {
+      const name = typeof message.payload.name === 'string'
+        ? message.payload.name
+        : 'A teammate'
+      new Notification({
+        title: 'HELIX teammate promoted',
+        body: `${name} gained a new responsibility.`,
+      }).show()
+    }
+    if (
+      message.type === 'confirmation_request'
+      && typeof message.payload.source_device_id === 'string'
+    ) {
+      ipcBridge?.registerMobileConfirmation(message.payload)
+    }
+    mobileRelayClient?.sendAgentEvent(message)
+    if (message.type === 'confirmation_resolved') {
+      ipcBridge?.resolveMobileConfirmation(message.payload)
+    }
+  })
   ipcBridge.onCapabilityRequired(async (payload) => {
     const id = typeof payload.capability === 'string' ? payload.capability : ''
     const requestId = typeof payload.request_id === 'string' ? payload.request_id : ''
@@ -592,7 +647,7 @@ function setupIPC(): void {
       })
     }
   })
-  ipcBridge.setupHandlers(floatingWindow, toolboxWindow, confirmationWindow)
+  ipcBridge.setupHandlers(floatingWindow, toolboxWindow, confirmationWindow, agentsWindow)
   mobileRelayClient = new MobileRelayClient(mobileRelayWorkerConfigPath(), {
     approvePairing: async (deviceName) => {
       const options = {
@@ -611,28 +666,20 @@ function setupIPC(): void {
         : await dialog.showMessageBox(options)
       return result.response === 1
     },
-    receiveMobileText: async (deviceId, deviceName, text) => {
+    receiveMobileText: async (deviceId, _deviceName, text) => {
       if (!ipcBridge) throw new Error('HELIX Desktop agent bridge is unavailable.')
-      const preview = text.length > 2_000 ? `${text.slice(0, 2_000)}\n\n[Texto truncado en la solicitud de confirmación]` : text
-      const options = {
-        type: 'warning' as const,
-        title: 'Solicitud desde HELIX Mobile',
-        message: `${deviceName} solicita enviar este mensaje al agente local.`,
-        detail: preview,
-        buttons: ['Rechazar', 'Permitir esta solicitud'],
-        defaultId: 0,
-        cancelId: 0,
-        noLink: true,
-      }
-      const parent = toolboxWindow && !toolboxWindow.isDestroyed() ? toolboxWindow : undefined
-      const result = parent
-        ? await dialog.showMessageBox(parent, options)
-        : await dialog.showMessageBox(options)
-      if (result.response !== 1) return false
       if (!ipcBridge.sendMobileUserText(deviceId, text)) {
         throw new Error('HELIX Desktop agent is not connected.')
       }
       return true
+    },
+    getMobileSkillSuggestions: async () => {
+      if (!ipcBridge) throw new Error('HELIX Desktop agent bridge is unavailable.')
+      return ipcBridge.getMobileSkillSuggestions()
+    },
+    receiveMobileConfirmation: async (deviceId, requestId, approved) => {
+      if (!ipcBridge) throw new Error('HELIX Desktop agent bridge is unavailable.')
+      return ipcBridge.sendMobileConfirmation(deviceId, requestId, approved)
     },
   }, {
     encrypt: (value) => {
@@ -808,6 +855,18 @@ function setupIPC(): void {
       lastPage: null,
       error: 'Browser companion is not initialized.',
     }
+  })
+  ipcMain.handle('helix:open-managed-browser-tab', async (event, url: unknown) => {
+    if (event.sender !== toolboxWindow?.webContents) {
+      throw new Error('Only the HELIX Toolbox can open managed plugin tabs.')
+    }
+    if (!browserExtensionBridge) {
+      throw new Error('Browser companion is not initialized.')
+    }
+    if (typeof url !== 'string') {
+      throw new TypeError('The plugin URL must be a string.')
+    }
+    await browserExtensionBridge.openManagedTab(url)
   })
   ipcMain.handle('helix:open-browser-extension-folder', async () => {
     if (!browserExtensionBridge) throw new Error('Browser companion is not initialized.')
@@ -1122,6 +1181,7 @@ app.whenReady().then(async () => {
   floatingWindow = createFloatingWindow()
   toolboxWindow = createToolboxWindow()
   confirmationWindow = createConfirmationWindow()
+  agentsWindow = createAgentsWindow()
   const startupOAuthUrl = findOAuthCallbackArgument(process.argv)
   if (startupOAuthUrl) handleOAuthCallbackUrl(startupOAuthUrl)
   setupIPC()
@@ -1158,6 +1218,10 @@ app.whenReady().then(async () => {
           floatingWindow?.webContents.send('helix:show-tasks')
         }
       },
+      {
+        label: 'Subagents',
+        click: () => { agentsWindow?.show(); agentsWindow?.focus() }
+      },
       { type: 'separator' },
       {
         label: 'Settings',
@@ -1175,9 +1239,10 @@ app.whenReady().then(async () => {
 
   trayManager.setContextMenu(buildContextMenu())
 
-  // Start Python agent
-  await startPythonAgent()
+  // Start the local browser bridge before the agent so browser control can use
+  // the paired extension instead of launching a second browser.
   await startBrowserExtensionBridge()
+  await startPythonAgent()
 
   // Connect WebSocket only after the Python agent reports readiness.
   connectWebSocket()
@@ -1206,9 +1271,11 @@ app.on('before-quit', (event) => {
     floatingWindow?.removeAllListeners('close')
     toolboxWindow?.removeAllListeners('close')
     confirmationWindow?.removeAllListeners('close')
+    agentsWindow?.removeAllListeners('close')
     floatingWindow?.destroy()
     toolboxWindow?.destroy()
     confirmationWindow?.destroy()
+    agentsWindow?.destroy()
     trayManager?.destroy()
     mobileRelayClient?.close()
     ipcBridge?.close()
@@ -1235,6 +1302,11 @@ ipcMain.on('helix:open-toolbox', () => {
   toolboxWindow?.focus()
 })
 
+ipcMain.on('helix:open-agent-panel', () => {
+  agentsWindow?.show()
+  agentsWindow?.focus()
+})
+
 ipcMain.on('helix:quit', () => {
   app.quit()
 })
@@ -1246,4 +1318,4 @@ ipcMain.on('helix:open-external', (_event, url: string) => {
   }
 })
 
-export { floatingWindow, toolboxWindow, ipcBridge }
+export { floatingWindow, toolboxWindow, agentsWindow, ipcBridge }

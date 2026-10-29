@@ -13,17 +13,7 @@ document.getElementById('save-token').addEventListener('click', async () => {
     return
   }
   await chrome.storage.local.set({ pairingToken })
-  status.textContent = 'Paired. HELIX will receive the active tab when you switch pages.'
+  status.textContent = 'Paired. HELIX only reads and controls browser tabs it opens for its own tasks.'
   status.style.color = '#a0ca92'
-  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
-  if (typeof tab?.id === 'number') {
-    try {
-      const snapshot = await chrome.tabs.sendMessage(tab.id, { type: 'HELIX_REFRESH_PAGE' })
-      if (snapshot) {
-        await chrome.runtime.sendMessage({ type: 'HELIX_PAGE_SNAPSHOT', snapshot })
-      }
-    } catch {
-      status.textContent += ' Refresh a supported web page to connect.'
-    }
-  }
+  await chrome.runtime.sendMessage({ type: 'HELIX_POLL_BROWSER_COMMANDS' })
 })

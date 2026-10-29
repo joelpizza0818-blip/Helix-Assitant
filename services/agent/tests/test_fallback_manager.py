@@ -1,7 +1,7 @@
 import pytest
 import asyncio
 from services.agent.ai.model_router import TaskRequirements
-from services.agent.ai.base_provider import AgentError, KeyHealth
+from services.agent.ai.base_provider import AgentError, ChatMessage, KeyHealth
 from services.agent.ai.fallback_manager import FallbackManager, _request_snapshot
 
 
@@ -21,6 +21,53 @@ def test_model_request_snapshot_redacts_secrets_and_omits_image_bytes():
     assert message["image_bytes"] == "[binary image omitted: 6 bytes]"
     assert "must-not-be-shown" not in str(snapshot)
     assert "_execution_failed_keys" not in snapshot
+
+
+@pytest.mark.asyncio
+async def test_context_limit_compacts_and_retries_same_model_without_marking_key_failed(
+    google_only_env, fallback_manager
+):
+    context = {
+        "messages": [
+            ChatMessage(role="system", content="Follow the current task."),
+            ChatMessage(role="user", content="An old conversation."),
+            ChatMessage(role="user", content="Finish the current task."),
+        ],
+    }
+
+    def compact_context():
+        context["messages"] = [
+            context["messages"][0],
+            ChatMessage(role="user", content="Finish the current task."),
+        ]
+        return True
+
+    context["_helix_context_recovery"] = compact_context
+    attempted_routes = []
+
+    async def provider_call(candidate, request_context):
+        attempted_routes.append((candidate.provider_id, candidate.model_id))
+        if len(attempted_routes) == 1:
+            raise AgentError(
+                code="INVALID_REQUEST",
+                message="The prompt exceeds the maximum context length.",
+                provider=candidate.provider_id,
+                model=candidate.model_id,
+                retryable=False,
+            )
+        assert len(request_context["messages"]) == 2
+        return "completed after compaction"
+
+    result = await fallback_manager.execute_with_fallback(
+        provider_call,
+        TaskRequirements(text=True),
+        context,
+    )
+
+    assert result == "completed after compaction"
+    assert len(attempted_routes) == 2
+    assert attempted_routes[0] == attempted_routes[1]
+    assert fallback_manager.key_manager.key_states["google"][0]["failures"] == 0
 
 @pytest.mark.asyncio
 async def test_missing_provider_key_reports_ai_settings_guidance(
@@ -58,6 +105,135 @@ async def test_fallback_manager_excludes_parent_agent_credential(
     assert "test-google-key-1" not in str(
         fallback_manager.event_bus.publish.await_args_list
     )
+
+
+@pytest.mark.asyncio
+async def test_fallback_manager_round_robins_unique_credentials(
+    google_only_env, fallback_manager, monkeypatch
+):
+    monkeypatch.setenv("GOOGLE_API_KEY_2", "test-google-key-2")
+    monkeypatch.setenv("GOOGLE_API_KEY_3", "test-google-key-3")
+    fallback_manager.key_manager._load_keys()
+    fallback_manager.key_manager.key_states = {
+        provider: {
+            slot: {
+                "health": KeyHealth.HEALTHY if key else KeyHealth.UNCONFIGURED,
+                "failures": 0,
+                "cooldown_until": 0,
+            }
+            for slot, key in enumerate(keys)
+        }
+        for provider, keys in fallback_manager.key_manager.keys.items()
+    }
+    attempted_slots = []
+
+    async def record_attempt(candidate, _context):
+        attempted_slots.append(candidate.key_slot)
+        return "response"
+
+    requirements = TaskRequirements(
+        text=True,
+        tool_calling=True,
+        preferred_provider="google",
+        preferred_model="gemini-3.8-flash",
+    )
+    await asyncio.gather(
+        *(
+            fallback_manager.execute_with_fallback(
+                record_attempt,
+                requirements,
+                {},
+            )
+            for _ in range(6)
+        )
+    )
+
+    assert attempted_slots == [0, 1, 2, 0, 1, 2]
+
+
+@pytest.mark.asyncio
+async def test_fallback_manager_skips_duplicate_credentials_when_balancing(
+    google_only_env, fallback_manager, monkeypatch
+):
+    monkeypatch.setenv("GOOGLE_API_KEY_2", "test-google-key-1")
+    monkeypatch.setenv("GOOGLE_API_KEY_3", "test-google-key-2")
+    fallback_manager.key_manager._load_keys()
+    fallback_manager.key_manager.key_states = {
+        provider: {
+            slot: {
+                "health": KeyHealth.HEALTHY if key else KeyHealth.UNCONFIGURED,
+                "failures": 0,
+                "cooldown_until": 0,
+            }
+            for slot, key in enumerate(keys)
+        }
+        for provider, keys in fallback_manager.key_manager.keys.items()
+    }
+    attempted_slots = []
+
+    async def record_attempt(candidate, _context):
+        attempted_slots.append(candidate.key_slot)
+        return "response"
+
+    requirements = TaskRequirements(
+        text=True,
+        tool_calling=True,
+        preferred_provider="google",
+        preferred_model="gemini-3.8-flash",
+    )
+    for _ in range(4):
+        await fallback_manager.execute_with_fallback(
+            record_attempt,
+            requirements,
+            {},
+        )
+
+    assert attempted_slots == [0, 2, 0, 2]
+
+
+@pytest.mark.asyncio
+async def test_fallback_manager_keeps_single_key_usable_when_balancing(
+    google_only_env, fallback_manager
+):
+    attempted_slots = []
+
+    async def record_attempt(candidate, _context):
+        attempted_slots.append(candidate.key_slot)
+        return "response"
+
+    for _ in range(3):
+        await fallback_manager.execute_with_fallback(
+            record_attempt,
+            TaskRequirements(text=True, preferred_provider="google"),
+            {},
+        )
+
+    assert attempted_slots == [0, 0, 0]
+
+
+@pytest.mark.asyncio
+async def test_fallback_reuses_parent_credential_when_no_compatible_alternative(
+    google_only_env, fallback_manager
+):
+    attempted_keys = []
+
+    async def record_attempt(candidate, _context):
+        attempted_keys.append(
+            fallback_manager.key_manager.get_key(
+                candidate.provider_id,
+                candidate.key_slot,
+            )
+        )
+        return "child response"
+
+    result = await fallback_manager.execute_with_fallback(
+        record_attempt,
+        TaskRequirements(text=True, preferred_provider="google"),
+        {"_excluded_api_keys": {"test-google-key-1"}},
+    )
+
+    assert result == "child response"
+    assert attempted_keys == ["test-google-key-1"]
 
 
 @pytest.mark.asyncio

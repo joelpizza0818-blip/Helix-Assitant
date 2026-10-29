@@ -48,48 +48,71 @@ export default function ProfilesSection({
   return (
     <section className="toolbox-section">
       <h2 className="toolbox-section__title">Perfil</h2>
-      <p className="toolbox-section__desc">Vincula tu cuenta de GitHub para guardar tu perfil HELIX y sus permisos de forma segura.</p>
+      <p className="toolbox-section__desc">Vincula tu cuenta de GitHub para sincronizar perfil y permisos.</p>
       {!configured && <p className="toolbox-error" role="alert">El inicio de sesión OAuth no está configurado en esta compilación.</p>}
       {error && <p className="toolbox-error" role="alert">{error}</p>}
       {!profile ? (
         <div className="toolbox-card">
-          <p className="text-xs text-muted">El perfil se crea con tu nombre e imagen de GitHub. Solo tendrás que autorizar esta aplicación una vez.</p>
+          <p className="text-xs text-muted" style={{ marginBottom: '12px' }}>
+            Inicia sesión con GitHub para vincular tu identidad y credenciales.
+          </p>
           <button type="button" className="validate-btn" disabled={!configured || busy || oauthPending} onClick={onSignIn}>
-            {busy ? 'Abriendo GitHub…' : oauthPending ? 'Esperando autorización de GitHub…' : 'Continuar con GitHub'}
+            {busy ? 'Abriendo GitHub…' : oauthPending ? 'Esperando autorización…' : 'Continuar con GitHub'}
           </button>
-          {oauthPending && <button type="button" className="validate-btn" onClick={onCancelSignIn}>Cancelar espera</button>}
+          {oauthPending && (
+            <button type="button" className="refresh-btn" style={{ marginLeft: '8px' }} onClick={onCancelSignIn}>
+              Cancelar espera
+            </button>
+          )}
         </div>
       ) : (
         <div className="toolbox-card helix-profile-card">
-          {profile.avatarUrl
-            ? <img className="helix-profile-avatar" src={profile.avatarUrl} alt={`Avatar de ${profile.githubLogin}`} />
-            : <div className="helix-profile-avatar helix-profile-avatar--placeholder">{profile.githubLogin.slice(0, 1).toUpperCase()}</div>}
-          <div className="helix-profile-info">
-            <strong>{profile.displayName}</strong>
-            <span>@{profile.githubLogin}</span>
-            <span className="helix-profile-rank">{profile.rank}</span>
+          <div className="helix-profile-header">
+            {profile.avatarUrl
+              ? <img className="helix-profile-avatar" src={profile.avatarUrl} alt={`Avatar de ${profile.githubLogin}`} />
+              : <div className="helix-profile-avatar helix-profile-avatar--placeholder">{profile.githubLogin.slice(0, 1).toUpperCase()}</div>}
+            <div className="helix-profile-info">
+              <strong className="helix-profile-name">{profile.displayName || profile.githubLogin}</strong>
+              <span className="helix-profile-handle">@{profile.githubLogin}</span>
+              <span className="status-badge status-badge--healthy helix-profile-rank">{profile.rank}</span>
+            </div>
           </div>
-          <label className="form-label" htmlFor="profile-display-name">Nombre visible</label>
-          <input
-            id="profile-display-name"
-            className="form-input"
-            value={displayName}
-            maxLength={80}
-            onChange={(event) => setDisplayName(event.target.value)}
-          />
-          <div className="helix-profile-id">
-            <span>ID de perfil</span>
-            <code>{profile.profileId}</code>
-          </div>
-          <div className="helix-profile-id">
-            <span>ID de GitHub</span>
-            <code>{profile.githubUserId ?? 'Pendiente de vincular'}</code>
-          </div>
-          {saveError && <p className="toolbox-error" role="alert">{saveError}</p>}
-          {saved && <p className="text-xs text-muted" role="status">Nombre guardado.</p>}
-          <div className="helix-profile-actions">
-            <button type="button" className="validate-btn" disabled={busy || !displayName.trim()} onClick={() => void saveName()}>Guardar nombre</button>
-            <button type="button" className="validate-btn" disabled={busy} onClick={onSignOut}>Desconectar GitHub</button>
+
+          <div className="helix-profile-body">
+            <div className="form-row" style={{ margin: '16px 0 12px' }}>
+              <label className="form-label" htmlFor="profile-display-name">Nombre visible</label>
+              <input
+                id="profile-display-name"
+                className="form-input"
+                value={displayName}
+                maxLength={80}
+                placeholder="Nombre para HELIX"
+                onChange={(event) => setDisplayName(event.target.value)}
+              />
+            </div>
+
+            <div className="helix-profile-id-row">
+              <div className="helix-profile-id-box">
+                <span className="helix-profile-id-label">ID DE PERFIL</span>
+                <code className="text-mono">{profile.profileId}</code>
+              </div>
+              <div className="helix-profile-id-box">
+                <span className="helix-profile-id-label">ID DE GITHUB</span>
+                <code className="text-mono">{profile.githubUserId ?? 'Pendiente de vincular'}</code>
+              </div>
+            </div>
+
+            {saveError && <p className="toolbox-error" role="alert" style={{ marginTop: '10px' }}>{saveError}</p>}
+            {saved && <p className="text-xs text-muted" role="status" style={{ marginTop: '10px' }}>Nombre guardado.</p>}
+
+            <div className="helix-profile-actions">
+              <button type="button" className="validate-btn" disabled={busy || !displayName.trim()} onClick={() => void saveName()}>
+                Guardar nombre
+              </button>
+              <button type="button" className="toolbox-danger-button" disabled={busy} onClick={onSignOut}>
+                Desconectar GitHub
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -19,9 +19,12 @@
     <main>
       <h1>HELIX Desktop Companion</h1>
       <p>
-        Paste the pairing token shown in HELIX Toolbox. The extension sends visible
-        text, links, and form labels from your active Chrome/Edge tab to HELIX on
-        this computer. It never sends values typed into form fields.
+        Paste the pairing token shown in HELIX Toolbox. HELIX opens a dedicated
+        tab in this browser for its browsing tasks. Only that HELIX-managed tab
+        is readable or controllable by the agent; other tabs are not shared.
+        Snapshots omit form values, but page content may be sent to your configured
+        AI provider as part of a request. The dedicated tab uses this browser
+        profile and its cookies.
       </p>
       <label for="pairing-token">Pairing token</label>
       <input id="pairing-token" type="password" autocomplete="off" spellcheck="false">

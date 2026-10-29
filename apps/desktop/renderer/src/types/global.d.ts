@@ -24,8 +24,10 @@ export interface HelixAPI {
   rejectAction: (requestId: string) => void
   quit: () => void
   openToolbox: () => void
+  openAgentPanel: () => void
   setFloatingWindowMode: (mode: 'full' | 'suppressed') => Promise<void>
   openExternal: (url: string) => void
+  openManagedBrowserTab: (url: string) => Promise<void>
   getAppVersion: () => Promise<string>
   createMobilePairing: () => Promise<MobilePairingInvitation>
   getMobileRelayUrl: () => Promise<string>
@@ -48,7 +50,42 @@ export interface HelixAPI {
   testTts: (text?: string) => Promise<TtsTestResult>
   getMemoryStatus: () => Promise<MemoryStatus>
   clearMemory: () => Promise<{ cleared: boolean }>
+  getUserMemories: () => Promise<UserMemory[]>
+  saveUserMemory: (text: string, category: UserMemory['category']) => Promise<UserMemory>
+  updateUserMemory: (memoryId: string, text: string, category: UserMemory['category']) => Promise<UserMemory>
+  deleteUserMemory: (memoryId: string) => Promise<{ deleted: boolean; memory_id: string }>
   getTasks: () => Promise<TaskDefinition[]>
+  getSubagentProfiles: () => Promise<AgentProfile[]>
+  getSubagentStatus: () => Promise<AgentLifecycleEvent[]>
+  getSubagentRoutingOptions: () => Promise<AgentRoutingOptions>
+  createSubagentProfile: (profile: AgentProfileDraft) => Promise<AgentProfile>
+  updateSubagentProfile: (profileId: string, profile: AgentProfileDraft) => Promise<AgentProfile>
+  setSubagentRoute: (
+    profileId: string,
+    provider: string | null,
+    model: string | null,
+    keySlot: number | null,
+  ) => Promise<AgentProfile>
+  chatWithSubagent: (
+    profileId: string,
+    message: string,
+  ) => Promise<AgentChatResponse>
+  getSubagentMemories: (profileId: string) => Promise<UserMemory[]>
+  saveSubagentMemory: (
+    profileId: string,
+    text: string,
+    category: UserMemory['category'],
+  ) => Promise<UserMemory>
+  updateSubagentMemory: (
+    profileId: string,
+    memoryId: string,
+    text: string,
+    category: UserMemory['category'],
+  ) => Promise<UserMemory>
+  deleteSubagentMemory: (
+    profileId: string,
+    memoryId: string,
+  ) => Promise<{ deleted: boolean; memory_id: string }>
   getProviders: () => Promise<ProviderStatus[]>
   getModels: (requirements?: Partial<ModelRequirements>) => Promise<ModelDefinition[]>
   getCapabilities: () => Promise<CapabilitySnapshot>
@@ -104,6 +141,54 @@ export interface HelixAPI {
 }
 
 export interface AdminBackup { version: string; createdAt: string; currentVersion: string | null; synced?: boolean; syncError?: string }
+
+export interface AgentProfile {
+  profile_id: string
+  name: string
+  role: AgentRole
+  description: string
+  capabilities: string[]
+  color: string
+  instructions: string
+  model_route: {
+    provider: string
+    model: string
+    key_slot: number
+  } | null
+  created_by: string
+  created_at: string
+}
+
+export type AgentRole = 'planning' | 'coding' | 'automation' | 'research' | 'analysis' | 'general'
+
+export interface AgentProfileDraft {
+  name: string
+  role: AgentRole
+  description: string
+  capabilities: string[]
+  color: string
+  instructions: string
+}
+
+export interface AgentRoutingOptions {
+  providers: Array<{
+    id: string
+    name: string
+    key_slots: number[]
+  }>
+  models: Array<{
+    id: string
+    name: string
+    provider: string
+  }>
+}
+
+export interface AgentChatResponse {
+  profile_id: string
+  name: string
+  color: string
+  response: string
+}
 
 export interface MobilePairingInvitation {
   version: 1 | 2
@@ -199,6 +284,15 @@ export interface MemoryStatus {
   similarity_threshold: number
   dimensions: number | null
   message: string
+}
+
+export interface UserMemory {
+  id: string
+  text: string
+  category: 'preference' | 'fact' | 'project' | 'instruction' | 'general'
+  importance: number
+  created_at: string
+  updated_at: string
 }
 
 // ── Shared types ──────────────────────────────────────────────────────────────
@@ -321,8 +415,16 @@ export interface AgentMessage {
 export interface AgentLifecycleEvent {
   agent_id: string
   parent_id?: string | null
+  profile_id?: string | null
+  name?: string | null
+  color?: string | null
   role?: string
   status?: string
+  task_id?: string | null
+  resource?: string | null
+  promotion?: string
+  progress?: number
+  current_action?: string | null
   created_at?: string
   started_at?: string | null
   completed_at?: string | null
@@ -406,6 +508,7 @@ export interface BrowserExtensionInfo {
   port: number
   extensionPath: string
   listening: boolean
+  extensionConnected: boolean
   lastPage: { title: string; url: string; captured_at: string } | null
   error: string | null
 }
@@ -493,6 +596,7 @@ export interface HelixSettings {
   camera_device_index: number
   gesture_sensitivity: number
   gesture_mappings?: Record<string, { action: string; label: string; customCommand?: string }>
+  gesture_window_sequence_enabled?: boolean
   start_with_windows: boolean
   start_minimized?: boolean
   default_model: string | null
@@ -543,6 +647,7 @@ export interface HelixSettings {
   hand_commands?: HandCommand[]
   application_memory?: Record<string, unknown>
   memory_context_limit?: number
+  memory_compact_threshold?: number
   memory_auto_compaction?: boolean
   embedding_model?: string
   memory_similarity_threshold?: number

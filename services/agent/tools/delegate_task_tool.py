@@ -10,6 +10,10 @@ class DelegateTaskTool(BaseTool):
         self.agent_manager = agent_manager
         self.key_manager = key_manager
 
+    def _profiles(self):
+        store = getattr(self.agent_manager, "profile_store", None)
+        return store.list_profiles() if store is not None else []
+
     @property
     def name(self) -> str:
         return "delegate_task"
@@ -17,9 +21,10 @@ class DelegateTaskTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Delegate an independent research or coding subtask to a HELIX child "
-            "agent. Use only when app-level subagent delegation is enabled and "
-            "the task benefits from separate work."
+            "Delegate a bounded task to a persistent HELIX teammate. Choose an "
+            "existing profile by agent_id when its specialty fits. Create new_agent "
+            "only when no existing profile is suitable; the model chooses a name "
+            "and narrowly scoped capabilities. Independent tasks may run in parallel."
         )
 
     @property
@@ -31,13 +36,49 @@ class DelegateTaskTool(BaseTool):
         return False
 
     def validate_params(self, params: Dict[str, Any]) -> bool:
-        return (
+        valid_base = (
             isinstance(params, dict)
             and isinstance(params.get("task"), str)
             and bool(params["task"].strip())
             and len(params["task"]) <= 4000
-            and params.get("role", "research") in {"research", "coding", "main"}
+            and params.get("role", "research")
+            in {"research", "coding", "planning", "automation", "analysis", "general", "main"}
         )
+        if not valid_base:
+            return False
+        if (
+            self._profiles()
+            and params.get("agent_id") is None
+            and params.get("new_agent") is None
+        ):
+            return False
+        if params.get("agent_id") is not None and (
+            not isinstance(params["agent_id"], str)
+            or params["agent_id"] not in {
+                profile.profile_id
+                for profile in self._profiles()
+            }
+        ):
+            return False
+        new_profile = params.get("new_agent")
+        if new_profile is not None:
+            if not isinstance(new_profile, dict):
+                return False
+            if not isinstance(new_profile.get("name"), str) or not new_profile["name"].strip():
+                return False
+            if new_profile.get("role") not in {
+                "planning", "coding", "automation", "research", "analysis", "general"
+            }:
+                return False
+            if not isinstance(new_profile.get("description"), str) or not new_profile["description"].strip():
+                return False
+            if not isinstance(new_profile.get("capabilities"), list):
+                return False
+            if not isinstance(new_profile.get("color"), str):
+                return False
+            if params.get("agent_id") is not None:
+                return False
+        return True
 
     def get_schema(self) -> Dict[str, Any]:
         return {
@@ -52,8 +93,37 @@ class DelegateTaskTool(BaseTool):
                     },
                     "role": {
                         "type": "string",
-                        "enum": ["research", "coding", "main"],
-                        "description": "The child agent's task role.",
+                        "enum": ["research", "coding", "planning", "automation", "analysis", "general", "main"],
+                        "description": "Fallback task role when no saved profile is selected.",
+                    },
+                    "agent_id": {
+                        "type": "string",
+                        "enum": [
+                            profile.profile_id
+                            for profile in self._profiles()
+                        ],
+                        "description": "Existing profile best suited to this task.",
+                    },
+                    "new_agent": {
+                        "type": "object",
+                        "description": "Create a persistent teammate only if no saved profile is suitable.",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "role": {
+                                "type": "string",
+                                "enum": ["planning", "coding", "automation", "research", "analysis", "general"],
+                            },
+                            "description": {"type": "string"},
+                            "capabilities": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                            "color": {
+                                "type": "string",
+                                "enum": ["#ee6018", "#02b8cc", "#8b5cf6", "#a0ca92"],
+                            },
+                        },
+                        "required": ["name", "role", "description", "capabilities", "color"],
                     },
                 },
                 "required": ["task"],
@@ -75,9 +145,18 @@ class DelegateTaskTool(BaseTool):
         *,
         parent_id: str | None,
         parent_credential: str | None,
+        conversation_id: str | None = None,
+        source_device_id: str | None = None,
     ) -> ToolResult:
         if not self.validate_params(params):
-            return ToolResult(success=False, output=None, error="Invalid subtask or role.")
+            return ToolResult(
+                success=False,
+                output=None,
+                error=(
+                    "Invalid delegation. Choose a saved agent_id or define "
+                    "new_agent when no saved specialty fits."
+                ),
+            )
         if not parent_id:
             return ToolResult(
                 success=False,
@@ -95,8 +174,20 @@ class DelegateTaskTool(BaseTool):
         handle = await self.agent_manager.delegate_task(
             params["task"].strip(),
             role=params.get("role", "research"),
+            profile_id=params.get("agent_id"),
+            new_profile=params.get("new_agent"),
             parent_id=parent_id,
-            context={"input_source": "subagent delegation"},
+            context={
+                "input_source": "subagent delegation",
+                **(
+                    {
+                        "conversation_id": conversation_id,
+                        "source_device_id": source_device_id,
+                    }
+                    if isinstance(source_device_id, str)
+                    else {}
+                ),
+            },
             excluded_api_keys=excluded_api_keys,
         )
         result = await handle
@@ -106,11 +197,15 @@ class DelegateTaskTool(BaseTool):
                 output=result.get("error") or "The delegated child agent did not complete.",
                 error=result.get("error") or "The delegated child agent did not complete.",
             )
+        output = {
+            "agent_id": result["agent_id"],
+            "status": "completed",
+            "result": result.get("result"),
+        }
+        for key in ("profile_id", "name", "color"):
+            if result.get(key) is not None:
+                output[key] = result[key]
         return ToolResult(
             success=True,
-            output={
-                "agent_id": result["agent_id"],
-                "status": "completed",
-                "result": result.get("result"),
-            },
+            output=output,
         )

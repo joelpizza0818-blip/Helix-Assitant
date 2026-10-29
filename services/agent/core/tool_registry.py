@@ -1,5 +1,6 @@
 import os
 import importlib
+import logging
 from typing import List, Dict, Optional
 import inspect
 import re
@@ -30,6 +31,7 @@ _TOOL_TERM_GROUPS = (
     {"git", "github", "repository", "repo", "pull", "issue", "branch"},
     {"memory", "remember", "recall", "memoria", "recuerda"},
 )
+logger = logging.getLogger(__name__)
 
 
 def _tool_terms(text: str) -> set[str]:
@@ -151,9 +153,30 @@ class ToolRegistry:
 
                 for _, obj in inspect.getmembers(module, inspect.isclass):
                     if obj.__module__ == module.__name__ and obj.__name__ != 'BaseTool':
+                        constructor_parameters = inspect.signature(obj).parameters.values()
+                        required_parameters = [
+                            parameter for parameter in constructor_parameters
+                            if parameter.kind in {
+                                inspect.Parameter.POSITIONAL_ONLY,
+                                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                                inspect.Parameter.KEYWORD_ONLY,
+                            }
+                            and parameter.default is inspect.Parameter.empty
+                        ]
+                        if required_parameters:
+                            logger.debug(
+                                "Skipping runtime-configured tool %s from %s",
+                                obj.__name__,
+                                filename,
+                            )
+                            continue
                         try:
                             if hasattr(obj, 'execute') and hasattr(obj, 'name'):
                                 tool_instance = obj()
                                 self.register_tool(tool_instance, source="native")
                         except TypeError:
-                            pass
+                            logger.exception(
+                                "Could not initialize tool %s from %s",
+                                obj.__name__,
+                                filename,
+                            )

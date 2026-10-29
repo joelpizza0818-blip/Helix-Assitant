@@ -1,5 +1,6 @@
 import json
 import hashlib
+import asyncio
 import os
 import re
 import base64
@@ -24,6 +25,10 @@ except ImportError:
     )
 
 from services.agent.core.browser_page_context import update_current_page
+try:
+    from services.agent.memory.user_memory_manager import UserMemoryManager
+except ImportError:
+    from ..memory.user_memory_manager import UserMemoryManager
 
 try:
     from ..ai.base_provider import ModelDefinition, ModelCapabilities
@@ -47,6 +52,7 @@ DEFAULT_SETTINGS = {
     "camera_enabled": False,
     "camera_device_index": 0,
     "gesture_sensitivity": 0.8,
+    "gesture_window_sequence_enabled": True,
     "start_with_windows": True,
     "start_minimized": True,
     "default_model": None,
@@ -100,6 +106,7 @@ DEFAULT_SETTINGS = {
     "hand_commands": [],
     "application_memory": {},
     "memory_context_limit": 20,
+    "memory_compact_threshold": 10,
     "memory_auto_compaction": True,
     "model_request_timeout_seconds": 90,
     "embedding_model": "text-embedding-3-small",
@@ -140,6 +147,13 @@ def _serialize_task_for_desktop(task: Any) -> dict:
         serialized["task_type"] = "subagent"
     serialized.pop("result", None)
     serialized.pop("metadata", None)
+    if serialized.get("status") == "failed":
+        provider = getattr(task, "provider", None)
+        if isinstance(provider, str) and re.fullmatch(r"[A-Za-z0-9_.-]{1,60}", provider):
+            serialized["failure_category"] = "provider"
+            serialized["failure_provider"] = provider
+        else:
+            serialized["failure_category"] = "internal"
     return serialized
 
 
@@ -158,6 +172,7 @@ class DesktopRequestHandler:
         memory_manager=None,
         skill_registry=None,
         plugin_manager=None,
+        agent_manager=None,
     ):
         self.task_manager = task_manager
         self.provider_registry = provider_registry
@@ -171,6 +186,7 @@ class DesktopRequestHandler:
         self.memory_manager = memory_manager
         self.skill_registry = skill_registry
         self.plugin_manager = plugin_manager
+        self.agent_manager = agent_manager
         self.credentials_updated_callback = None
         self.mcp_status_provider = None
 
@@ -182,12 +198,27 @@ class DesktopRequestHandler:
             "GET_TASKS": self._get_tasks,
             "GET_PROVIDERS": self._get_providers,
             "GET_MODELS": lambda: self._get_models(payload.get("requirements") or {}),
+            "GET_SUBAGENT_PROFILES": self._get_subagent_profiles,
+            "GET_SUBAGENT_STATUS": self._get_subagent_status,
+            "GET_SUBAGENT_ROUTING_OPTIONS": self._get_subagent_routing_options,
+            "SET_SUBAGENT_ROUTE": lambda: self._set_subagent_route(payload),
+            "CREATE_SUBAGENT_PROFILE": lambda: self._create_subagent_profile(payload),
+            "UPDATE_SUBAGENT_PROFILE": lambda: self._update_subagent_profile(payload),
+            "CHAT_SUBAGENT": lambda: self._chat_subagent(payload),
+            "GET_SUBAGENT_MEMORIES": lambda: self._get_subagent_memories(payload),
+            "SAVE_SUBAGENT_MEMORY": lambda: self._save_subagent_memory(payload),
+            "UPDATE_SUBAGENT_MEMORY": lambda: self._update_subagent_memory(payload),
+            "DELETE_SUBAGENT_MEMORY": lambda: self._delete_subagent_memory(payload),
             "GET_SETTINGS": self._get_settings,
             "GET_CAPABILITIES": self._get_capabilities,
             "SAVE_SETTINGS": lambda: self._save_settings(payload.get("settings")),
             "TEST_TTS": lambda: self._test_tts(payload),
             "GET_MEMORY_STATUS": self._get_memory_status,
             "CLEAR_MEMORY": self._clear_memory,
+            "GET_USER_MEMORIES": self._get_user_memories,
+            "SAVE_USER_MEMORY": lambda: self._save_user_memory(payload),
+            "UPDATE_USER_MEMORY": lambda: self._update_user_memory(payload),
+            "DELETE_USER_MEMORY": lambda: self._delete_user_memory(payload),
             "VALIDATE_KEY": lambda: self._validate_key(payload),
             "GET_SKILLS": self._get_skills,
             "SAVE_SKILL": lambda: self._save_skill(payload.get("skill")),
@@ -459,6 +490,187 @@ class DesktopRequestHandler:
         )
         return [_serialize(model) for model in models]
 
+    async def _get_subagent_profiles(self) -> list[dict]:
+        if self.agent_manager is None:
+            raise RuntimeError("Subagent management is unavailable.")
+        return [
+            profile.public_dict()
+            for profile in self.agent_manager.profile_store.list_profiles()
+        ]
+
+    async def _get_subagent_status(self) -> list[dict]:
+        if self.agent_manager is None:
+            raise RuntimeError("Subagent management is unavailable.")
+        records = await self.agent_manager.get_all_statuses()
+        safe_fields = (
+            "agent_id", "parent_id", "profile_id", "name", "color", "role",
+            "status", "created_at", "started_at", "completed_at",
+        )
+        result = []
+        for record in records:
+            status = {key: record[key] for key in safe_fields if key in record}
+            if self.task_manager is not None:
+                task = await self.task_manager.get_task(record["agent_id"])
+                if task is not None:
+                    status["progress"] = max(0, min(100, int(task.progress)))
+                    if isinstance(task.current_action, str):
+                        status["current_action"] = task.current_action[:120]
+            result.append(status)
+        return result
+
+    async def _get_subagent_routing_options(self) -> dict:
+        providers = []
+        models = []
+        configured = set(self.key_manager.get_configured_providers())
+        for provider_id in sorted(configured):
+            provider = self.provider_registry.get_registered_provider(provider_id)
+            slots = [
+                slot
+                for slot, _secret in self.key_manager.get_available_keys(provider_id)
+            ]
+            providers.append({
+                "id": provider_id,
+                "name": provider.provider_name if provider else provider_id,
+                "key_slots": slots,
+            })
+            if self.provider_registry.is_provider_available(provider_id):
+                models.extend(
+                    {
+                        "id": model.id,
+                        "name": model.display_name,
+                        "provider": model.provider,
+                    }
+                    for model in self.capability_registry.get_models_for_provider(provider_id)
+                    if model.enabled
+                )
+        return {"providers": providers, "models": models}
+
+    async def _set_subagent_route(self, payload: dict) -> dict:
+        if self.agent_manager is None:
+            raise RuntimeError("Subagent management is unavailable.")
+        profile_id = payload.get("profile_id")
+        provider = payload.get("provider")
+        model_id = payload.get("model")
+        key_slot = payload.get("key_slot")
+        if not isinstance(profile_id, str):
+            raise ValueError("Subagent profile id is required.")
+        if provider is None and model_id is None and key_slot is None:
+            profile = self.agent_manager.profile_store.assign_route(
+                profile_id, None, None, None
+            )
+            return profile.public_dict()
+        if (
+            not isinstance(provider, str)
+            or not isinstance(model_id, str)
+            or not isinstance(key_slot, int)
+            or isinstance(key_slot, bool)
+            or key_slot < 0
+        ):
+            raise ValueError("A model route requires provider, model, and key slot.")
+        if not any(
+            model.id == model_id and model.provider == provider and model.enabled
+            for model in self.capability_registry.get_models_for_provider(provider)
+        ):
+            raise ValueError("The selected model is not available for that provider.")
+        if not any(
+            slot == key_slot
+            for slot, _secret in self.key_manager.get_available_keys(provider)
+        ):
+            raise ValueError("The selected API key slot is not currently available.")
+        profile = self.agent_manager.profile_store.assign_route(
+            profile_id, provider, model_id, key_slot
+        )
+        return profile.public_dict()
+
+    async def _create_subagent_profile(self, payload: dict) -> dict:
+        if self.agent_manager is None:
+            raise RuntimeError("Subagent management is unavailable.")
+        return self.agent_manager.create_profile(
+            name=payload.get("name", ""),
+            role=payload.get("role", ""),
+            description=payload.get("description", ""),
+            capabilities=payload.get("capabilities", []),
+            color=payload.get("color", ""),
+            instructions=payload.get("instructions", ""),
+            created_by="user",
+        )
+
+    async def _update_subagent_profile(self, payload: dict) -> dict:
+        if self.agent_manager is None:
+            raise RuntimeError("Subagent management is unavailable.")
+        profile_id = payload.get("profile_id")
+        if not isinstance(profile_id, str):
+            raise ValueError("Subagent profile id is required.")
+        return self.agent_manager.update_profile(
+            profile_id,
+            name=payload.get("name", ""),
+            role=payload.get("role", ""),
+            description=payload.get("description", ""),
+            capabilities=payload.get("capabilities", []),
+            color=payload.get("color", ""),
+            instructions=payload.get("instructions", ""),
+        )
+
+    async def _chat_subagent(self, payload: dict) -> dict:
+        if self.agent_manager is None:
+            raise RuntimeError("Subagent management is unavailable.")
+        profile_id = payload.get("profile_id")
+        message = payload.get("message")
+        if not isinstance(profile_id, str) or not isinstance(message, str):
+            raise ValueError("A subagent profile and message are required.")
+        return await self.agent_manager.chat_with_agent(profile_id, message)
+
+    async def _get_subagent_memories(self, payload: dict) -> list[dict]:
+        if self.agent_manager is None:
+            raise RuntimeError("Subagent management is unavailable.")
+        profile_id = payload.get("profile_id")
+        if not isinstance(profile_id, str):
+            raise ValueError("Subagent profile id is required.")
+        return self.agent_manager.get_profile_memories(profile_id)
+
+    async def _save_subagent_memory(self, payload: dict) -> dict:
+        if self.agent_manager is None:
+            raise RuntimeError("Subagent management is unavailable.")
+        profile_id = payload.get("profile_id")
+        text = payload.get("text")
+        category = payload.get("category", "general")
+        if not isinstance(profile_id, str) or not isinstance(text, str) or not isinstance(category, str):
+            raise ValueError("Subagent memory fields are invalid.")
+        return self.agent_manager.save_profile_memory(profile_id, text, category)
+
+    async def _update_subagent_memory(self, payload: dict) -> dict:
+        if self.agent_manager is None:
+            raise RuntimeError("Subagent management is unavailable.")
+        profile_id = payload.get("profile_id")
+        memory_id = payload.get("memory_id")
+        text = payload.get("text")
+        category = payload.get("category", "general")
+        if (
+            not isinstance(profile_id, str)
+            or not isinstance(memory_id, str)
+            or not isinstance(text, str)
+            or not isinstance(category, str)
+        ):
+            raise ValueError("Subagent memory fields are invalid.")
+        updated = self.agent_manager.update_profile_memory(
+            profile_id, memory_id, text, category
+        )
+        if updated is None:
+            raise ValueError(f"Subagent memory {memory_id} does not exist.")
+        return updated
+
+    async def _delete_subagent_memory(self, payload: dict) -> dict:
+        if self.agent_manager is None:
+            raise RuntimeError("Subagent management is unavailable.")
+        profile_id = payload.get("profile_id")
+        memory_id = payload.get("memory_id")
+        if not isinstance(profile_id, str) or not isinstance(memory_id, str):
+            raise ValueError("Subagent profile and memory ids are required.")
+        deleted = self.agent_manager.delete_profile_memory(profile_id, memory_id)
+        if not deleted:
+            raise ValueError(f"Subagent memory {memory_id} does not exist.")
+        return {"deleted": True, "memory_id": memory_id}
+
     def get_settings(self) -> dict:
         settings = dict(DEFAULT_SETTINGS)
         settings["camera_enabled"] = os.environ.get(
@@ -513,6 +725,7 @@ class DesktopRequestHandler:
             "model_decides_screen_vision_enabled",
             "continuous_screen_vision_enabled",
             "complex_workflows_enabled",
+            "gesture_window_sequence_enabled",
         ):
             if not isinstance(settings.get(setting, False), bool):
                 raise ValueError(f"{setting} must be a boolean")
@@ -752,6 +965,40 @@ class DesktopRequestHandler:
             raise RuntimeError("Memory manager is not available.")
         await self.memory_manager.clear_conversation_memory()
         return {"cleared": True}
+
+    async def _get_user_memories(self) -> list[dict]:
+        return UserMemoryManager.get_instance().load_all()
+
+    async def _save_user_memory(self, payload: dict) -> dict:
+        text = payload.get("text")
+        category = payload.get("category", "general")
+        if not isinstance(text, str) or not isinstance(category, str):
+            raise ValueError("A memory text and category are required.")
+        return UserMemoryManager.get_instance().add_memory(text, category)
+
+    async def _update_user_memory(self, payload: dict) -> dict:
+        memory_id = payload.get("memory_id")
+        text = payload.get("text")
+        category = payload.get("category")
+        if not isinstance(memory_id, str) or not isinstance(text, str):
+            raise ValueError("A memory ID and text are required.")
+        if category is not None and not isinstance(category, str):
+            raise ValueError("Memory category must be text.")
+        memory = UserMemoryManager.get_instance().update_memory(
+            memory_id, text, category
+        )
+        if memory is None:
+            raise ValueError(f"Memory {memory_id} was not found.")
+        return memory
+
+    async def _delete_user_memory(self, payload: dict) -> dict:
+        memory_id = payload.get("memory_id")
+        if not isinstance(memory_id, str) or not memory_id.strip():
+            raise ValueError("A memory ID is required.")
+        deleted = UserMemoryManager.get_instance().delete_memory(memory_id)
+        if not deleted:
+            raise ValueError(f"Memory {memory_id} was not found.")
+        return {"deleted": True, "memory_id": memory_id}
 
     def _custom_skills_dir(self) -> Path:
         return self.settings_path.parent / "skills"

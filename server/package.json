@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "pretest": "prisma generate",
-    "test": "node --test --require ts-node/register/transpile-only tests/health.test.ts tests/models.test.ts tests/errorHandler.test.ts tests/app.test.ts tests/updates.test.ts",
+    "test": "node --test --require ts-node/register/transpile-only tests/health.test.ts tests/models.test.ts tests/errorHandler.test.ts tests/app.test.ts tests/updates.test.ts tests/community.test.ts",
     "typecheck": "tsc --noEmit",
     "build": "prisma generate && tsc -p tsconfig.json",
     "start": "node dist/index.js",

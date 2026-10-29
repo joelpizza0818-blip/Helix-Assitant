@@ -20,8 +20,9 @@ Create a local `.env` from the repository example when available. Keep productio
 | Agent transport | `AGENT_WS_PORT`, `LOG_LEVEL`, `LOG_FILE` | Local WebSocket and diagnostics |
 | Database | `DATABASE_URL`, `DIRECT_URL` | Prisma PostgreSQL connection and migrations |
 | Supabase | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | Service-role key is server-only |
-| Landing | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_API_URL`, `VITE_RELEASE_SUBSCRIPTION_URL` | Only public/publishable values belong in Vite; the subscription URL may point to the public Supabase Edge Function, while `VITE_API_URL` must never be a production `localhost` value |
+| Desktop and Landing | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_API_URL`, `VITE_RELEASE_SUBSCRIPTION_URL` | Only public/publishable values belong in Vite; the subscription URL may point to the public Supabase Edge Function, while `VITE_API_URL` must never be a production `localhost` value |
 | Administration | `ADMIN_TOKEN` or `HELIX_ADMIN_TOKEN` | Required for protected broadcasts |
+| Community moderation | `HELIX_COMMUNITY_MODERATOR_EMAILS` | Comma-separated server-side account emails; empty means deny all moderation. Never expose this allowlist as a Vite variable |
 | SMTP | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_SECURE`, `SMTP_FROM` | Required for real update delivery |
 | Providers | `OPENAI_API_KEY_*`, `ANTHROPIC_API_KEY_*`, `GOOGLE_API_KEY_*` | Up to three keys per provider |
 | Voice | `STT_PROVIDER`, `STT_MODEL`, `TTS_PROVIDER`, `TTS_MODEL`, `VOICE_ENABLED` | Local or online speech paths |
@@ -47,6 +48,10 @@ npx prisma migrate status --schema server/prisma/schema.prisma
 ```
 
 `supabase_auth_user_sync` targets Supabase PostgreSQL because it references `auth.users`. Do not apply it to an unrelated PostgreSQL database. Prisma migrations and Supabase migration histories must not manage the same objects without an explicit ownership decision.
+
+The Community API stores plugin URLs, skill instructions, and agent profile manifests as declarative data only. Agent manifests may contain a supported role, bounded capability labels, a display color, and plain-text instructions; they cannot provide executable code, provider routes, or credentials. Installed agents are local profiles and can be customized in the Subagents panel. Apply the Prisma migration before enabling the marketplace, configure `VITE_API_URL` for Desktop and Landing to point to the deployed Express API (not the Vercel landing domain), and set `HELIX_COMMUNITY_MODERATOR_EMAILS` on the server to allow reviews. New submissions remain hidden until approved. Community plugins open HTTPS sites in HELIX's paired browser tab; community skills and agents install as local instruction text and do not execute uploaded code.
+
+The root `render.yaml` defines a Render web service for the Express API. Connect the repository as a Render Blueprint, then enter `DATABASE_URL`, `DIRECT_URL`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` in Render's environment-variable form; never commit those values. After Render assigns the service URL, run `npm run db:deploy --workspace=@helix/server` against the configured database, set the comma-separated moderator allowlist in Render, and configure `VITE_API_URL` to that API base URL in Vercel and in GitHub variables used by Desktop release builds. The blueprint uses Render's free plan; upgrade the service in Render if production availability requirements demand it.
 
 The update subscriber table is `update_subscribers`. It stores normalized email, active state, timestamps, and an unsubscribe timestamp. Production must use PostgreSQL; the in-memory fallback exists only for isolated tests/local runs without a database.
 

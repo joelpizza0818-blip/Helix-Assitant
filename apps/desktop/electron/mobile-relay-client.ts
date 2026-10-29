@@ -41,6 +41,12 @@ export interface PairedMobileDevice {
 interface RelayClientHandlers {
   approvePairing: (deviceName: string) => Promise<boolean>
   receiveMobileText: (deviceId: string, deviceName: string, text: string) => Promise<boolean>
+  getMobileSkillSuggestions: () => Promise<Array<{ name: string; description: string }>>
+  receiveMobileConfirmation: (
+    deviceId: string,
+    requestId: string,
+    approved: boolean,
+  ) => Promise<boolean>
 }
 
 interface RelayMessage {
@@ -193,7 +199,14 @@ export class MobileRelayClient {
 
   sendAgentEvent(message: { type: string; payload: Record<string, unknown> }): void {
     if (!this.connected || !this.socket) return
-    if (!['agent_message', 'status_update', 'task_update', 'error'].includes(message.type)) return
+    if (![
+      'agent_message',
+      'status_update',
+      'task_update',
+      'confirmation_request',
+      'confirmation_resolved',
+      'error',
+    ].includes(message.type)) return
     const conversationId = message.payload.conversation_id
     if (typeof conversationId !== 'string') return
     const match = conversationId.match(/^mobile_([A-Za-z0-9_-]{20,64})$/)
@@ -425,6 +438,43 @@ export class MobileRelayClient {
             message: 'The request was denied on the Desktop.',
           },
         )
+      }
+      return
+    }
+    if (message.type === 'SKILLS_REQUEST') {
+      if (
+        !DEVICE_ID_PATTERN.test(String(message.source_device_id ?? ''))
+        || !isRecord(message.payload)
+      ) {
+        throw new Error('Relay mobile skills request is invalid.')
+      }
+      const skills = await this.handlers.getMobileSkillSuggestions()
+      this.sendDeviceEvent(
+        message.source_device_id as string,
+        'skills_response',
+        { skills },
+      )
+      return
+    }
+    if (message.type === 'CONFIRMATION_RESPONSE') {
+      if (
+        !DEVICE_ID_PATTERN.test(String(message.source_device_id ?? ''))
+        || !isRecord(message.payload)
+        || typeof message.payload.request_id !== 'string'
+        || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(message.payload.request_id)
+        || typeof message.payload.approved !== 'boolean'
+      ) {
+        throw new Error('Relay mobile confirmation response is invalid.')
+      }
+      const accepted = await this.handlers.receiveMobileConfirmation(
+        message.source_device_id as string,
+        message.payload.request_id,
+        message.payload.approved,
+      )
+      if (!accepted) {
+        this.sendDeviceEvent(message.source_device_id as string, 'error', {
+          message: 'This confirmation is no longer pending for this device.',
+        })
       }
     }
   }

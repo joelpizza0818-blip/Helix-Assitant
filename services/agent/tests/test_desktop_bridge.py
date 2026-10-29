@@ -19,7 +19,7 @@ from services.agent.core.desktop_bridge import _serialize_task_for_desktop
 from services.agent.core.event_bus import EventBus
 from services.agent.core.browser_page_context import clear_current_page, get_current_page
 from services.agent.core.mcp_settings import _mcp_server_statuses
-from services.agent.core.task_manager import TaskManager
+from services.agent.core.task_manager import TaskManager, TaskStatus
 from services.agent.skills.skill_loader import SkillLoader
 from services.agent.skills.skill_registry import SkillRegistry
 
@@ -157,6 +157,23 @@ async def test_subagent_task_serialization_exposes_only_allowlisted_metadata():
     assert "metadata" not in serialized
     assert "result" not in serialized
     assert "never expose" not in str(serialized)
+
+
+@pytest.mark.asyncio
+async def test_failed_task_serialization_classifies_provider_and_internal_errors():
+    task_manager = TaskManager(EventBus())
+    task = await task_manager.create_task("failed-id", "Task")
+    task.status = TaskStatus.FAILED
+    task.provider = "openai"
+
+    provider_failure = _serialize_task_for_desktop(task)
+    assert provider_failure["failure_category"] == "provider"
+    assert provider_failure["failure_provider"] == "openai"
+
+    task.provider = None
+    internal_failure = _serialize_task_for_desktop(task)
+    assert internal_failure["failure_category"] == "internal"
+    assert "failure_provider" not in internal_failure
 
 
 @pytest.mark.asyncio
@@ -475,7 +492,18 @@ async def test_settings_are_saved_and_loaded(request_handler):
 
     assert saved["payload"]["wake_word"] == "computer"
     assert saved["payload"]["voice_enabled"] is True
+    assert saved["payload"]["gesture_window_sequence_enabled"] is True
     assert loaded["payload"] == saved["payload"]
+
+
+@pytest.mark.asyncio
+async def test_gesture_window_sequence_setting_must_be_boolean(request_handler):
+    with pytest.raises(ValueError, match="gesture_window_sequence_enabled must be a boolean"):
+        await request_handler.dispatch({
+            "type": "SAVE_SETTINGS",
+            "request_id": "save-invalid-gesture-window-sequence",
+            "payload": {"settings": {"gesture_window_sequence_enabled": "yes"}},
+        })
 
 
 @pytest.mark.asyncio
@@ -662,6 +690,18 @@ async def test_unknown_request_is_reported(request_handler):
             "request_id": "unknown-1",
             "payload": {},
         })
+
+
+@pytest.mark.asyncio
+async def test_memory_status_awaits_async_status_method(request_handler):
+    expected = {"pgvector_ready": True, "provider": "local"}
+    request_handler.memory_manager = SimpleNamespace(
+        status=AsyncMock(return_value=expected),
+    )
+
+    assert await request_handler._get_memory_status() == expected
+
+
 @pytest.mark.asyncio
 async def test_user_text_forwards_conversation_context(request_handler):
     events = []

@@ -33,6 +33,7 @@ class MemoryManager:
         self.memories: Dict[str, MemoryEntry] = {}
         self.key_manager = key_manager
         self.context_limit = 20
+        self.compact_threshold = 10
         self.auto_compaction = True
         self.embedding_model = "text-embedding-3-small"
         self.similarity_threshold = 0.75
@@ -48,6 +49,7 @@ class MemoryManager:
 
     def configure(self, settings: dict) -> None:
         self.context_limit = max(1, min(100, int(settings.get("memory_context_limit", self.context_limit))))
+        self.compact_threshold = max(4, min(100, int(settings.get("memory_compact_threshold", self.compact_threshold))))
         self.auto_compaction = bool(settings.get("memory_auto_compaction", self.auto_compaction))
         self.embedding_model = str(settings.get("embedding_model", self.embedding_model))
         threshold = settings.get("memory_similarity_threshold", self.similarity_threshold)

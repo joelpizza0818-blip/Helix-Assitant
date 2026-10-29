@@ -1,43 +1,52 @@
 .clipboard-section__privacy {
   margin-top: 4px;
   max-width: 480px;
+  color: var(--color-fog);
+  font-size: 13px;
 }
 
 .clipboard-section__controls {
   display: flex;
   flex-shrink: 0;
-  gap: 6px;
+  gap: 8px;
 }
 
 .clipboard-section__list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   max-height: 60vh;
   overflow-y: auto;
 }
 
 .clipboard-section__item {
-  padding: 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
-  background: var(--canvas);
+  padding: 12px;
+  border: 1px solid var(--color-graphite);
+  border-radius: var(--radius-buttons);
+  background: var(--color-void);
+  box-shadow: var(--shadow-subtle);
+  transition: border-color var(--duration-fast) var(--ease);
+}
+
+.clipboard-section__item:hover {
+  border-color: var(--color-smoke);
 }
 
 .clipboard-section__item-meta {
   display: flex;
   justify-content: space-between;
   margin-bottom: 6px;
-  color: var(--muted);
-  font-size: var(--text-xs);
+  color: var(--color-fog);
+  font-family: var(--font-mono);
+  font-size: 11px;
 }
 
 .clipboard-section__text {
-  max-height: 112px;
+  max-height: 120px;
   overflow: auto;
-  color: var(--secondary);
-  font-size: var(--text-xs);
-  line-height: 1.4;
+  color: var(--color-mist);
+  font-size: 12px;
+  line-height: 1.45;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
@@ -48,6 +57,8 @@
   max-height: 180px;
   margin: 0 auto;
   object-fit: contain;
+  border: 1px solid var(--color-graphite);
+  border-radius: var(--radius-buttons);
 }
 
 .clipboard-section__copy {

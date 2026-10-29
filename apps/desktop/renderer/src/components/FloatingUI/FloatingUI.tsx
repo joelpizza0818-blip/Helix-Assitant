@@ -346,6 +346,18 @@ export default function FloatingUI() {
           </button>
           <button
             className="icon-btn"
+            onClick={() => window.helix?.openAgentPanel()}
+            title="Open subagent workspace"
+            aria-label="Open subagent workspace"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="9" cy="8" r="3" />
+              <path d="M3.5 19v-1a5.5 5.5 0 0 1 11 0v1" />
+              <path d="M16 5.5a3 3 0 0 1 0 5.8M17 14a5 5 0 0 1 3.5 4.8V19" />
+            </svg>
+          </button>
+          <button
+            className="icon-btn"
             onClick={openToolbox}
             title="Open Toolbox & Control Center"
             aria-label="Open Toolbox"
@@ -463,7 +475,9 @@ export default function FloatingUI() {
           ))}
           {isLoading && (
             <div className="message-bubble message-bubble--assistant">
-              <div className="helix-loader" aria-label="HELIX is working" role="status" />
+              <span className="message-progress-label" aria-live="polite">
+                {activeTask?.execution_summary.progress_label ?? 'Thinking…'}
+              </span>
             </div>
           )}
           <div ref={messagesEndRef} />

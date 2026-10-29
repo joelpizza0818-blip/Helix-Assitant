@@ -1,8 +1,11 @@
 import asyncio
+import io
 import logging
 import json
 import uuid
 import inspect
+from copy import deepcopy
+from contextvars import ContextVar
 from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -15,7 +18,7 @@ try:
         screen_observation_scope,
     )
 except ImportError:
-    from ai.base_provider import AgentError
+    from ai.base_provider import AgentError, ChatMessage, ChatResponse
     from core.context_compression import get_ccl
     from perception.screen_observation_policy import screen_observation_scope
 
@@ -25,6 +28,219 @@ _SHELL_TOOL_NAMES = {"shell_tool", "cmd_tool", "powershell_tool"}
 _SCREEN_CAPTURE_TOOL_NAMES = {"computer.observe_screen", "screenshot_tool"}
 _SCREEN_ACTION_TOOL_PREFIXES = ("computer.", "keyboard.", "mouse.")
 _SHELL_OUTPUT_LIMIT = 600
+_LONG_TASK_ITERATION_LIMIT = 18
+_CONTEXT_HISTORY_EXCERPT_LIMIT = 240
+_CONTEXT_IMAGE_MAX_EDGE = 1280
+
+
+def _resize_context_image(message) -> bool:
+    image_bytes = getattr(message, "image_bytes", None)
+    if not isinstance(image_bytes, bytes) or not image_bytes:
+        return False
+    try:
+        from PIL import Image
+    except ImportError as error:
+        logger.warning("Cannot resize image for context recovery: Pillow is unavailable: %s", error)
+        return False
+
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as image:
+            if max(image.size) <= _CONTEXT_IMAGE_MAX_EDGE and len(image_bytes) < 500_000:
+                return False
+            image.thumbnail(
+                (_CONTEXT_IMAGE_MAX_EDGE, _CONTEXT_IMAGE_MAX_EDGE),
+                Image.LANCZOS,
+            )
+            output = io.BytesIO()
+            image_format = image.format or "PNG"
+            save_options = {"optimize": True}
+            if image_format.upper() in {"JPEG", "JPG"}:
+                save_options["quality"] = 82
+            image.save(output, format=image_format, **save_options)
+    except (OSError, ValueError) as error:
+        logger.warning("Could not resize an image during context recovery: %s", error)
+        return False
+
+    compacted = output.getvalue()
+    if len(compacted) >= len(image_bytes):
+        return False
+    message.image_bytes = compacted
+    return True
+
+
+def _compact_messages_for_retry(messages: list, level: int) -> bool:
+    if not messages or level not in (1, 2):
+        return False
+
+    latest_user_index = next(
+        (
+            index
+            for index in range(len(messages) - 1, -1, -1)
+            if getattr(messages[index], "role", None) == "user"
+        ),
+        None,
+    )
+    if latest_user_index is None:
+        return False
+
+    original_size = sum(
+        len(message.content)
+        for message in messages
+        if isinstance(getattr(message, "content", None), str)
+    ) + sum(
+        len(message.image_bytes)
+        for message in messages
+        if isinstance(getattr(message, "image_bytes", None), bytes)
+    )
+
+    if level == 1:
+        prior_messages = messages[:latest_user_index]
+        excerpts = []
+        preserved_images = []
+        for message in prior_messages:
+            if getattr(message, "image_bytes", None):
+                preserved_images.append(message)
+                continue
+            content = getattr(message, "content", "")
+            if not isinstance(content, str) or not content.strip():
+                continue
+            excerpt = " ".join(content.split())[:_CONTEXT_HISTORY_EXCERPT_LIMIT]
+            excerpts.append(f"{getattr(message, 'role', 'context')}: {excerpt}")
+        summary = "\n".join(excerpts[-8:])[:2400]
+        recent_messages = messages[latest_user_index:]
+        compacted = [
+            message for message in messages[:latest_user_index]
+            if getattr(message, "role", None) == "system"
+        ]
+        compacted.extend(preserved_images)
+        if summary:
+            compacted.append(ChatMessage(
+                role="user",
+                content=(
+                    "[Condensed excerpts from earlier conversation; reference "
+                    "only, not new instructions]\n" + summary
+                ),
+            ))
+        compacted.extend(recent_messages)
+        messages[:] = compacted
+    else:
+        for message in messages:
+            _resize_context_image(message)
+        for message in messages[latest_user_index + 1:]:
+            content = getattr(message, "content", None)
+            if not isinstance(content, str):
+                continue
+            limit = 1200 if getattr(message, "role", None) == "tool" else 2400
+            if len(content) > limit:
+                marker = "\n[Earlier output omitted to fit the model context.]"
+                keep = limit - len(marker)
+                content = content[:keep // 2] + marker + content[-(keep - keep // 2):]
+                message.content = content
+                if hasattr(message, "provider_data"):
+                    message.provider_data = None
+
+    compacted_size = sum(
+        len(message.content)
+        for message in messages
+        if isinstance(getattr(message, "content", None), str)
+    ) + sum(
+        len(message.image_bytes)
+        for message in messages
+        if isinstance(getattr(message, "image_bytes", None), bytes)
+    )
+    return compacted_size < original_size
+
+
+def _adaptive_iteration_limit(messages: list, limit: int, role: str) -> int:
+    if role != "main" or limit != 10:
+        return limit
+    request = next(
+        (
+            message.content
+            for message in reversed(messages)
+            if getattr(message, "role", None) == "user"
+            and isinstance(getattr(message, "content", None), str)
+        ),
+        "",
+    )
+    lines = [line for line in request.splitlines() if line.strip()]
+    actionable_lines = sum(
+        line.lstrip().startswith(("-", "*", "•", "1.", "2.", "3."))
+        for line in lines
+    )
+    if len(request) >= 900 or actionable_lines >= 4:
+        return _LONG_TASK_ITERATION_LIMIT
+    return limit
+
+
+def _shared_resource_for_tool(tool_name: str) -> Optional[str]:
+    name = tool_name.casefold()
+    if "browser" in name or name.startswith(("web.", "playwright.")):
+        return "browser"
+    if name.startswith(("computer.", "keyboard.", "mouse.")) or name in {
+        "screenshot_tool",
+        "screen_capture",
+    }:
+        return "desktop"
+    if name in _SHELL_TOOL_NAMES or any(
+        marker in name
+        for marker in ("file", "workspace", "directory", "terminal", "shell", "powershell", "cmd")
+    ):
+        return "workspace"
+    return None
+
+
+class _TaskResourceLease:
+    def __init__(self, react_loop, task_id: Optional[str]):
+        self.react_loop = react_loop
+        self.task_id = task_id
+        self.resources: set[str] = set()
+        self.acquired: list[asyncio.Lock] = []
+
+    async def acquire(self, resource: str) -> None:
+        if resource in self.resources and len(self.acquired) == len(self.resources):
+            return
+        self.resources.add(resource)
+        await self.release_locks()
+        await self.resume()
+
+    async def suspend(self) -> None:
+        await self.release_locks()
+
+    async def resume(self) -> None:
+        for resource in sorted(self.resources):
+            lock = self.react_loop._resource_locks.setdefault(
+                resource, asyncio.Lock()
+            )
+            waiting = lock.locked()
+            if waiting:
+                await self._publish(resource, "waiting")
+            await lock.acquire()
+            self.acquired.append(lock)
+            if waiting:
+                await self._publish(resource, "acquired")
+
+    async def release_locks(self) -> None:
+        for lock in reversed(self.acquired):
+            lock.release()
+        self.acquired.clear()
+
+    async def release_all(self) -> None:
+        self.resources.clear()
+        await self.release_locks()
+
+    async def _publish(self, resource: str, status: str) -> None:
+        if self.react_loop.event_bus is None:
+            return
+        await self.react_loop.event_bus.publish(
+            "SUBAGENT_RESOURCE_STATUS",
+            {
+                "agent_id": self.task_id,
+                "task_id": self.task_id,
+                "resource": resource,
+                "status": status,
+            },
+        )
 
 
 @dataclass
@@ -86,6 +302,12 @@ class ReActLoop:
         self.permission_manager = permission_manager
         self.capability_requester = capability_requester
         self._pending_confirmations = {}
+        self._pending_confirmation_devices = {}
+        self._resource_locks: dict[str, asyncio.Lock] = {}
+        self._planned_resource_leases: dict[str, _TaskResourceLease] = {}
+        self._resource_lease_context: ContextVar[Optional[_TaskResourceLease]] = (
+            ContextVar(f"helix_resource_lease_{id(self)}", default=None)
+        )
         self.auto_approve_up_to = "LOW_RISK"
         self.permissions_mode = "SMART_APPROVAL"
         self.screen_context_enabled = False
@@ -102,19 +324,38 @@ class ReActLoop:
             await subscribe("CONFIRMATION_GRANTED", self._handle_confirmation_event)
             await subscribe("CONFIRMATION_REJECTED", self._handle_confirmation_event)
 
+    async def release_task_resources(self, task_id: str) -> None:
+        lease = self._planned_resource_leases.pop(task_id, None)
+        if lease is not None:
+            await lease.release_all()
+
     async def _handle_confirmation_event(self, event_name, payload):
         request_id = payload.get("request_id")
         future = self._pending_confirmations.get(request_id)
-        if future and not future.done():
+        expected_device = self._pending_confirmation_devices.get(request_id)
+        if (
+            future
+            and not future.done()
+            and payload.get("source_device_id") == expected_device
+        ):
             future.set_result(event_name == "CONFIRMATION_GRANTED")
 
-    async def _request_tool_confirmation(self, tool, arguments, task_id):
+    async def _request_tool_confirmation(
+        self,
+        tool,
+        arguments,
+        task_id,
+        conversation_id=None,
+        source_device_id=None,
+    ):
         request_id = str(uuid.uuid4())
         future = asyncio.get_running_loop().create_future()
         self._pending_confirmations[request_id] = future
+        self._pending_confirmation_devices[request_id] = source_device_id
         permission_level = str(tool.permission_level)
         if permission_level == "MODERATE":
             permission_level = "MODIFY"
+        approved = None
         try:
             await self.event_bus.publish(
                 "WAIT_CONFIRMATION",
@@ -130,14 +371,39 @@ class ReActLoop:
                     ),
                     "why": "This tool requires your explicit approval before it can run.",
                     "level": permission_level,
+                    **(
+                        {
+                            "conversation_id": conversation_id,
+                            "source_device_id": source_device_id,
+                        }
+                        if isinstance(source_device_id, str)
+                        else {}
+                    ),
                 },
             )
-            return await asyncio.wait_for(future, timeout=CONFIRMATION_TIMEOUT_SECONDS)
+            approved = await asyncio.wait_for(
+                future,
+                timeout=CONFIRMATION_TIMEOUT_SECONDS,
+            )
+            return approved
         finally:
             self._pending_confirmations.pop(request_id, None)
+            self._pending_confirmation_devices.pop(request_id, None)
             await self.event_bus.publish(
                 "CONFIRMATION_RESOLVED",
-                {"request_id": request_id, "task_id": task_id},
+                {
+                    "request_id": request_id,
+                    "task_id": task_id,
+                    "approved": approved,
+                    **(
+                        {
+                            "conversation_id": conversation_id,
+                            "source_device_id": source_device_id,
+                        }
+                        if isinstance(source_device_id, str)
+                        else {}
+                    ),
+                },
             )
 
     async def execute_planned_tool(
@@ -148,6 +414,49 @@ class ReActLoop:
         screen_request_active: bool = False,
         task_description: str = "",
         vision_model_to_exclude: tuple[str, str] | None = None,
+        conversation_id: str | None = None,
+        source_device_id: str | None = None,
+    ) -> _ToolExecutionOutcome:
+        owns_lease = task_id is None and self._resource_lease_context.get() is None
+        lease = self._resource_lease_context.get()
+        if lease is None:
+            lease = (
+                _TaskResourceLease(self, task_id)
+                if task_id is None
+                else self._planned_resource_leases.setdefault(
+                    task_id, _TaskResourceLease(self, task_id)
+                )
+            )
+            token = self._resource_lease_context.set(lease)
+        else:
+            token = None
+        try:
+            return await self._execute_planned_tool_inner(
+                tool_name,
+                arguments,
+                task_id=task_id,
+                screen_request_active=screen_request_active,
+                task_description=task_description,
+                vision_model_to_exclude=vision_model_to_exclude,
+                conversation_id=conversation_id,
+                source_device_id=source_device_id,
+            )
+        finally:
+            if token is not None:
+                self._resource_lease_context.reset(token)
+            if owns_lease and lease is not None:
+                await lease.release_all()
+
+    async def _execute_planned_tool_inner(
+        self,
+        tool_name: str,
+        arguments: dict,
+        task_id: str = None,
+        screen_request_active: bool = False,
+        task_description: str = "",
+        vision_model_to_exclude: tuple[str, str] | None = None,
+        conversation_id: str | None = None,
+        source_device_id: str | None = None,
     ) -> _ToolExecutionOutcome:
         tool = self.tool_registry.get_tool(tool_name)
         if tool is None:
@@ -299,7 +608,11 @@ class ReActLoop:
         if not confirmed:
             try:
                 confirmed = await self._request_tool_confirmation(
-                    tool, arguments, task_id
+                    tool,
+                    arguments,
+                    task_id,
+                    conversation_id=conversation_id,
+                    source_device_id=source_device_id,
                 )
             except asyncio.TimeoutError:
                 confirmed = False
@@ -316,7 +629,7 @@ class ReActLoop:
 
         if self.event_bus is not None:
             await self.event_bus.publish(
-                "TOOL_EXECUTED",
+                "TOOL_STARTED",
                 {
                     "tool": tool_name,
                     "task_id": task_id,
@@ -327,9 +640,25 @@ class ReActLoop:
 
         if is_screen_capture_tool or is_screen_action_tool:
             with screen_observation_scope(True):
-                result = await tool.execute(arguments)
+                result = await self._execute_tool(
+                    tool,
+                    arguments,
+                    task_id,
+                    {
+                        "_helix_conversation_id": conversation_id,
+                        "_helix_source_device_id": source_device_id,
+                    },
+                )
         else:
-            result = await tool.execute(arguments)
+            result = await self._execute_tool(
+                tool,
+                arguments,
+                task_id,
+                {
+                    "_helix_conversation_id": conversation_id,
+                    "_helix_source_device_id": source_device_id,
+                },
+            )
         output = result.output if getattr(result, "success", False) else f"Error: {getattr(result, 'error', None)}"
         raw_output = getattr(result, "output", None)
         image_bytes = None
@@ -340,10 +669,6 @@ class ReActLoop:
             image_bytes = raw_output.pop("screenshot_bytes", None)
             output = json.dumps(raw_output, ensure_ascii=False, default=str)
         success = bool(getattr(result, "success", False))
-        if image_bytes:
-            assignment = self.role_config.get_assignment("main")
-            assignment.requirements.vision = True
-
         outcome = _ToolExecutionOutcome(
             success=success,
             output=str(output) if output is not None else "",
@@ -471,20 +796,75 @@ class ReActLoop:
         )
         return outcome
 
-    async def execute(self, messages: List['ChatMessage'], role: str = 'main',
+    async def execute(
+        self,
+        messages: List['ChatMessage'],
+        role: str = 'main',
+        max_iterations: int = 10,
+        task_id: str = None,
+        preferred_tool_names: List[str] = None,
+        allow_tool_calls: bool = True,
+        screen_request_active: bool = False,
+        excluded_api_keys: Optional[List[str]] = None,
+        vision_model_to_exclude: tuple[str, str] | None = None,
+        conversation_id: str | None = None,
+        source_device_id: str | None = None,
+        preferred_route: dict | None = None,
+    ) -> 'ChatResponse':
+        lease = _TaskResourceLease(self, task_id)
+        token = self._resource_lease_context.set(lease)
+        try:
+            return await self._execute_inner(
+                messages=messages,
+                role=role,
+                max_iterations=max_iterations,
+                task_id=task_id,
+                preferred_tool_names=preferred_tool_names,
+                allow_tool_calls=allow_tool_calls,
+                screen_request_active=screen_request_active,
+                excluded_api_keys=excluded_api_keys,
+                vision_model_to_exclude=vision_model_to_exclude,
+                conversation_id=conversation_id,
+                source_device_id=source_device_id,
+                preferred_route=preferred_route,
+            )
+        finally:
+            await lease.release_all()
+            self._resource_lease_context.reset(token)
+
+    async def _execute_inner(self, messages: List['ChatMessage'], role: str = 'main',
                       max_iterations: int = 10, task_id: str = None,
                       preferred_tool_names: List[str] = None,
                       allow_tool_calls: bool = True,
                       screen_request_active: bool = False,
                       excluded_api_keys: Optional[List[str]] = None,
-                      vision_model_to_exclude: tuple[str, str] | None = None) -> 'ChatResponse':
+                      vision_model_to_exclude: tuple[str, str] | None = None,
+                      conversation_id: str | None = None,
+                      source_device_id: str | None = None,
+                      preferred_route: dict | None = None) -> 'ChatResponse':
         await self._ensure_confirmation_subscriptions()
         assignment = self.role_config.get_assignment(role)
-        requirements = assignment.requirements
+        requirements = deepcopy(assignment.requirements)
         requirements.tool_calling = allow_tool_calls
+        if preferred_route is not None:
+            if (
+                not isinstance(preferred_route, dict)
+                or not isinstance(preferred_route.get("provider"), str)
+                or not isinstance(preferred_route.get("model"), str)
+                or not isinstance(preferred_route.get("key_slot"), int)
+                or isinstance(preferred_route.get("key_slot"), bool)
+                or preferred_route["key_slot"] < 0
+            ):
+                raise ValueError("The assigned subagent model route is invalid.")
+            requirements.preferred_provider = preferred_route["provider"]
+            requirements.preferred_model = preferred_route["model"]
+            requirements.preferred_key_slot = preferred_route["key_slot"]
+            requirements.strict_model_route = True
         
+        max_iterations = _adaptive_iteration_limit(messages, max_iterations, role)
         iteration = 0
-        current_messages = list(messages)
+        current_messages = deepcopy(messages)
+        context_recovery_level = 0
         requirements.vision = requirements.vision or any(
             message.image_bytes for message in current_messages
         )
@@ -495,8 +875,23 @@ class ReActLoop:
             "_execution_failed_keys": set(),
             "_execution_failed_candidates": set(),
             "_helix_task_id": task_id,
+            "_helix_conversation_id": conversation_id,
+            "_helix_source_device_id": source_device_id,
             "_excluded_api_keys": set(excluded_api_keys or []),
         }
+
+        def compact_request_context() -> bool:
+            nonlocal context_recovery_level
+            if context_recovery_level >= 2:
+                return False
+            context_recovery_level += 1
+            if _compact_messages_for_retry(current_messages, context_recovery_level):
+                provider_context["messages"] = current_messages
+                provider_context["_helix_context_recovery_level"] = context_recovery_level
+                return True
+            return False
+
+        provider_context["_helix_context_recovery"] = compact_request_context
         executed_tool_call_ids = set()
         retried_empty_response_without_tools = False
         
@@ -688,7 +1083,11 @@ class ReActLoop:
                         if not confirmed:
                             try:
                                 confirmed = await self._request_tool_confirmation(
-                                    tool, tc.arguments, task_id
+                                    tool,
+                                    tc.arguments,
+                                    task_id,
+                                    conversation_id=conversation_id,
+                                    source_device_id=source_device_id,
                                 )
                             except asyncio.TimeoutError:
                                 confirmed = False
@@ -702,6 +1101,13 @@ class ReActLoop:
                                     raise ValueError(
                                         f"Invalid parameters for tool {tc.name}."
                                     )
+                                await self.event_bus.publish(
+                                    "TOOL_STARTED",
+                                    {
+                                        "tool": tc.name,
+                                        "task_id": task_id,
+                                    },
+                                )
                                 if is_screen_capture_tool or is_screen_action_tool:
                                     with screen_observation_scope(True):
                                         result = await self._execute_tool(
@@ -796,11 +1202,33 @@ class ReActLoop:
         )
 
     async def _execute_tool(self, tool, arguments, task_id, provider_context):
-        contextual_execute = getattr(tool, "execute_with_context", None)
-        if callable(contextual_execute):
-            return await contextual_execute(
-                arguments,
-                parent_id=task_id,
-                parent_credential=provider_context.get("_helix_current_credential"),
-            )
-        return await tool.execute(arguments)
+        lease = self._resource_lease_context.get()
+        owns_lease = lease is None
+        token = None
+        if lease is None:
+            lease = _TaskResourceLease(self, task_id)
+            token = self._resource_lease_context.set(lease)
+        nested_request = tool.name in {"delegate_task", "message_subagent"}
+        try:
+            if nested_request:
+                await lease.suspend()
+            else:
+                resource = _shared_resource_for_tool(tool.name)
+                if resource:
+                    await lease.acquire(resource)
+            contextual_execute = getattr(tool, "execute_with_context", None)
+            if callable(contextual_execute):
+                return await contextual_execute(
+                    arguments,
+                    parent_id=task_id,
+                    parent_credential=provider_context.get("_helix_current_credential"),
+                    conversation_id=provider_context.get("_helix_conversation_id"),
+                    source_device_id=provider_context.get("_helix_source_device_id"),
+                )
+            return await tool.execute(arguments)
+        finally:
+            if nested_request:
+                await lease.resume()
+            if owns_lease:
+                await lease.release_all()
+                self._resource_lease_context.reset(token)

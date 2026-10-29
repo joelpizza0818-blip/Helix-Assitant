@@ -39,11 +39,14 @@ from core.role_config import RoleConfig
 from core.context_manager import ContextManager
 from core.react_loop import ReActLoop
 from core.agent_manager import AgentManager
+from core.agent_profiles import AgentProfileStore
 from core.subagent_delegation import (
     configure_subagent_delegation,
     safe_subagent_lifecycle_payload,
 )
 from services.agent.tools.delegate_task_tool import DelegateTaskTool
+from services.agent.tools.message_subagent_tool import MessageSubagentTool
+from services.agent.tools.promote_subagent_tool import PromoteSubagentTool
 
 from ai.key_manager import KeyManager
 from ai.capability_registry import CapabilityRegistry
@@ -256,9 +259,15 @@ async def main():
         role_config=role_config,
         tool_registry=tool_registry,
         task_manager=task_manager,
+        profile_store=AgentProfileStore(
+            settings_path.parent / "subagents" / "profiles.json"
+        ),
+        memory_directory=settings_path.parent / "subagents" / "memories",
     )
     await agent_manager.attach_task_manager(task_manager)
     delegate_task_tool = DelegateTaskTool(agent_manager, key_manager)
+    message_subagent_tool = MessageSubagentTool(agent_manager)
+    promote_subagent_tool = PromoteSubagentTool(agent_manager)
 
     planner = Planner(
         react_loop=react_loop,
@@ -301,6 +310,7 @@ async def main():
         memory_manager,
         skill_registry,
         plugin_manager,
+        agent_manager=agent_manager,
     )
     def configure_from_saved_settings():
         return configure_subagent_delegation(
@@ -308,6 +318,8 @@ async def main():
             key_manager,
             tool_registry,
             delegate_task_tool,
+            message_subagent_tool,
+            promote_subagent_tool,
         )
 
     request_handler.credentials_updated_callback = configure_from_saved_settings
@@ -337,6 +349,8 @@ async def main():
             "SUBAGENT_COMPLETED": "agent_update",
             "SUBAGENT_FAILED": "agent_update",
             "SUBAGENT_CANCELLED": "agent_update",
+            "SUBAGENT_RESOURCE_STATUS": "agent_update",
+            "SUBAGENT_PROMOTED": "agent_update",
             "AGENT_STARTED": "agent_update",
             "AGENT_COMPLETED": "agent_update",
             "AGENT_FAILED": "agent_update",
@@ -362,6 +376,8 @@ async def main():
             "SUBAGENT_COMPLETED",
             "SUBAGENT_FAILED",
             "SUBAGENT_CANCELLED",
+            "SUBAGENT_RESOURCE_STATUS",
+            "SUBAGENT_PROMOTED",
             "AGENT_STARTED",
             "AGENT_COMPLETED",
             "AGENT_FAILED",
@@ -370,9 +386,54 @@ async def main():
             # Delegated-agent payloads can contain private model responses or
             # prompts. The desktop needs lifecycle metadata only; never send
             # those contents through the renderer event channel.
-            event_payload = safe_subagent_lifecycle_payload(payload)
+            lifecycle_payload = payload
+            if event_name == "SUBAGENT_RESOURCE_STATUS":
+                task_id = payload.get("task_id")
+                if isinstance(task_id, str):
+                    agent_status = await agent_manager.get_status(task_id)
+                    if agent_status:
+                        lifecycle_payload = {
+                            **payload,
+                            "profile_id": agent_status.get("profile_id"),
+                            "name": agent_status.get("name"),
+                            "color": agent_status.get("color"),
+                        }
+                        resource_status = payload.get("status")
+                        resource = payload.get("resource")
+                        if resource_status in {"waiting", "acquired"}:
+                            label = (
+                                f"Waiting for {resource}"
+                                if resource_status == "waiting"
+                                else f"Using {resource}"
+                            )
+                            await task_manager.set_progress_label(
+                                task_id,
+                                label,
+                                current_action=label,
+                            )
+            event_payload = safe_subagent_lifecycle_payload(lifecycle_payload)
         else:
             event_payload = payload
+
+        task_id = payload.get("task_id")
+        if isinstance(task_id, str):
+            task_context = await task_manager.get_task_context(task_id)
+            if (
+                isinstance(task_context, dict)
+                and isinstance(task_context.get("conversation_id"), str)
+            ):
+                event_payload.setdefault(
+                    "conversation_id",
+                    task_context["conversation_id"],
+                )
+            if event_name == "WAIT_CONFIRMATION":
+                await task_manager.set_progress_label(
+                    task_id,
+                    "Waiting for approval…",
+                    current_action=str(payload.get("action") or "Tool confirmation"),
+                )
+            elif event_name == "CONFIRMATION_RESOLVED":
+                await task_manager.set_progress_label(task_id, "Continuing…")
 
         event = json.dumps({
             "type": event_types.get(event_name, event_name.lower()),
@@ -470,6 +531,8 @@ async def main():
             key_manager,
             tool_registry,
             delegate_task_tool,
+            message_subagent_tool,
+            promote_subagent_tool,
         )
         await apply_mcp_servers(payload.get("mcp_servers", []))
         memory_manager.configure(payload)
@@ -940,6 +1003,18 @@ async def main():
                 bool(payload.get("success")),
                 payload.get("result_summary"),
             )
+        elif event_name == "TOOL_STARTED":
+            tool_name = str(payload.get("tool", "")).casefold()
+            label = (
+                "Searching…"
+                if any(term in tool_name for term in ("search", "browser", "web"))
+                else "Executing…"
+            )
+            await task_manager.set_progress_label(
+                task_id,
+                label,
+                current_action=str(payload.get("tool") or label),
+            )
         elif event_name == "ORCHESTRATION_COMPLETED":
             await task_manager.record_result(
                 task_id,
@@ -956,6 +1031,7 @@ async def main():
     await event_bus.subscribe("MODEL_REQUEST", record_model_request)
     for execution_event in (
         "REACT_STEP",
+        "TOOL_STARTED",
         "TOOL_EXECUTED",
         "ORCHESTRATION_COMPLETED",
         "ORCHESTRATION_FAILED",

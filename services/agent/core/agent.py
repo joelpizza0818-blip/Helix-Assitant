@@ -65,7 +65,14 @@ class Agent:
             "voice" if is_voice_input else "text",
             len(text),
         )
-        context = {"input_source": "voice" if is_voice_input else "text"}
+        input_source = payload.get("input_source")
+        context = {
+            "input_source": (
+                "mobile"
+                if input_source == "mobile"
+                else "voice" if is_voice_input else "text"
+            )
+        }
         if attachments:
             context["attachments"] = attachments
             if not text:
@@ -73,6 +80,8 @@ class Agent:
         if payload.get("conversation_id") is not None:
             context["conversation_id"] = payload["conversation_id"]
             context["conversation_history"] = payload.get("conversation_history", [])
+        if input_source == "mobile":
+            context["source_device_id"] = payload.get("source_device_id")
 
         requested_skill_names = re.findall(r"(?<!\w)@([A-Za-z0-9_.-]+)", text)
         automatic_skill_names = []
@@ -313,3 +322,9 @@ class Agent:
             logger.exception("Custom gesture command failed")
             await self.task_manager.set_result(task_id, result=None, error=type(error).__name__)
             await self.task_manager.update_status(task_id, TaskStatus.FAILED)
+        finally:
+            release_resources = getattr(
+                self.orchestrator.react_loop, "release_task_resources", None
+            )
+            if callable(release_resources):
+                await release_resources(task_id)
