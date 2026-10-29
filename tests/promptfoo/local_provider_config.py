@@ -13,6 +13,9 @@ class _NoConfiguredProviders:
     def get_fallback_candidates(self, *_args, **_kwargs):
         return []
 
+    def get_balanced_candidate(self, candidates):
+        return candidates[0] if candidates else None
+
 
 class _NoConfiguredKeys:
     def get_configured_providers(self):
