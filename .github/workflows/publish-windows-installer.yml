@@ -140,6 +140,7 @@ jobs:
           }
           $hash = (Get-FileHash $installerPath -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash *HELIX-Setup.exe" | Set-Content "apps/landing/private-downloads/HELIX-Setup.exe.sha256" -Encoding ascii
+          "$hash *HELIX-Setup-$expectedVersion.exe" | Set-Content "apps/landing/private-downloads/HELIX-Setup-$expectedVersion.exe.sha256" -Encoding ascii
           "INSTALLER_SHA256=$hash" >> $env:GITHUB_ENV
           "INSTALLER_SIZE=$((Get-Item $installerPath).Length)" >> $env:GITHUB_ENV
           "VERSION=$expectedVersion" >> $env:GITHUB_ENV
@@ -175,6 +176,7 @@ jobs:
             "apps/landing/private-downloads/HELIX-Setup.exe" `
             "apps/landing/private-downloads/HELIX-Setup.exe.sha256" `
             "apps/landing/private-downloads/HELIX-Setup-$($env:VERSION).exe" `
+            "apps/landing/private-downloads/HELIX-Setup-$($env:VERSION).exe.sha256" `
             "apps/landing/private-downloads/HELIX-Setup-$($env:VERSION).exe.blockmap" `
             "apps/landing/private-downloads/latest.yml" `
             --repo $installerRepository `
@@ -193,6 +195,8 @@ jobs:
           }
           $asset = $release.assets | Where-Object { $_.name -eq "HELIX-Setup.exe" }
           if (-not $asset) { throw "Published release $tag does not contain HELIX-Setup.exe." }
+          $versionedChecksum = $release.assets | Where-Object { $_.name -eq "HELIX-Setup-$($env:VERSION).exe.sha256" }
+          if (-not $versionedChecksum) { throw "Published release $tag does not contain its versioned installer SHA-256 sidecar." }
           if ($asset.size -ne [long]$env:INSTALLER_SIZE) {
             throw "Published installer size $($asset.size) does not match build size $($env:INSTALLER_SIZE)."
           }
@@ -208,4 +212,3 @@ jobs:
           }
           Write-Host "Verified $tag is the latest private installer release."
           Write-Host "Installer SHA-256: $($env:INSTALLER_SHA256)"
-

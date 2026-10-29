@@ -65,6 +65,11 @@ test('registers the Desktop, approves pairing, and routes messages to one device
     requestId: string
     approved: boolean
   } | null = null
+  let receivedMobileSubagentQuery: {
+    action: string
+    profileId?: string
+    message?: string
+  } | null = null
   const client = new MobileRelayClient(configPath, {
     approvePairing: async (deviceName) => {
       approvedDeviceName = deviceName
@@ -80,6 +85,10 @@ test('registers the Desktop, approves pairing, and routes messages to one device
     receiveMobileConfirmation: async (deviceId, requestId, approved) => {
       receivedMobileConfirmation = { deviceId, requestId, approved }
       return true
+    },
+    queryMobileSubagent: async (action, payload) => {
+      receivedMobileSubagentQuery = { action, ...payload }
+      return { response: 'Subagent ready' }
     },
   }, {
     encrypt: (value) => Buffer.from(value).toString('base64'),
@@ -172,6 +181,42 @@ test('registers the Desktop, approves pairing, and routes messages to one device
       approved: true,
     })
 
+    let subagentResponse: Record<string, unknown> | null = null
+    const subagentResponseListener = (raw: RawData) => {
+      const routed = JSON.parse(raw.toString()) as Record<string, unknown>
+      if (routed.type === 'subagent_response') subagentResponse = routed
+    }
+    socket.on('message', subagentResponseListener)
+    const correlationId = '1720000000000000-123456789'
+    socket.send(JSON.stringify({
+      type: 'SUBAGENT_QUERY',
+      source_device_id: 'abcdefghijklmnopqrstuvwxyz123456',
+      source_device_name: 'Test phone',
+      payload: {
+        action: 'chat',
+        correlation_id: correlationId,
+        profile_id: 'research',
+        message: 'Summarize this',
+      },
+    }))
+    for (let attempt = 0; attempt < 20 && !subagentResponse; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    socket.off('message', subagentResponseListener)
+    assert.deepEqual(receivedMobileSubagentQuery, {
+      action: 'chat',
+      profile_id: 'research',
+      message: 'Summarize this',
+    })
+    assert.deepEqual(subagentResponse, {
+      type: 'subagent_response',
+      target_device_id: 'abcdefghijklmnopqrstuvwxyz123456',
+      payload: {
+        correlation_id: correlationId,
+        result: { response: 'Subagent ready' },
+      },
+    })
+
     const routedMessage = once(socket, 'message')
     client.sendAgentEvent({
       type: 'agent_message',
@@ -187,6 +232,55 @@ test('registers the Desktop, approves pairing, and routes messages to one device
       payload: {
         conversation_id: 'mobile_abcdefghijklmnopqrstuvwxyz123456',
         text: 'Approved response',
+      },
+    })
+
+    socket.send(JSON.stringify({
+      type: 'BROWSER_LIVE_CONTROL',
+      source_device_id: 'abcdefghijklmnopqrstuvwxyz123456',
+      payload: { paused: true },
+    }))
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    let receivedPausedFrame = false
+    const pausedFrameListener = () => {
+      receivedPausedFrame = true
+    }
+    socket.on('message', pausedFrameListener)
+    client.sendAgentEvent({
+      type: 'browser_frame',
+      payload: {
+        conversation_id: 'mobile_abcdefghijklmnopqrstuvwxyz123456',
+        mime_type: 'image/jpeg',
+        image_base64: 'aGVsbG8=',
+      },
+    })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    socket.off('message', pausedFrameListener)
+    assert.equal(receivedPausedFrame, false)
+
+    socket.send(JSON.stringify({
+      type: 'BROWSER_LIVE_CONTROL',
+      source_device_id: 'abcdefghijklmnopqrstuvwxyz123456',
+      payload: { paused: false },
+    }))
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    const browserFrameMessage = once(socket, 'message')
+    client.sendAgentEvent({
+      type: 'browser_frame',
+      payload: {
+        conversation_id: 'mobile_abcdefghijklmnopqrstuvwxyz123456',
+        mime_type: 'image/jpeg',
+        image_base64: 'aGVsbG8=',
+      },
+    })
+    const [frameRaw] = await browserFrameMessage
+    assert.deepEqual(JSON.parse(frameRaw.toString()), {
+      type: 'browser_frame',
+      target_device_id: 'abcdefghijklmnopqrstuvwxyz123456',
+      payload: {
+        conversation_id: 'mobile_abcdefghijklmnopqrstuvwxyz123456',
+        mime_type: 'image/jpeg',
+        image_base64: 'aGVsbG8=',
       },
     })
   } finally {

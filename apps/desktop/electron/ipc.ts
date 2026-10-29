@@ -340,6 +340,81 @@ export class IPCBridge {
     }).slice(0, 256)
   }
 
+  async queryMobileSubagent(
+    action: 'list_profiles' | 'get_status' | 'chat',
+    payload: { profile_id?: string; message?: string },
+  ): Promise<Record<string, unknown>> {
+    const request = action === 'list_profiles'
+      ? { type: 'GET_SUBAGENT_PROFILES', payload: {} }
+      : action === 'get_status'
+        ? { type: 'GET_SUBAGENT_STATUS', payload: {} }
+        : {
+            type: 'CHAT_SUBAGENT',
+            payload: { profile_id: payload.profile_id, message: payload.message },
+          }
+    const response = await this._request(
+      request,
+      action === 'chat' ? 120000 : 10000,
+    )
+    if (action === 'chat') {
+      if (!isRecord(response)) throw new Error('Desktop returned an invalid subagent reply.')
+      const { profile_id, name, color, response: text } = response
+      if (
+        typeof profile_id !== 'string'
+        || typeof name !== 'string'
+        || typeof color !== 'string'
+        || typeof text !== 'string'
+      ) {
+        throw new Error('Desktop returned an invalid subagent reply.')
+      }
+      return {
+        profile_id,
+        name,
+        color,
+        response: text.slice(0, 50000),
+      }
+    }
+    if (!Array.isArray(response)) {
+      throw new Error('Desktop returned an invalid subagent list.')
+    }
+    const items = response.filter(isRecord).map((item) => {
+      if (action === 'list_profiles') {
+        const { profile_id, name, role, description, capabilities, color } = item
+        if (
+          typeof profile_id !== 'string'
+          || typeof name !== 'string'
+          || typeof role !== 'string'
+          || typeof description !== 'string'
+          || !Array.isArray(capabilities)
+          || !capabilities.every((value) => typeof value === 'string')
+          || typeof color !== 'string'
+        ) {
+          throw new Error('Desktop returned an invalid subagent profile.')
+        }
+        return { profile_id, name, role, description, capabilities, color }
+      }
+      const fields = [
+        'agent_id',
+        'parent_id',
+        'profile_id',
+        'name',
+        'color',
+        'role',
+        'status',
+        'created_at',
+        'started_at',
+        'completed_at',
+        'progress',
+        'current_action',
+      ]
+      return Object.fromEntries(
+        fields.filter((field) => item[field] !== undefined)
+          .map((field) => [field, item[field]]),
+      )
+    })
+    return { items }
+  }
+
   registerMobileConfirmation(payload: Record<string, unknown>): void {
     const requestId = payload.id
     const deviceId = payload.source_device_id

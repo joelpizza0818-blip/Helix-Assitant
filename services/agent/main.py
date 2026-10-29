@@ -27,6 +27,7 @@ from core.desktop_bridge import (
     DesktopRequestHandler,
     _serialize_task_for_desktop,
 )
+from core.desktop_event_routing import select_desktop_event_recipients
 from security.websocket_auth import authenticate_websocket_handshake
 from services.agent.relay_client import run_relay_connector
 from core.state_manager import StateManager
@@ -95,35 +96,95 @@ try:
 except Exception as log_ex:
     logger.warning("Could not initialize agent file logger: %s", log_ex)
 
-async def ws_handler(websocket, clients: set, request_handler: DesktopRequestHandler):
+async def ws_handler(
+    websocket,
+    clients: set,
+    request_handler: DesktopRequestHandler,
+    conversation_clients: dict[str, set],
+):
     clients.add(websocket)
+    response_lock = asyncio.Lock()
+    request_tasks: set[asyncio.Task] = set()
+    registered_conversations: list[str] = []
+
+    async def dispatch_message(raw_message: str) -> None:
+        request_id = None
+        try:
+            message = json.loads(raw_message)
+            if not isinstance(message, dict):
+                raise ValueError("WebSocket message must be a JSON object")
+            request_id = message.get("request_id")
+            response = await request_handler.dispatch(message)
+            if response:
+                async with response_lock:
+                    await websocket.send(json.dumps(response))
+        except (json.JSONDecodeError, ValueError, TypeError) as error:
+            logger.warning("Invalid desktop WebSocket request: %s", error)
+            if request_id is not None:
+                async with response_lock:
+                    await websocket.send(json.dumps({
+                        "request_id": request_id,
+                        "error": str(error),
+                    }))
+        except websockets.ConnectionClosed:
+            return
+        except Exception as error:
+            logger.exception("Desktop WebSocket request failed")
+            if request_id is not None:
+                async with response_lock:
+                    await websocket.send(json.dumps({
+                        "request_id": request_id,
+                        "error": "Internal agent request failed",
+                    }))
+
     try:
         async for raw_message in websocket:
             request_id = None
             try:
                 message = json.loads(raw_message)
-                if not isinstance(message, dict):
-                    raise ValueError("WebSocket message must be a JSON object")
-                request_id = message.get("request_id")
-                response = await request_handler.dispatch(message)
-                if response:
-                    await websocket.send(json.dumps(response))
-            except (json.JSONDecodeError, ValueError, TypeError) as error:
-                logger.warning("Invalid desktop WebSocket request: %s", error)
-                if request_id is not None:
-                    await websocket.send(json.dumps({
-                        "request_id": request_id,
-                        "error": str(error),
-                    }))
-            except Exception as error:
-                logger.exception("Desktop WebSocket request failed")
-                if request_id is not None:
-                    await websocket.send(json.dumps({
-                        "request_id": request_id,
-                        "error": "Internal agent request failed",
-                    }))
+                if isinstance(message, dict):
+                    request_id = message.get("request_id")
+                    payload = message.get("payload")
+                    conversation_id = (
+                        payload.get("conversation_id")
+                        if message.get("type") == "USER_TEXT" and isinstance(payload, dict)
+                        else None
+                    )
+                    if (
+                        isinstance(conversation_id, str)
+                        and conversation_id
+                        and len(conversation_id) <= 128
+                        and conversation_id not in registered_conversations
+                    ):
+                        if len(registered_conversations) >= 128:
+                            expired_conversation = registered_conversations.pop(0)
+                            recipients = conversation_clients.get(expired_conversation)
+                            if recipients is not None:
+                                recipients.discard(websocket)
+                                if not recipients:
+                                    conversation_clients.pop(expired_conversation, None)
+                        registered_conversations.append(conversation_id)
+                        conversation_clients.setdefault(conversation_id, set()).add(websocket)
+            except json.JSONDecodeError:
+                pass
+            if request_id is None:
+                await dispatch_message(raw_message)
+                continue
+            task = asyncio.create_task(dispatch_message(raw_message))
+            request_tasks.add(task)
+            task.add_done_callback(request_tasks.discard)
     finally:
+        for task in request_tasks:
+            task.cancel()
+        if request_tasks:
+            await asyncio.gather(*request_tasks, return_exceptions=True)
         clients.discard(websocket)
+        for conversation_id in registered_conversations:
+            recipients = conversation_clients.get(conversation_id)
+            if recipients is not None:
+                recipients.discard(websocket)
+                if not recipients:
+                    conversation_clients.pop(conversation_id, None)
 
 async def main():
     parser = argparse.ArgumentParser()
@@ -325,6 +386,7 @@ async def main():
     request_handler.credentials_updated_callback = configure_from_saved_settings
     configure_from_saved_settings()
     clients = set()
+    conversation_clients: dict[str, set] = {}
 
     async def broadcast_event(event_name: str, payload: dict):
         event_types = {
@@ -356,6 +418,7 @@ async def main():
             "AGENT_FAILED": "agent_update",
             "AGENT_CANCELLED": "agent_update",
             "REACT_STEP": "react_step",
+            "BROWSER_FRAME": "browser_frame",
             "HAND_LANDMARKS": "hand_landmarks",
             "CAPABILITY_REQUIRED": "capability-required",
         }
@@ -440,7 +503,18 @@ async def main():
             "payload": event_payload,
         })
         stale_clients = set()
-        for client in clients:
+        if event_name == "BROWSER_FRAME" and not isinstance(
+            event_payload.get("conversation_id"), str
+        ):
+            logger.warning("Dropping browser frame without a conversation id")
+            return
+        recipients = select_desktop_event_recipients(
+            event_name,
+            event_payload,
+            clients,
+            conversation_clients,
+        )
+        for client in recipients:
             try:
                 await client.send(event)
             except websockets.ConnectionClosed:
@@ -1070,7 +1144,7 @@ async def main():
             )
 
     server = await websockets.serve(
-        lambda ws: ws_handler(ws, clients, request_handler),
+        lambda ws: ws_handler(ws, clients, request_handler, conversation_clients),
         "127.0.0.1", 
         args.ws_port,
         max_size=MAX_AGENT_WEBSOCKET_MESSAGE_BYTES,

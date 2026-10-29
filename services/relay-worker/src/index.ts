@@ -15,6 +15,8 @@ const DESKTOP_TO_MOBILE_TYPES = new Set([
   'confirmation_resolved',
   'error',
   'skills_response',
+  'subagent_response',
+  'browser_frame',
 ])
 
 interface Env {
@@ -93,7 +95,12 @@ export function sanitizeMobileMessage(
   deviceId: string,
   deviceName = 'HELIX Mobile',
 ): {
-  type: 'USER_TEXT' | 'CONFIRMATION_RESPONSE' | 'SKILLS_REQUEST'
+  type:
+    | 'USER_TEXT'
+    | 'CONFIRMATION_RESPONSE'
+    | 'SKILLS_REQUEST'
+    | 'SUBAGENT_QUERY'
+    | 'BROWSER_LIVE_CONTROL'
   payload: Record<string, unknown>
   source_device_id: string
   source_device_name: string
@@ -102,7 +109,9 @@ export function sanitizeMobileMessage(
   if (
     (message.type !== 'USER_TEXT'
       && message.type !== 'CONFIRMATION_RESPONSE'
-      && message.type !== 'SKILLS_REQUEST')
+      && message.type !== 'SKILLS_REQUEST'
+      && message.type !== 'SUBAGENT_QUERY'
+      && message.type !== 'BROWSER_LIVE_CONTROL')
     || message.request_id !== undefined
     || !DEVICE_ID_PATTERN.test(deviceId)
     || !payload
@@ -115,6 +124,50 @@ export function sanitizeMobileMessage(
     return {
       type: 'SKILLS_REQUEST',
       payload: {},
+      source_device_id: deviceId,
+      source_device_name: deviceName,
+    }
+  }
+  if (message.type === 'BROWSER_LIVE_CONTROL') {
+    const paused = (payload as Record<string, unknown>).paused
+    if (typeof paused !== 'boolean') return null
+    return {
+      type: 'BROWSER_LIVE_CONTROL',
+      payload: { paused },
+      source_device_id: deviceId,
+      source_device_name: deviceName,
+    }
+  }
+  if (message.type === 'SUBAGENT_QUERY') {
+    const value = payload as Record<string, unknown>
+    const action = value.action
+    const correlationId = value.correlation_id
+    const profileId = value.profile_id
+    const text = value.message
+    if (
+      typeof action !== 'string'
+      || !['list_profiles', 'get_status', 'chat'].includes(action)
+      || typeof correlationId !== 'string'
+      || !/^[A-Za-z0-9-]{10,64}$/.test(correlationId)
+      || (profileId !== undefined
+        && (typeof profileId !== 'string'
+          || !/^[a-z0-9][a-z0-9_-]{1,39}$/.test(profileId)))
+      || (action === 'chat'
+        && (typeof profileId !== 'string'
+          || typeof text !== 'string'
+          || text.trim().length === 0
+          || text.length > 4000))
+    ) {
+      return null
+    }
+    return {
+      type: 'SUBAGENT_QUERY',
+      payload: {
+        action,
+        correlation_id: correlationId,
+        ...(typeof profileId === 'string' ? { profile_id: profileId } : {}),
+        ...(typeof text === 'string' ? { message: text } : {}),
+      },
       source_device_id: deviceId,
       source_device_name: deviceName,
     }
@@ -180,6 +233,51 @@ export function sanitizeDesktopMessage(
     return null
   }
   const payload = message.payload as Record<string, unknown>
+  if (message.type === 'subagent_response') {
+    const correlationId = payload.correlation_id
+    const error = payload.error
+    const result = payload.result
+    if (
+      typeof correlationId !== 'string'
+      || !/^[A-Za-z0-9-]{10,64}$/.test(correlationId)
+      || (error !== undefined && (typeof error !== 'string' || error.length > 500))
+      || (result !== undefined && !isRecord(result))
+    ) {
+      return null
+    }
+    return {
+      type: message.type,
+      payload: {
+        correlation_id: correlationId,
+        ...(typeof error === 'string' ? { error } : {}),
+        ...(isRecord(result) ? { result } : {}),
+      },
+      target_device_id: message.target_device_id,
+    }
+  }
+  if (message.type === 'browser_frame') {
+    const conversationId = payload.conversation_id
+    const mimeType = payload.mime_type
+    const imageBase64 = payload.image_base64
+    if (
+      conversationId !== `mobile_${message.target_device_id}`
+      || mimeType !== 'image/jpeg'
+      || typeof imageBase64 !== 'string'
+      || imageBase64.length > 800_000
+      || !/^[A-Za-z0-9+/]+={0,2}$/.test(imageBase64)
+    ) {
+      return null
+    }
+    return {
+      type: message.type,
+      payload: {
+        conversation_id: conversationId,
+        mime_type: mimeType,
+        image_base64: imageBase64,
+      },
+      target_device_id: message.target_device_id,
+    }
+  }
   if (message.type === 'skills_response') {
     const skills = payload.skills
     if (

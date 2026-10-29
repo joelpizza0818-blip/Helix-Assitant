@@ -16,9 +16,10 @@ class MobileConnection {
   final SshTunnelManager _ssh;
   static const _deviceIdCharacters =
       'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-';
-  final String _sourceDeviceId = _createSourceDeviceId();
+  String _sourceDeviceId = _createSourceDeviceId();
   HelixSession? session;
   String? authenticatedToken;
+  String get sourceDeviceId => _sourceDeviceId;
 
   static String _createSourceDeviceId() {
     final random = Random.secure();
@@ -28,7 +29,11 @@ class MobileConnection {
     ).join();
   }
 
-  Future<HelixSession> connect(MobileConfig config, String token) async {
+  Future<HelixSession> connect(
+    MobileConfig config,
+    String token, {
+    String? savedDeviceId,
+  }) async {
     final invitationExpiresAt = config.invitationExpiresAt;
     if (invitationExpiresAt != null &&
         !invitationExpiresAt.isAfter(DateTime.now())) {
@@ -37,6 +42,7 @@ class MobileConnection {
       );
     }
     await close();
+    if (savedDeviceId != null) _sourceDeviceId = savedDeviceId;
     Uri uri;
     var sessionToken = token;
     if (config.mode == MobileTransportMode.sshTunnel) {
@@ -49,10 +55,12 @@ class MobileConnection {
       }
       uri = Uri.parse(relay);
       if (config.requiresDeviceApproval) {
-        sessionToken = await WorkerRelayPairingClient(
+        final credentials = await WorkerRelayPairingClient(
           uri: uri,
           invitationToken: token,
         ).pair();
+        sessionToken = credentials.deviceToken;
+        _sourceDeviceId = credentials.deviceId;
       }
     }
     final transport = WebSocketHelixTransport(uri: uri, token: sessionToken);

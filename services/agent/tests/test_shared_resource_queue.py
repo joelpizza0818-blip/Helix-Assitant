@@ -76,3 +76,29 @@ async def test_agents_can_use_independent_resources_in_parallel():
     )
 
     assert max_active == 2
+
+
+@pytest.mark.asyncio
+async def test_browser_frames_are_published_only_for_mobile_or_cli_sessions():
+    loop = make_loop()
+    received = []
+    event_received = asyncio.Event()
+
+    async def capture_frame(_event_name, payload):
+        received.append(payload)
+        event_received.set()
+
+    await loop.event_bus.subscribe("BROWSER_FRAME", capture_frame)
+    result = SimpleNamespace(success=True, output={"screenshot_bytes": b"jpeg"})
+
+    await loop._publish_mobile_browser_frame(result, None, "cli_conv_test")
+    await asyncio.wait_for(event_received.wait(), timeout=1)
+    assert received[0]["conversation_id"] == "cli_conv_test"
+    assert received[0]["mime_type"] == "image/jpeg"
+    assert received[0]["image_base64"] == "anBlZw=="
+
+    received.clear()
+    event_received.clear()
+    await loop._publish_mobile_browser_frame(result, None, "unrelated_desktop_session")
+    await asyncio.sleep(0)
+    assert received == []

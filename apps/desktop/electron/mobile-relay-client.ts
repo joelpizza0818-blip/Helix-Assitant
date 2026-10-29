@@ -47,6 +47,10 @@ interface RelayClientHandlers {
     requestId: string,
     approved: boolean,
   ) => Promise<boolean>
+  queryMobileSubagent: (
+    action: 'list_profiles' | 'get_status' | 'chat',
+    payload: { profile_id?: string; message?: string },
+  ) => Promise<Record<string, unknown>>
 }
 
 interface RelayMessage {
@@ -90,6 +94,7 @@ export class MobileRelayClient {
   private socket: WebSocket | null = null
   private reconnectTimer: NodeJS.Timeout | null = null
   private closing = false
+  private readonly pausedBrowserDevices = new Set<string>()
 
   constructor(
     private readonly configPath: string,
@@ -206,11 +211,15 @@ export class MobileRelayClient {
       'confirmation_request',
       'confirmation_resolved',
       'error',
+      'browser_frame',
     ].includes(message.type)) return
     const conversationId = message.payload.conversation_id
     if (typeof conversationId !== 'string') return
     const match = conversationId.match(/^mobile_([A-Za-z0-9_-]{20,64})$/)
     if (!match) return
+    if (message.type === 'browser_frame' && this.pausedBrowserDevices.has(match[1])) {
+      return
+    }
     this.sendDeviceEvent(match[1], message.type, message.payload)
   }
 
@@ -454,6 +463,65 @@ export class MobileRelayClient {
         'skills_response',
         { skills },
       )
+      return
+    }
+    if (message.type === 'BROWSER_LIVE_CONTROL') {
+      const deviceId = message.source_device_id
+      if (
+        typeof deviceId !== 'string'
+        || !DEVICE_ID_PATTERN.test(deviceId)
+        || !isRecord(message.payload)
+        || typeof message.payload.paused !== 'boolean'
+      ) {
+        throw new Error('Relay browser live-view control is invalid.')
+      }
+      if (message.payload.paused) this.pausedBrowserDevices.add(deviceId)
+      else this.pausedBrowserDevices.delete(deviceId)
+      return
+    }
+    if (message.type === 'SUBAGENT_QUERY') {
+      const deviceId = message.source_device_id
+      const payload = message.payload
+      if (
+        typeof deviceId !== 'string'
+        || !DEVICE_ID_PATTERN.test(deviceId)
+        || !isRecord(payload)
+        || typeof payload.action !== 'string'
+        || !['list_profiles', 'get_status', 'chat'].includes(payload.action)
+        || typeof payload.correlation_id !== 'string'
+        || !/^[A-Za-z0-9-]{10,64}$/.test(payload.correlation_id)
+        || (payload.profile_id !== undefined
+          && (typeof payload.profile_id !== 'string'
+            || !/^[a-z0-9][a-z0-9_-]{1,39}$/.test(payload.profile_id)))
+        || (payload.action === 'chat'
+          && (typeof payload.profile_id !== 'string'
+            || typeof payload.message !== 'string'
+            || payload.message.trim().length === 0
+            || payload.message.length > 4000))
+      ) {
+        throw new Error('Relay mobile subagent request is invalid.')
+      }
+      const action = payload.action as 'list_profiles' | 'get_status' | 'chat'
+      const query = {
+        ...(typeof payload.profile_id === 'string'
+          ? { profile_id: payload.profile_id }
+          : {}),
+        ...(typeof payload.message === 'string'
+          ? { message: payload.message }
+          : {}),
+      }
+      try {
+        const result = await this.handlers.queryMobileSubagent(action, query)
+        this.sendDeviceEvent(deviceId, 'subagent_response', {
+          correlation_id: payload.correlation_id,
+          result,
+        })
+      } catch (error) {
+        this.sendDeviceEvent(deviceId, 'subagent_response', {
+          correlation_id: payload.correlation_id,
+          error: error instanceof Error ? error.message.slice(0, 500) : 'Subagent request failed.',
+        })
+      }
       return
     }
     if (message.type === 'CONFIRMATION_RESPONSE') {

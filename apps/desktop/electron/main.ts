@@ -681,6 +681,10 @@ function setupIPC(): void {
       if (!ipcBridge) throw new Error('HELIX Desktop agent bridge is unavailable.')
       return ipcBridge.sendMobileConfirmation(deviceId, requestId, approved)
     },
+    queryMobileSubagent: async (action, payload) => {
+      if (!ipcBridge) throw new Error('HELIX Desktop agent bridge is unavailable.')
+      return ipcBridge.queryMobileSubagent(action, payload)
+    },
   }, {
     encrypt: (value) => {
       if (!safeStorage.isEncryptionAvailable()) {

@@ -14,7 +14,7 @@ export async function handleBrowserCommand(
     console.log(CYAN(`\n  Solicitando al agente abrir en navegador: ${targetUrl}...`));
     client.sendUserText(
       `Por favor abre la siguiente URL en el navegador: ${targetUrl}`,
-      `browser_${Date.now()}`
+      `cli_browser_${Date.now()}`
     );
     console.log(GREEN(`  ✔ Comando enviado al agente.\n`));
     return;
@@ -32,7 +32,8 @@ export async function handleBrowserCommand(
     console.log(`  Dominios:    ${settings.block_untrusted_domains ? YELLOW('Filtrado Estricto') : GRAY('Abierto')}`);
     console.log(`\n  ${DIM('Comandos disponibles:')}`);
     console.log(`    ${CYAN('/browser')}              ${DIM('- Ver estado de navegación')}`);
-    console.log(`    ${CYAN('/browser open <url>')}   ${DIM('- Abrir URL con el agente')}\n`);
+    console.log(`    ${CYAN('/browser open <url>')}   ${DIM('- Abrir URL con el agente')}`);
+    console.log(`    ${CYAN('/browser live [on|off]')} ${DIM('- Alternar la vista ASCII de capturas')}\n`);
   } catch (err) {
     console.log(RED(`  Error al consultar estado del navegador: ${(err as Error).message}\n`));
   }

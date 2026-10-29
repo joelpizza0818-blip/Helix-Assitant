@@ -24,9 +24,11 @@ import { handleCreateSkill, handleListSkills } from '../commands/skills';
 import { handleCreateMcp, handleListMcp, handleMcpDefaults } from '../commands/mcp';
 import { handleMicrophoneCommand } from '../commands/mic';
 import { handleBrowserCommand } from '../commands/browser';
+import { handleSubagentsCommand } from '../commands/subagents';
 import type { ConfirmationRequest } from '../client/types';
 import { formatTerminalMarkdown } from './markdown';
 import { handleCapabilities, handleProviders, handleSettings } from '../commands/diagnostics';
+import { renderJpegAsAscii } from './browser-ascii';
 
 export interface ReplOptions {
   wsUrl: string;
@@ -47,6 +49,7 @@ export class HelixRepl {
   private activeTasksCount: number = 0;
   private isProcessingPrompt: boolean = false;
   private plain: boolean = false;
+  private browserLiveViewEnabled: boolean = false;
 
   constructor(private options: ReplOptions) {
     this.conversationId = `cli_conv_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -208,6 +211,29 @@ export class HelixRepl {
     this.client.on('task_update', (task: { task_id?: string; status?: string; prompt?: string }) => {
       if (task.status === 'RUNNING') {
         this.activeTaskId = task.task_id || null;
+      }
+    });
+
+    this.client.on('browser_frame', (payload: {
+      conversation_id?: string;
+      mime_type?: string;
+      image_base64?: string;
+    }) => {
+      if (
+        !this.browserLiveViewEnabled
+        || !payload?.conversation_id?.startsWith('cli_')
+        || payload.mime_type !== 'image/jpeg'
+        || typeof payload.image_base64 !== 'string'
+      ) {
+        return;
+      }
+      try {
+        process.stdout.write('\r\x1b[K');
+        console.log(`\n${CYAN_BOLD('  HELIX LIVE BROWSER')}`);
+        console.log(renderJpegAsAscii(payload.image_base64));
+        this._promptUser();
+      } catch (error) {
+        console.log(RED(`  No se pudo representar el cuadro del navegador: ${(error as Error).message}`));
       }
     });
   }
@@ -383,8 +409,30 @@ export class HelixRepl {
           break;
         }
 
-        case '/browser':
+        case '/browser': {
+          const browserArgs = args.trim().split(/\s+/);
+          if (browserArgs[0]?.toLowerCase() === 'live') {
+            const requestedState = browserArgs[1]?.toLowerCase();
+            if (requestedState && !['on', 'off'].includes(requestedState)) {
+              console.log(YELLOW('  Uso: /browser live [on|off]\n'));
+              break;
+            }
+            this.browserLiveViewEnabled = requestedState
+              ? requestedState === 'on'
+              : !this.browserLiveViewEnabled;
+            console.log(
+              this.browserLiveViewEnabled
+                ? GREEN('  Vista ASCII del navegador activada.\n')
+                : YELLOW('  Vista ASCII del navegador desactivada.\n'),
+            );
+            break;
+          }
           await handleBrowserCommand(this.client, args);
+          break;
+        }
+
+        case '/subagents':
+          await handleSubagentsCommand(this.client, args);
           break;
 
         case '/tasks':

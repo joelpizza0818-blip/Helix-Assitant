@@ -484,6 +484,7 @@ async function verifyRelease(
     'HELIX-Setup.exe',
     'latest.yml',
     `HELIX-Setup-${version}.exe`,
+    `HELIX-Setup-${version}.exe.sha256`,
     `HELIX-Setup-${version}.exe.blockmap`,
   ])
   for (const asset of release.assets) {

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -17,6 +18,7 @@ import '../../core/session/mobile_connection.dart';
 import '../../core/session/mobile_background_connection.dart';
 import '../../core/security/secure_pairing_store.dart';
 import '../../core/transport/helix_transport.dart';
+import 'mobile_subagents_panel.dart';
 import 'mobile_skill_mentions.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -29,18 +31,13 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
-  final _messages = <_Message>[];
-  final _connection = MobileConnection();
   final _pairingStore = const SecurePairingStore();
   final _backgroundConnection = const MobileBackgroundConnection();
   final _notifications = MobileTaskNotifications();
-  StreamSubscription<HelixMessage>? _events;
-  StreamSubscription<TransportState>? _transportStates;
-  bool _connected = false;
-  bool _connecting = false;
+  final Map<String, _MobileLink> _links = {};
+  String? _selectedSessionId;
   bool _restoring = false;
   bool _hasSavedPairing = false;
-  bool _needsForegroundReconnect = false;
   int _tab = 0;
   bool _voiceMode = false;
   bool _hasInputText = false;
@@ -48,11 +45,18 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   bool _notificationsEnabled = false;
   bool _showingConfirmation = false;
   ActiveSkillMention? _activeSkillMention;
-  List<MobileSkill> _skills = const [];
-  String? _connectionError;
-  String? _activeProgress;
-  String? _activeTaskId;
-  final Map<String, Map<String, dynamic>> _pendingConfirmations = {};
+
+  _MobileLink? get _activeLink => _links[_selectedSessionId];
+  List<_Message> get _messages => _activeLink?.messages ?? _emptyMessages;
+  List<MobileSkill> get _skills => _activeLink?.skills ?? const [];
+  String? get _connectionError => _activeLink?.connectionError;
+  set _connectionError(String? value) => _activeLink?.connectionError = value;
+  String? get _activeProgress => _activeLink?.activeProgress;
+  set _activeProgress(String? value) => _activeLink?.activeProgress = value;
+  bool get _connected => _activeLink?.connected ?? false;
+  bool get _connecting => _activeLink?.connecting ?? false;
+
+  static final List<_Message> _emptyMessages = [];
 
   @override
   void initState() {
@@ -84,11 +88,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _transportStates?.cancel();
     _controller.dispose();
     _scrollController.dispose();
-    _events?.cancel();
-    unawaited(_connection.close());
+    for (final link in _links.values) {
+      unawaited(link.dispose());
+    }
     super.dispose();
   }
 
@@ -97,25 +101,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused) {
       _isForeground = false;
-      _needsForegroundReconnect = true;
       return;
     }
     if (state == AppLifecycleState.resumed) {
       _isForeground = true;
-      if (_needsForegroundReconnect &&
-          defaultTargetPlatform == TargetPlatform.iOS &&
-          _connected) {
-        _needsForegroundReconnect = false;
-        setState(() {
-          _connected = false;
-          _connectionError = 'Restableciendo la conexión…';
-        });
-        unawaited(
-          _closeSession().then((_) => _restoreSavedConnection()),
-        );
-        return;
-      }
-      _needsForegroundReconnect = false;
       unawaited(_restoreSavedConnection());
       unawaited(_presentPendingConfirmations());
     }
@@ -123,31 +112,38 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   Future<void> _toggleConnection() async {
     if (_connected) {
-      await _pairingStore.setAutoConnectEnabled(false);
-      if (mounted) {
-        setState(() {
-          _connected = false;
-          _activeProgress = null;
-          _activeTaskId = null;
-          _pendingConfirmations.clear();
-          _notificationsEnabled = false;
-          _connectionError = null;
-        });
+      final link = _activeLink!;
+      link.connected = false;
+      link.connecting = false;
+      link.activeProgress = null;
+      link.activeTaskId = null;
+      link.pendingConfirmations.clear();
+      link.connectionError = null;
+      await _closeSession(link);
+      if (!_links.values.any((item) => item.connected)) {
+        await _backgroundConnection.stop();
       }
-      await _backgroundConnection.stop();
-      await _closeSession();
+      if (mounted) setState(() {});
       return;
+    } else {
+      if (_connecting || _restoring) return;
+      final link = _activeLink;
+      if (link != null) {
+        await _connectDraft(_ConnectionDraft(
+          link.config,
+          link.token,
+          sessionId: link.sessionId,
+          name: link.name,
+          deviceId: link.connection.sourceDeviceId,
+        ));
+        return;
+      }
     }
+    await _addConnection();
+  }
+
+  Future<void> _addConnection() async {
     if (_connecting || _restoring) return;
-    final savedPairing = await _pairingStore.load();
-    if (!mounted) return;
-    if (savedPairing != null) {
-      setState(() => _hasSavedPairing = true);
-      await _pairingStore.setAutoConnectEnabled(true);
-      if (!mounted) return;
-      await _connectDraft(_draftFromSaved(savedPairing));
-      return;
-    }
     final draft = await showModalBottomSheet<_ConnectionDraft>(
       context: context,
       isScrollControlled: true,
@@ -155,18 +151,35 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       builder: (_) => const _ConnectionSheet(),
     );
     if (draft == null || !mounted) return;
+    if (_links.containsKey(draft.sessionId)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Esta sesión ya está agregada. Escanea un QR nuevo.'),
+      ));
+      return;
+    }
     await _connectDraft(draft);
   }
 
   Future<void> _restoreSavedConnection() async {
-    if (_connected || _connecting || _restoring || !mounted) return;
+    if (_restoring || !mounted) return;
     _restoring = true;
     try {
-      final savedPairing = await _pairingStore.load();
-      if (savedPairing == null) return;
-      if (mounted) setState(() => _hasSavedPairing = true);
+      final pairings = await _pairingStore.loadAll();
+      if (pairings.isEmpty) return;
+      if (mounted) {
+        setState(() {
+          _hasSavedPairing = true;
+          _selectedSessionId ??= pairings.first.sessionId;
+        });
+      }
       if (!await _pairingStore.autoConnectEnabled() || !mounted) return;
-      await _connectDraft(_draftFromSaved(savedPairing));
+      for (final pairing in pairings) {
+        final existing = _links[pairing.sessionId];
+        if (existing?.connected == true || existing?.connecting == true) {
+          continue;
+        }
+        await _connectDraft(_draftFromSaved(pairing));
+      }
     } on MissingPluginException {
       return;
     } on Exception catch (error) {
@@ -202,11 +215,26 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         relayWssUrl: saved.relayWssUrl,
       ),
       saved.token,
+      sessionId: saved.sessionId,
+      name: saved.name,
+      deviceId: saved.deviceId,
     );
   }
 
   Future<void> _connectDraft(_ConnectionDraft draft) async {
-    setState(() => _connecting = true);
+    final link = _links[draft.sessionId] ??
+        _MobileLink(
+          sessionId: draft.sessionId,
+          name: draft.name,
+          config: draft.config,
+          token: draft.token,
+          connection: MobileConnection(),
+        );
+    link.connecting = true;
+    link.connectionError = null;
+    _links[draft.sessionId] = link;
+    _selectedSessionId = draft.sessionId;
+    if (mounted) setState(() {});
     final messenger = ScaffoldMessenger.of(context);
     if (draft.config.requiresDeviceApproval) {
       messenger.showSnackBar(const SnackBar(
@@ -215,17 +243,25 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       ));
     }
     try {
-      final session = await _connection.connect(draft.config, draft.token);
+      final session = await link.connection.connect(
+        draft.config,
+        draft.token,
+        savedDeviceId: draft.deviceId,
+      );
       if (!mounted) {
-        await _connection.close();
+        await link.dispose();
         return;
       }
-      await _pairingStore.save(
-        token: _connection.authenticatedToken ?? draft.token,
+      link.token = link.connection.authenticatedToken ?? draft.token;
+      final pairing = SavedMobilePairing(
+        sessionId: draft.sessionId,
+        name: draft.name,
+        deviceId: session.sourceDeviceId,
+        token: link.token,
+        transportMode: draft.config.mode.name,
         relayWssUrl: draft.config.relayWssUrl,
         identityKeyPem: draft.config.desktop.identityKeyPem,
         hostKeyFingerprint: draft.config.desktop.hostKeyFingerprint,
-        transportMode: draft.config.mode.name,
         sshHost: draft.config.mode == MobileTransportMode.sshTunnel
             ? draft.config.desktop.host
             : null,
@@ -239,23 +275,28 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             ? draft.config.desktop.remoteWsPort
             : null,
       );
+      await _pairingStore.savePairing(pairing);
       if (!mounted) {
-        await _connection.close();
+        await link.dispose();
         return;
       }
       messenger.hideCurrentSnackBar();
-      _events = session.events.listen(_handleAgentEvent);
-      _transportStates = session.states.listen(_handleTransportState);
+      link.events =
+          session.events.listen((event) => _handleAgentEvent(event, link));
+      link.transportStates =
+          session.states.listen((state) => _handleTransportState(state, link));
       await _backgroundConnection.start();
       final notificationEnabled = await _prepareTaskNotifications();
-      setState(() {
-        _connecting = false;
-        _connected = true;
-        _hasSavedPairing = true;
+      link.connecting = false;
+      link.connected = true;
+      link.connectionError = null;
+      unawaited(_resumeBrowserLive(link));
+      if (_selectedSessionId == link.sessionId) {
         _notificationsEnabled = notificationEnabled;
-        _connectionError = null;
-      });
-      unawaited(_loadSkills(session));
+      }
+      _hasSavedPairing = true;
+      setState(() {});
+      unawaited(_loadSkills(session, link));
       if (!notificationEnabled && mounted) {
         messenger.showSnackBar(const SnackBar(
           content: Text(
@@ -264,12 +305,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       }
     } on Object catch (e) {
       messenger.hideCurrentSnackBar();
-      await _backgroundConnection.stop();
-      await _connection.close();
+      if (!_links.values.any((item) => item.connected)) {
+        await _backgroundConnection.stop();
+      }
+      await link.dispose();
+      link.connecting = false;
+      link.connected = false;
       if (mounted) {
         setState(() {
-          _connecting = false;
-          _connectionError = e is UnsupportedError
+          link.connectionError = e is UnsupportedError
               ? 'La conexión móvil requiere la app nativa; la versión web solo permite previsualizar la interfaz.'
               : e.toString().contains('TimeoutException')
                   ? 'Tiempo de espera agotado. Verifica que el relay esté activo.'
@@ -277,57 +321,91 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       ? 'La vinculación fue rechazada en HELIX Desktop.'
                       : 'No se pudo conectar. Revisa el token y la URL del relay.';
         });
-        Future.delayed(const Duration(seconds: 6), () {
-          if (mounted) setState(() => _connectionError = null);
-        });
       }
     }
   }
 
-  Future<void> _closeSession() async {
-    await _events?.cancel();
-    await _transportStates?.cancel();
-    _events = null;
-    _transportStates = null;
-    await _connection.close();
+  Future<void> _closeSession(_MobileLink link) async {
+    await link.events?.cancel();
+    await link.transportStates?.cancel();
+    link.events = null;
+    link.transportStates = null;
+    await link.connection.close();
   }
 
-  void _handleTransportState(TransportState state) {
-    if ((state != TransportState.failed &&
-            state != TransportState.disconnected) ||
-        !_connected) {
-      return;
+  void _handleTransportState(TransportState state, _MobileLink link) {
+    if (!mounted) return;
+    if (state == TransportState.connected) {
+      link.connected = true;
+      link.connecting = false;
+      link.connectionError = null;
+      unawaited(_resumeBrowserLive(link));
+    } else if (state == TransportState.reconnecting ||
+        state == TransportState.connecting) {
+      link.connected = false;
+      link.connecting = true;
+      link.connectionError = 'Reconectando a ${link.name}…';
+    } else {
+      link.connected = false;
+      link.connecting = false;
+      link.activeProgress = null;
+      link.activeTaskId = null;
+      link.connectionError = link.connectionError
+                  ?.startsWith('Reconectando a ') ==
+              true
+          ? 'No se pudo reconectar con ${link.name}. Toca Conectar para volver a intentar.'
+          : 'Se perdió la conexión con ${link.name}. Toca Conectar para reintentar.';
+      if (!_links.values.any((item) => item.connected)) {
+        unawaited(_backgroundConnection.stop());
+      }
     }
-    setState(() {
-      _connected = false;
-      _activeProgress = null;
-      _activeTaskId = null;
-      _connectionError = 'Se perdió la conexión. Puedes reconectarte.';
-    });
-    unawaited(_backgroundConnection.stop());
-    unawaited(_closeSession().then((_) => _restoreSavedConnection()));
+    setState(() {});
   }
 
-  void _handleAgentEvent(HelixMessage event) {
+  void _handleAgentEvent(HelixMessage event, _MobileLink link) {
     if (!mounted) return;
     if (event.type == 'skills_response') {
-      _receiveSkills(event.payload);
+      _receiveSkills(event.payload, link);
       return;
     }
     if (event.type == 'confirmation_request') {
-      unawaited(_requestMobileConfirmation(event.payload));
+      unawaited(_requestMobileConfirmation(event.payload, link));
       return;
     }
     if (event.type == 'task_update') {
-      _updateProgress(event.payload);
+      _updateProgress(event.payload, link);
+      return;
+    }
+    if (event.type == 'browser_frame') {
+      final encoded = event.payload['image_base64'];
+      final expectedConversationId =
+          'mobile_${link.connection.session?.sourceDeviceId}';
+      if (encoded is! String ||
+          encoded.length > 800000 ||
+          event.payload['mime_type'] != 'image/jpeg' ||
+          event.payload['conversation_id'] != expectedConversationId ||
+          link.browserLivePaused) {
+        return;
+      }
+      try {
+        final frame = base64Decode(encoded);
+        if (frame.length > 560000) return;
+        link.browserFrame = Uint8List.fromList(frame);
+        if (_selectedSessionId == link.sessionId) setState(() {});
+      } on FormatException catch (error, stackTrace) {
+        FlutterError.reportError(FlutterErrorDetails(
+          exception: error,
+          stack: stackTrace,
+          library: 'HELIX mobile browser live view',
+        ));
+      }
       return;
     }
     if (event.type == 'confirmation_resolved') {
       final requestId = event.payload['request_id'];
       if (requestId is String) {
-        setState(() {
-          _pendingConfirmations.remove(requestId);
-        });
+        link.pendingConfirmations.remove(requestId);
+        setState(() {});
         unawaited(_runNotificationTask(
           () => _notifications.cancelConfirmation(requestId),
           'confirmation cleanup',
@@ -346,7 +424,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       final failureText = category == 'provider'
           ? 'Fallo del proveedor${provider is String && provider.isNotEmpty ? ' ($provider)' : ''}: $text'
           : 'Error interno de HELIX: $text';
-      _appendIncomingMessage(failureText);
+      _appendIncomingMessage(failureText, link);
       _notifyFailure(
         category: category,
         provider: provider is String ? provider : null,
@@ -354,31 +432,35 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       );
       return;
     }
-    _appendIncomingMessage(text);
+    _appendIncomingMessage(text, link);
     if (event.type == 'agent_message' && event.payload['role'] == 'assistant') {
       _notifyReply(text);
     }
   }
 
-  void _appendIncomingMessage(String text) {
-    if (_messages.isNotEmpty &&
-        !_messages.last.mine &&
-        _messages.last.text == text) {
+  void _appendIncomingMessage(String text, [_MobileLink? link]) {
+    final target = link ?? _activeLink;
+    if (target == null) return;
+    if (target.messages.isNotEmpty &&
+        !target.messages.last.mine &&
+        target.messages.last.text == text) {
       return;
     }
-    setState(() {
-      _messages.add(_Message(text, false));
-      _activeProgress = null;
-      _activeTaskId = null;
-    });
-    _scrollToBottom();
+    target.messages.add(_Message(text, false));
+    target.activeProgress = null;
+    target.activeTaskId = null;
+    if (_selectedSessionId == target.sessionId) {
+      setState(() {});
+      _scrollToBottom();
+    }
   }
 
-  Future<void> _loadSkills(HelixSession session) async {
+  Future<void> _loadSkills(HelixSession session, _MobileLink link) async {
     try {
       final skills = await session.requestSkills();
       if (session.relaySkillsRequests || !mounted) return;
-      setState(() => _skills = skills.map(MobileSkill.fromJson).toList());
+      link.skills = skills.map(MobileSkill.fromJson).toList();
+      if (_selectedSessionId == link.sessionId) setState(() {});
     } on Object catch (error, stackTrace) {
       FlutterError.reportError(FlutterErrorDetails(
         exception: error,
@@ -407,7 +489,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
-  void _receiveSkills(Map<String, dynamic> payload) {
+  void _receiveSkills(Map<String, dynamic> payload, _MobileLink link) {
     final skills = payload['skills'];
     if (skills is! List) {
       FlutterError.reportError(const FlutterErrorDetails(
@@ -422,7 +504,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           .map(
               (skill) => MobileSkill.fromJson(Map<String, dynamic>.from(skill)))
           .toList(growable: false);
-      setState(() => _skills = parsed);
+      link.skills = parsed;
+      if (_selectedSessionId == link.sessionId) setState(() {});
     } on FormatException catch (error, stackTrace) {
       FlutterError.reportError(FlutterErrorDetails(
         exception: error,
@@ -434,6 +517,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   Future<void> _requestMobileConfirmation(
     Map<String, dynamic> payload,
+    _MobileLink link,
   ) async {
     final requestId = payload['id'];
     if (requestId is! String ||
@@ -441,11 +525,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           r'^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
           caseSensitive: false,
         ).hasMatch(requestId) ||
-        _pendingConfirmations.containsKey(requestId)) {
+        link.pendingConfirmations.containsKey(requestId)) {
       return;
     }
-    _pendingConfirmations[requestId] = Map<String, dynamic>.from(payload);
-    setState(() => _activeProgress = 'Esperando confirmación…');
+    link.pendingConfirmations[requestId] = Map<String, dynamic>.from(payload);
+    if (_selectedSessionId == link.sessionId) {
+      setState(() => link.activeProgress = 'Esperando confirmación…');
+    }
     if (!_isForeground) {
       if (_notificationsEnabled) {
         await _runNotificationTask(
@@ -459,7 +545,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       }
       return;
     }
-    await _presentConfirmation(requestId, payload);
+    await _presentConfirmation(requestId, payload, link);
   }
 
   String _confirmationAction(Map<String, dynamic> payload) =>
@@ -480,20 +566,23 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _presentPendingConfirmations() async {
-    for (final entry in _pendingConfirmations.entries.toList()) {
-      if (!mounted || !_isForeground) return;
-      await _presentConfirmation(entry.key, entry.value);
+    for (final link in _links.values) {
+      for (final entry in link.pendingConfirmations.entries.toList()) {
+        if (!mounted || !_isForeground) return;
+        await _presentConfirmation(entry.key, entry.value, link);
+      }
     }
   }
 
   Future<void> _presentConfirmation(
     String requestId,
     Map<String, dynamic> payload,
+    _MobileLink link,
   ) async {
     if (!mounted ||
         !_isForeground ||
         _showingConfirmation ||
-        !_pendingConfirmations.containsKey(requestId)) {
+        !link.pendingConfirmations.containsKey(requestId)) {
       return;
     }
     _showingConfirmation = true;
@@ -545,17 +634,24 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         ),
       );
       if (approved != null) {
-        await _resolveConfirmation(requestId, approved);
+        await _resolveConfirmation(requestId, approved, link);
       }
     } finally {
       _showingConfirmation = false;
     }
   }
 
-  Future<void> _resolveConfirmation(String requestId, bool approved) async {
-    if (!_pendingConfirmations.containsKey(requestId)) return;
+  Future<void> _resolveConfirmation(
+    String requestId,
+    bool approved, [
+    _MobileLink? target,
+  ]) async {
+    final link = target ?? _linkForConfirmation(requestId);
+    if (link == null || !link.pendingConfirmations.containsKey(requestId)) {
+      return;
+    }
     try {
-      final session = _connection.session;
+      final session = link.connection.session;
       if (session == null) {
         throw StateError('The mobile session is no longer connected.');
       }
@@ -563,7 +659,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         requestId: requestId,
         approved: approved,
       );
-      _pendingConfirmations.remove(requestId);
+      link.pendingConfirmations.remove(requestId);
       await _runNotificationTask(
         () => _notifications.cancelConfirmation(requestId),
         'confirmation cleanup',
@@ -593,14 +689,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         return;
       }
       final requestId = payload['request_id'] as String;
+      final link = _linkForConfirmation(requestId);
       if (response.actionId == 'allow') {
-        unawaited(_resolveConfirmation(requestId, true));
+        unawaited(_resolveConfirmation(requestId, true, link));
       } else if (response.actionId == 'deny') {
-        unawaited(_resolveConfirmation(requestId, false));
+        unawaited(_resolveConfirmation(requestId, false, link));
       } else {
-        final pending = _pendingConfirmations[requestId];
-        if (pending != null) {
-          unawaited(_presentConfirmation(requestId, pending));
+        final pending = link?.pendingConfirmations[requestId];
+        if (pending != null && link != null) {
+          unawaited(_presentConfirmation(requestId, pending, link));
         }
       }
     } on FormatException catch (error, stackTrace) {
@@ -610,6 +707,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         library: 'HELIX mobile notification',
       ));
     }
+  }
+
+  _MobileLink? _linkForConfirmation(String requestId) {
+    for (final link in _links.values) {
+      if (link.pendingConfirmations.containsKey(requestId)) return link;
+    }
+    return null;
   }
 
   String _failureCategory(Map<String, dynamic> payload) {
@@ -672,7 +776,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
-  void _updateProgress(Map<String, dynamic> payload) {
+  void _updateProgress(Map<String, dynamic> payload, _MobileLink link) {
     final taskId = payload['id'];
     final status = payload['status'];
     if (taskId is! String || status is! String) return;
@@ -682,13 +786,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           : status == 'failed'
               ? 'Ocurrió un error'
               : 'Cancelado';
-      setState(() {
-        _activeTaskId = taskId;
-        _activeProgress = terminal;
-      });
+      link.activeTaskId = taskId;
+      link.activeProgress = terminal;
+      if (_selectedSessionId == link.sessionId) setState(() {});
       if (status == 'failed') {
         final failure = _failureMessage(payload);
-        _appendIncomingMessage(failure);
+        _appendIncomingMessage(failure, link);
         _notifyFailure(
           category: _failureCategory(payload),
           provider: payload['failure_provider'] is String
@@ -698,11 +801,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         );
       }
       Future<void>.delayed(const Duration(seconds: 3), () {
-        if (!mounted || _activeTaskId != taskId) return;
-        setState(() {
-          _activeTaskId = null;
-          _activeProgress = null;
-        });
+        if (!mounted || link.activeTaskId != taskId) return;
+        link.activeTaskId = null;
+        link.activeProgress = null;
+        if (_selectedSessionId == link.sessionId) setState(() {});
       });
       return;
     }
@@ -713,13 +815,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final summary = payload['execution_summary'];
     final label =
         summary is Map<String, dynamic> ? summary['progress_label'] : null;
-    setState(() {
-      _activeTaskId = taskId;
-      _activeProgress = _localizedProgress(
-        label is String ? label : status,
-      );
-    });
-    _scrollToBottom();
+    link.activeTaskId = taskId;
+    link.activeProgress = _localizedProgress(label is String ? label : status);
+    if (_selectedSessionId == link.sessionId) {
+      setState(() {});
+      _scrollToBottom();
+    }
   }
 
   String _localizedProgress(String label) {
@@ -761,11 +862,48 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       _controller.clear();
       _hasInputText = false;
       _activeProgress = 'Pensando…';
-      _activeTaskId = null;
+      if (_activeLink != null) _activeLink!.activeTaskId = null;
     });
     _scrollToBottom();
-    _connection.session
+    _activeLink?.connection.session
         ?.sendUserText(text: text, conversationId: 'mobile-session');
+  }
+
+  Future<void> _toggleBrowserLive() async {
+    final link = _activeLink;
+    final session = link?.connection.session;
+    if (link == null || session == null || !session.relaySkillsRequests) return;
+    final paused = !link.browserLivePaused;
+    try {
+      await session.setBrowserLivePaused(paused);
+      if (mounted) setState(() => link.browserLivePaused = paused);
+    } on Object catch (error, stackTrace) {
+      FlutterError.reportError(FlutterErrorDetails(
+        exception: error,
+        stack: stackTrace,
+        library: 'HELIX mobile browser live view',
+      ));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('No se pudo actualizar la transmisión: $error'),
+        ));
+      }
+    }
+  }
+
+  Future<void> _resumeBrowserLive(_MobileLink link) async {
+    final session = link.connection.session;
+    if (session == null || !session.relaySkillsRequests) return;
+    try {
+      await session.setBrowserLivePaused(false);
+      link.browserLivePaused = false;
+    } on Object catch (error, stackTrace) {
+      FlutterError.reportError(FlutterErrorDetails(
+        exception: error,
+        stack: stackTrace,
+        library: 'HELIX mobile browser live view',
+      ));
+    }
   }
 
   @override
@@ -797,7 +935,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             Expanded(
                 child: _tab == 0
                     ? _buildConversation(theme)
-                    : _buildDesktopPanel(theme)),
+                    : _tab == 1
+                        ? _buildDesktopPanel(theme)
+                        : _tab == 2
+                            ? MobileSubagentsPanel(
+                                key: ValueKey(_selectedSessionId),
+                                session: _activeLink?.connection.session,
+                              )
+                            : _buildBrowserPanel(theme)),
             _buildComposer(theme),
           ],
         ),
@@ -848,6 +993,27 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                             setState(() => _tab = 1);
                           }),
                       _DrawerAction(
+                          icon: Icons.groups_2_outlined,
+                          label: 'Panel de subagentes',
+                          onTap: () {
+                            Navigator.pop(context);
+                            setState(() => _tab = 2);
+                          }),
+                      _DrawerAction(
+                          icon: Icons.language_rounded,
+                          label: 'Navegador en vivo',
+                          onTap: () {
+                            Navigator.pop(context);
+                            setState(() => _tab = 3);
+                          }),
+                      _DrawerAction(
+                          icon: Icons.add_link_rounded,
+                          label: 'Agregar otro Desktop',
+                          onTap: () {
+                            Navigator.pop(context);
+                            unawaited(_addConnection());
+                          }),
+                      _DrawerAction(
                           icon: _connected
                               ? Icons.link_off_rounded
                               : Icons.link_rounded,
@@ -858,6 +1024,55 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                             Navigator.pop(context);
                             _toggleConnection();
                           }),
+                      if (_links.isNotEmpty) ...[
+                        const SizedBox(height: 18),
+                        const Text('DESKTOPS',
+                            style: TextStyle(
+                                color: Color(0xFF85898E),
+                                fontSize: 11,
+                                letterSpacing: 1.2,
+                                fontWeight: FontWeight.w700)),
+                        const SizedBox(height: 8),
+                        Expanded(
+                          child: ListView(
+                            padding: EdgeInsets.zero,
+                            children: _links.values
+                                .map((link) => ListTile(
+                                      contentPadding: EdgeInsets.zero,
+                                      leading: Icon(
+                                        link.connected
+                                            ? Icons.cloud_done_outlined
+                                            : link.connecting
+                                                ? Icons.sync_rounded
+                                                : Icons.cloud_off_outlined,
+                                        color: link.connected
+                                            ? const Color(0xFF77D89A)
+                                            : const Color(0xFF85898E),
+                                      ),
+                                      title: Text(
+                                        link.name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      subtitle: Text(link.connected
+                                          ? 'Conectado'
+                                          : link.connecting
+                                              ? 'Reconectando…'
+                                              : 'Desconectado'),
+                                      selected:
+                                          link.sessionId == _selectedSessionId,
+                                      onTap: () {
+                                        Navigator.pop(context);
+                                        setState(() {
+                                          _selectedSessionId = link.sessionId;
+                                          _tab = 0;
+                                        });
+                                      },
+                                    ))
+                                .toList(),
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 18),
                       const Text('SESIÓN',
                           style: TextStyle(
@@ -869,7 +1084,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       _InfoCard(
                           icon: Icons.shield_outlined,
                           title: 'Transporte',
-                          value: _connected ? 'SSH + WebSocket' : 'Sin sesión'),
+                          value: !_connected
+                              ? 'Sin sesión'
+                              : _activeLink?.config.mode ==
+                                      MobileTransportMode.relay
+                                  ? 'Relay WSS autenticado'
+                                  : 'SSH + WebSocket'),
                       const Spacer(),
                       const Text(
                           'La app móvil depende de HELIX Desktop para ejecutar acciones.',
@@ -1041,6 +1261,67 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 Icon(_connected ? Icons.link_off_rounded : Icons.link_rounded),
             label: Text(_connected ? 'Desconectar' : 'Conectar Desktop')),
       ]);
+
+  Widget _buildBrowserPanel(ThemeData theme) {
+    final link = _activeLink;
+    final frame = link?.browserFrame;
+    if (link == null) {
+      return const Center(
+          child: Text('Agrega un Desktop para ver su navegador.'));
+    }
+    if (link.connection.session?.relaySkillsRequests != true) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Text(
+            'La vista en vivo requiere vincular el Desktop mediante el QR del relay.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Color(0xFFB9BDC2)),
+          ),
+        ),
+      );
+    }
+    return Column(children: [
+      ListTile(
+        title: const Text('Navegador de HELIX'),
+        subtitle: Text(frame == null
+            ? 'Esperando actividad del navegador…'
+            : 'Vista actualizada al usar el navegador'),
+        trailing: IconButton(
+          tooltip: link.browserLivePaused ? 'Reanudar video' : 'Pausar video',
+          onPressed: _toggleBrowserLive,
+          icon: Icon(link.browserLivePaused
+              ? Icons.play_arrow_rounded
+              : Icons.pause_rounded),
+        ),
+      ),
+      Expanded(
+        child: frame == null
+            ? Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.language_rounded,
+                        size: 44, color: Color(0xFF85898E)),
+                    const SizedBox(height: 12),
+                    Text(
+                      link.browserLivePaused
+                          ? 'La transmisión está pausada.'
+                          : 'HELIX mostrará aquí la página cuando use el navegador.',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Color(0xFF85898E)),
+                    ),
+                  ],
+                ),
+              )
+            : InteractiveViewer(
+                minScale: 0.6,
+                maxScale: 4,
+                child: Center(child: Image.memory(frame, fit: BoxFit.contain)),
+              ),
+      ),
+    ]);
+  }
 
   Widget _buildComposer(ThemeData theme) => Column(
         mainAxisSize: MainAxisSize.min,
@@ -1255,9 +1536,53 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 }
 
 class _ConnectionDraft {
-  const _ConnectionDraft(this.config, this.token);
+  const _ConnectionDraft(
+    this.config,
+    this.token, {
+    required this.sessionId,
+    required this.name,
+    this.deviceId,
+  });
+
   final MobileConfig config;
   final String token;
+  final String sessionId;
+  final String name;
+  final String? deviceId;
+}
+
+class _MobileLink {
+  _MobileLink({
+    required this.sessionId,
+    required this.name,
+    required this.config,
+    required this.token,
+    required this.connection,
+  });
+
+  final String sessionId;
+  final String name;
+  final MobileConfig config;
+  String token;
+  final MobileConnection connection;
+  final messages = <_Message>[];
+  List<MobileSkill> skills = const [];
+  final pendingConfirmations = <String, Map<String, dynamic>>{};
+  StreamSubscription<HelixMessage>? events;
+  StreamSubscription<TransportState>? transportStates;
+  bool connected = false;
+  bool connecting = false;
+  String? connectionError;
+  String? activeProgress;
+  String? activeTaskId;
+  Uint8List? browserFrame;
+  bool browserLivePaused = false;
+
+  Future<void> dispose() async {
+    await events?.cancel();
+    await transportStates?.cancel();
+    await connection.close();
+  }
 }
 
 class _ConnectionSheet extends StatefulWidget {
@@ -1276,6 +1601,8 @@ class _ConnectionSheetState extends State<_ConnectionSheet> {
   final _sshPort = TextEditingController(text: '22');
   final _remoteWsPort = TextEditingController(text: '8765');
   DateTime? _invitationExpiresAt;
+  String? _sessionId;
+  String _desktopName = 'HELIX Desktop';
   bool _scanHandled = false;
   // Relay is preferred for production; SSH remains the local fallback.
   MobileTransportMode _mode = MobileTransportMode.relay;
@@ -1289,9 +1616,9 @@ class _ConnectionSheetState extends State<_ConnectionSheet> {
 
   Future<void> _restoreSecrets() async {
     const store = SecurePairingStore();
-    final saved = await store.load();
-    if (!mounted) return;
-    if (saved == null) return;
+    final savedPairings = await store.loadAll();
+    if (!mounted || savedPairings.isEmpty) return;
+    final saved = savedPairings.first;
     _token.text = saved.token;
     _key.text = saved.identityKeyPem ?? '';
     _fingerprint.text = saved.hostKeyFingerprint ?? '';
@@ -1384,6 +1711,10 @@ class _ConnectionSheetState extends State<_ConnectionSheet> {
       final invitation = MobilePairingInvitation.decode(raw);
       _host.text = invitation.relayWssUrl;
       _token.text = invitation.token;
+      final path = Uri.parse(invitation.relayWssUrl).pathSegments;
+      final roomId = path.length >= 3 ? path[2] : 'desktop';
+      _desktopName = 'HELIX Desktop · ${roomId.substring(roomId.length - 4)}';
+      _sessionId = _newMobileSessionId();
       _mode = MobileTransportMode.relay;
       _requiresDeviceApproval = true;
       _invitationExpiresAt = invitation.expiresAt;
@@ -1453,7 +1784,17 @@ class _ConnectionSheetState extends State<_ConnectionSheet> {
         invitationExpiresAt: _invitationExpiresAt,
       ),
       _token.text.trim(),
+      sessionId: _sessionId ?? _newMobileSessionId(),
+      name: _desktopName,
     ));
+  }
+
+  String _newMobileSessionId() {
+    final random = Random.secure();
+    return List.generate(
+      24,
+      (_) => 'abcdefghijklmnopqrstuvwxyz0123456789'[random.nextInt(36)],
+    ).join();
   }
 
   @override

@@ -16,10 +16,11 @@ class HelixSession {
 
   final HelixTransport transport;
   final Duration requestTimeout;
-  final String? sourceDeviceId;
+  String? sourceDeviceId;
   final bool relaySkillsRequests;
   final _events = StreamController<HelixMessage>.broadcast();
   final _pending = <String, Completer<HelixMessage>>{};
+  final _pendingRelayRequests = <String, Completer<Map<String, dynamic>>>{};
   late final StreamSubscription<HelixMessage> _subscription;
   final _random = Random.secure();
 
@@ -34,9 +35,9 @@ class HelixSession {
         '${DateTime.now().microsecondsSinceEpoch}-${_random.nextInt(1 << 32)}';
     final completer = Completer<HelixMessage>();
     _pending[requestId] = completer;
-    await transport
-        .send(HelixMessage(type: type, requestId: requestId, payload: payload));
     try {
+      await transport.send(
+          HelixMessage(type: type, requestId: requestId, payload: payload));
       return await completer.future.timeout(requestTimeout);
     } finally {
       _pending.remove(requestId);
@@ -79,6 +80,60 @@ class HelixSession {
         .toList(growable: false);
   }
 
+  Future<Map<String, dynamic>> requestSubagents(
+    String action, {
+    String? profileId,
+    String? message,
+  }) async {
+    if (!{'list_profiles', 'get_status', 'chat'}.contains(action)) {
+      throw ArgumentError.value(
+          action, 'action', 'Unsupported subagent action');
+    }
+    if (!relaySkillsRequests) {
+      final type = switch (action) {
+        'list_profiles' => 'GET_SUBAGENT_PROFILES',
+        'get_status' => 'GET_SUBAGENT_STATUS',
+        _ => 'CHAT_SUBAGENT',
+      };
+      final response = await request(type, {
+        if (profileId != null) 'profile_id': profileId,
+        if (message != null) 'message': message,
+      });
+      return response.payload;
+    }
+
+    final correlationId =
+        '${DateTime.now().microsecondsSinceEpoch}-${_random.nextInt(1 << 32)}';
+    final completer = Completer<Map<String, dynamic>>();
+    _pendingRelayRequests[correlationId] = completer;
+    try {
+      await transport.send(HelixMessage(
+        type: 'SUBAGENT_QUERY',
+        payload: {
+          'action': action,
+          'correlation_id': correlationId,
+          if (profileId != null) 'profile_id': profileId,
+          if (message != null) 'message': message,
+        },
+      ));
+      return await completer.future.timeout(
+        action == 'chat' ? const Duration(minutes: 2) : requestTimeout,
+      );
+    } finally {
+      _pendingRelayRequests.remove(correlationId);
+    }
+  }
+
+  Future<void> setBrowserLivePaused(bool paused) {
+    if (!relaySkillsRequests) {
+      throw StateError('Browser live view requires a relay connection.');
+    }
+    return transport.send(HelixMessage(
+      type: 'BROWSER_LIVE_CONTROL',
+      payload: {'paused': paused},
+    ));
+  }
+
   Future<void> sendConfirmationResponse({
     required String requestId,
     required bool approved,
@@ -99,6 +154,35 @@ class HelixSession {
       );
 
   void _handleMessage(HelixMessage message) {
+    if (message.type == 'HELIX_DEVICE_READY') {
+      final deviceId = message.payload['device_id'];
+      if (deviceId is String &&
+          RegExp(r'^[A-Za-z0-9_-]{20,64}$').hasMatch(deviceId)) {
+        sourceDeviceId = deviceId;
+      }
+    }
+    if (message.type == 'subagent_response') {
+      final correlationId = message.payload['correlation_id'];
+      final completer =
+          correlationId is String ? _pendingRelayRequests[correlationId] : null;
+      if (completer != null && !completer.isCompleted) {
+        if (message.payload['error'] is String) {
+          completer
+              .completeError(StateError(message.payload['error'] as String));
+        } else {
+          final result = message.payload['result'];
+          if (result is Map<String, dynamic>) {
+            completer.complete(result);
+          } else {
+            completer.completeError(
+              const FormatException(
+                  'HELIX returned an invalid subagent result.'),
+            );
+          }
+        }
+        return;
+      }
+    }
     final requestId = message.requestId;
     final pending = requestId == null ? null : _pending[requestId];
     if (pending != null && !pending.isCompleted) {
@@ -120,6 +204,12 @@ class HelixSession {
       }
     }
     _pending.clear();
+    for (final pending in _pendingRelayRequests.values) {
+      if (!pending.isCompleted) {
+        pending.completeError(StateError('HELIX session closed'));
+      }
+    }
+    _pendingRelayRequests.clear();
     await _events.close();
     await transport.close();
   }

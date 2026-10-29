@@ -7,12 +7,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:helix_mobile/core/transport/worker_relay_pairing.dart';
 
 void main() {
-  test('waits for Desktop approval and returns the device credential', () async {
+  test('waits for Desktop approval and returns both device credentials',
+      () async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final authorization = Completer<String?>();
     final serverSocket = Completer<WebSocket>();
     final serving = server.listen((request) async {
-      authorization.complete(request.headers.value(HttpHeaders.authorizationHeader));
+      authorization
+          .complete(request.headers.value(HttpHeaders.authorizationHeader));
       final socket = await WebSocketTransformer.upgrade(request);
       serverSocket.complete(socket);
       socket.add(jsonEncode({
@@ -40,8 +42,10 @@ void main() {
     );
 
     try {
-      final token = await client.pair();
-      expect(token, 'abcdefghijklmnopqrstuvwxyz1234567890ABCDEFG');
+      final credentials = await client.pair();
+      expect(credentials.deviceId, 'abcdefghijklmnopqrstuvwxyz123456');
+      expect(credentials.deviceToken,
+          'abcdefghijklmnopqrstuvwxyz1234567890ABCDEFG');
       expect(
         await authorization.future,
         'Bearer invitation-token-value-with-at-least-forty-characters',

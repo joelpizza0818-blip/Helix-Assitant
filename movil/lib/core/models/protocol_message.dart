@@ -14,13 +14,19 @@ class HelixMessage {
       throw const FormatException('HELIX message must be an object with a string type');
     }
     final payload = value['payload'];
-    if (payload != null && payload is! Map<String, dynamic>) {
+    if (payload != null &&
+        payload is! Map<String, dynamic> &&
+        payload is! List) {
       throw const FormatException('HELIX payload must be an object');
     }
     return HelixMessage(
       type: value['type'] as String,
       requestId: value['request_id'] as String?,
-      payload: payload == null ? const {} : Map<String, dynamic>.from(payload as Map),
+      payload: payload == null
+          ? const {}
+          : payload is List
+              ? {'items': payload}
+              : Map<String, dynamic>.from(payload as Map),
       error: value['error'] as String?,
     );
   }

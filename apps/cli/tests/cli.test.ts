@@ -7,6 +7,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { discoverUserSkillNames } from '../src/skills/user-skill-discovery';
+import { renderSubagentPanel } from '../src/commands/subagents';
+import { grayscaleToAscii, renderJpegAsAscii } from '../src/ui/browser-ascii';
+import jpeg from 'jpeg-js';
 
 test('Autocompleter suggests slash commands', () => {
   const completer = new Autocompleter();
@@ -18,6 +21,7 @@ test('Autocompleter suggests slash commands', () => {
   assert.ok(completions.includes('/mcp'));
   assert.ok(completions.includes('/create-mcp'));
   assert.ok(completions.includes('/browser'));
+  assert.ok(completions.includes('/subagents'));
   assert.ok(completions.includes('/config-apikey'));
   assert.ok(completions.includes('/show-apikey'));
   assert.ok(completions.includes('/microphone'));
@@ -26,6 +30,43 @@ test('Autocompleter suggests slash commands', () => {
   assert.ok(completions.includes('/models'));
   assert.ok(completions.includes('/status'));
   assert.ok(completions.includes('/clear'));
+});
+
+test('Subagent panel renders ASCII rows with current status and action', () => {
+  const panel = renderSubagentPanel(
+    [{ profile_id: 'flowbot', name: 'Flowbot', role: 'Browser automation' }],
+    [{
+      profile_id: 'flowbot',
+      status: 'running',
+      progress: 50,
+      current_action: 'Opening browser',
+    }],
+  );
+
+  assert.ok(panel.includes('+'));
+  assert.ok(panel.includes('flowbot'));
+  assert.ok(panel.includes('Flowbot'));
+  assert.ok(panel.includes('RUNNING'));
+  assert.ok(panel.includes('50%'));
+  assert.ok(panel.includes('Opening browser'));
+});
+
+test('Browser image renderer maps grayscale to a bounded ASCII frame', () => {
+  assert.equal(
+    grayscaleToAscii([[0, 255], [0, 255], [128, 64], [128, 64]], 2),
+    '@ \n=#',
+  );
+});
+
+test('Browser image renderer decodes JPEG frames and rejects invalid payloads', () => {
+  const image = jpeg.encode({
+    data: Buffer.from([255, 255, 255, 255]),
+    width: 1,
+    height: 1,
+  }, 80);
+
+  assert.equal(renderJpegAsAscii(image.data.toString('base64'), 1), ' ');
+  assert.throws(() => renderJpegAsAscii('not-a-jpeg'), /valid, bounded Base64 JPEG/);
 });
 
 test('Autocompleter filters slash commands by prefix', () => {

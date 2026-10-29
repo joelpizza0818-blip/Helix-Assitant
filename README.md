@@ -26,7 +26,7 @@ HELIX does not grant implicit authority or promise universal automation. Tool av
 | HELIX Normal | Windows x64, Electron | `v0.2.13` | Primary desktop product; verify current release asset and checksum |
 | HELIX Lite | Windows x64, Tauri/NSIS | `lite-v0.2.13` | Independent lightweight shell; verify release asset separately |
 | HELIX Mobile | Android via Flutter | `mobile-vX.Y.Z` | Build workflow exists; signed public APK is not confirmed |
-| HELIX CLI | Node.js on Windows, macOS, and Linux where dependencies are available | `npx helix-assistant-cli` | Source version `0.2.14`; verify npm publication/stage status |
+| HELIX CLI | Node.js on Windows, macOS, and Linux where dependencies are available | `npx helix-assistant-cli` | Source version `0.4.1`; npm publication requires stage approval |
 | Server | Express/Prisma in its configured deployment environment | internal service | API, tasks, and update subscriptions |
 | Landing | Modern browser | Vercel | Public site, docs, and downloads |
 
@@ -68,6 +68,8 @@ helix
 ```
 
 The CLI needs an accessible agent and a configured provider for AI-backed tasks. Available commands depend on enabled skills and MCP servers.
+
+The interactive CLI includes `/subagents` for an ASCII status panel and direct subagent chat. `/browser live on` displays bounded ASCII snapshots produced after successful browser actions; this is not continuous video.
 
 ### Desktop
 
@@ -143,16 +145,16 @@ Evidence must be labeled as automated, static, manual, installation, hardware, o
 
 ## Release process
 
-The current source versions are `0.2.13` for Normal, `0.2.13` for Lite, `0.2.14` for CLI, and `0.1.0` for Mobile. Treat each as a separate release channel:
+Treat each product as a separate release channel:
 
 - `vX.Y.Z`: Normal/core.
 - `lite-vX.Y.Z`: Lite.
 - `mobile-vX.Y.Z`: Android/mobile workflow.
 - CLI uses its npm package version and a separately approved publish stage.
 
-HELIX `0.3.0` is planned, not published. Confirm tags, artifacts, checksums, npm state, and production deploys before describing any channel as released. Linux/macOS desktop installers are not currently verified; CI tests for the agent/relay do not establish desktop installer support.
+Confirm tags, artifacts, signatures, checksums, npm state, and production deployments independently for each channel before describing it as released. Linux/macOS desktop installers are not currently verified; CI tests for the agent/relay do not establish desktop installer support.
 
-Before publishing: align manifests and lockfiles, run required tests, review the diff, apply `npm run db:deploy` from the approved production environment, create tags from a clean commit, verify installers/checksums, and run broadcasts only with production SMTP configured.
+Before publishing: align each channel's manifest and tag, run its required checks, review the diff, create tags from a clean commit, and verify signatures and checksums for every published installer. Database migrations and production announcements are separate operations and require their own approval.
 
 ## Operations and troubleshooting
 

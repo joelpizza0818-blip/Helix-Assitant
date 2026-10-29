@@ -199,4 +199,102 @@ describe('HELIX Cloudflare relay', () => {
       },
     })).toBeNull()
   })
+
+  it('validates correlated subagent queries and responses', () => {
+    const deviceId = 'abcdefghijklmnopqrstuvwxyz123456'
+    const correlationId = '1720000000000000-123456789'
+    expect(sanitizeMobileMessage({
+      type: 'SUBAGENT_QUERY',
+      payload: {
+        action: 'chat',
+        correlation_id: correlationId,
+        profile_id: 'research',
+        message: 'Summarize this',
+        private_context: 'discarded',
+      },
+    }, deviceId)).toEqual({
+      type: 'SUBAGENT_QUERY',
+      payload: {
+        action: 'chat',
+        correlation_id: correlationId,
+        profile_id: 'research',
+        message: 'Summarize this',
+      },
+      source_device_id: deviceId,
+      source_device_name: 'HELIX Mobile',
+    })
+    expect(sanitizeMobileMessage({
+      type: 'SUBAGENT_QUERY',
+      payload: { action: 'chat', correlation_id: correlationId, message: 'Missing profile' },
+    }, deviceId)).toBeNull()
+    expect(sanitizeMobileMessage({
+      type: 'SUBAGENT_QUERY',
+      payload: { action: 'other', correlation_id: correlationId },
+    }, deviceId)).toBeNull()
+    expect(sanitizeDesktopMessage({
+      type: 'subagent_response',
+      target_device_id: deviceId,
+      payload: {
+        correlation_id: correlationId,
+        result: { response: 'Ready' },
+        private_context: 'discarded',
+      },
+    })).toEqual({
+      type: 'subagent_response',
+      target_device_id: deviceId,
+      payload: {
+        correlation_id: correlationId,
+        result: { response: 'Ready' },
+      },
+    })
+    expect(sanitizeDesktopMessage({
+      type: 'subagent_response',
+      target_device_id: deviceId,
+      payload: { correlation_id: 'invalid id', result: {} },
+    })).toBeNull()
+  })
+
+  it('validates browser frames and per-device live-view controls', () => {
+    const deviceId = 'abcdefghijklmnopqrstuvwxyz123456'
+    expect(sanitizeMobileMessage({
+      type: 'BROWSER_LIVE_CONTROL',
+      payload: { paused: true, extra: 'discarded' },
+    }, deviceId)).toEqual({
+      type: 'BROWSER_LIVE_CONTROL',
+      payload: { paused: true },
+      source_device_id: deviceId,
+      source_device_name: 'HELIX Mobile',
+    })
+    expect(sanitizeMobileMessage({
+      type: 'BROWSER_LIVE_CONTROL',
+      payload: { paused: 'true' },
+    }, deviceId)).toBeNull()
+    expect(sanitizeDesktopMessage({
+      type: 'browser_frame',
+      target_device_id: deviceId,
+      payload: {
+        conversation_id: `mobile_${deviceId}`,
+        mime_type: 'image/jpeg',
+        image_base64: 'aGVsbG8=',
+        extra: 'discarded',
+      },
+    })).toEqual({
+      type: 'browser_frame',
+      target_device_id: deviceId,
+      payload: {
+        conversation_id: `mobile_${deviceId}`,
+        mime_type: 'image/jpeg',
+        image_base64: 'aGVsbG8=',
+      },
+    })
+    expect(sanitizeDesktopMessage({
+      type: 'browser_frame',
+      target_device_id: deviceId,
+      payload: {
+        conversation_id: 'mobile_another-device',
+        mime_type: 'image/jpeg',
+        image_base64: 'aGVsbG8=',
+      },
+    })).toBeNull()
+  })
 })

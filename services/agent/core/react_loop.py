@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import io
 import logging
 import json
@@ -304,6 +305,7 @@ class ReActLoop:
         self._pending_confirmations = {}
         self._pending_confirmation_devices = {}
         self._resource_locks: dict[str, asyncio.Lock] = {}
+        self._browser_frame_last_sent: dict[str, float] = {}
         self._planned_resource_leases: dict[str, _TaskResourceLease] = {}
         self._resource_lease_context: ContextVar[Optional[_TaskResourceLease]] = (
             ContextVar(f"helix_resource_lease_{id(self)}", default=None)
@@ -1218,17 +1220,66 @@ class ReActLoop:
                     await lease.acquire(resource)
             contextual_execute = getattr(tool, "execute_with_context", None)
             if callable(contextual_execute):
-                return await contextual_execute(
+                result = await contextual_execute(
                     arguments,
                     parent_id=task_id,
                     parent_credential=provider_context.get("_helix_current_credential"),
                     conversation_id=provider_context.get("_helix_conversation_id"),
                     source_device_id=provider_context.get("_helix_source_device_id"),
                 )
-            return await tool.execute(arguments)
+            else:
+                result = await tool.execute(arguments)
+            if tool.name == "browser_control":
+                await self._publish_mobile_browser_frame(
+                    result,
+                    provider_context.get("_helix_source_device_id"),
+                    provider_context.get("_helix_conversation_id"),
+                )
+            return result
         finally:
             if nested_request:
                 await lease.resume()
             if owns_lease:
                 await lease.release_all()
                 self._resource_lease_context.reset(token)
+
+    async def _publish_mobile_browser_frame(
+        self,
+        result,
+        source_device_id: str | None,
+        conversation_id: str | None,
+    ) -> None:
+        is_mobile_session = (
+            isinstance(source_device_id, str)
+            and 20 <= len(source_device_id) <= 64
+            and all(character.isalnum() or character in "_-" for character in source_device_id)
+            and conversation_id == f"mobile_{source_device_id}"
+        )
+        is_cli_session = (
+            source_device_id is None
+            and isinstance(conversation_id, str)
+            and conversation_id.startswith("cli_")
+            and len(conversation_id) <= 128
+        )
+        if (
+            not (is_mobile_session or is_cli_session)
+            or not getattr(result, "success", False)
+            or not isinstance(getattr(result, "output", None), dict)
+        ):
+            return
+        screenshot = result.output.get("screenshot_bytes")
+        if not isinstance(screenshot, bytes) or not screenshot or len(screenshot) > 560_000:
+            return
+        now = asyncio.get_running_loop().time()
+        recipient_key = source_device_id if is_mobile_session else conversation_id
+        if now - self._browser_frame_last_sent.get(recipient_key, 0) < 0.5:
+            return
+        self._browser_frame_last_sent[recipient_key] = now
+        await self.event_bus.publish(
+            "BROWSER_FRAME",
+            {
+                "conversation_id": conversation_id,
+                "mime_type": "image/jpeg",
+                "image_base64": base64.b64encode(screenshot).decode("ascii"),
+            },
+        )
