@@ -89,10 +89,10 @@ async def test_remote_control_dispatch_bridge():
         settings_path=Path("mock_settings.json"),
     )
 
-    # Test REMOTE_CONTROL_MOUSE without errors
-    with patch("pyautogui.size", return_value=(1920, 1080)), \
-         patch("pyautogui.moveTo") as mock_move, \
-         patch("pyautogui.click") as mock_click:
+    # Test REMOTE_CONTROL_MOUSE without importing the host display backend.
+    mock_pyautogui = MagicMock()
+    mock_pyautogui.size.return_value = (1920, 1080)
+    with patch.dict("sys.modules", {"pyautogui": mock_pyautogui}):
         await handler.dispatch({
             "type": "REMOTE_CONTROL_MOUSE",
             "payload": {
@@ -102,26 +102,28 @@ async def test_remote_control_dispatch_bridge():
                 "button": "left",
             }
         })
-        assert mock_click.called
+    assert mock_pyautogui.click.called
 
     # Test REMOTE_CONTROL_KEYBOARD text typing
-    with patch("pyautogui.write") as mock_write:
+    mock_pyautogui = MagicMock()
+    with patch.dict("sys.modules", {"pyautogui": mock_pyautogui}):
         await handler.dispatch({
             "type": "REMOTE_CONTROL_KEYBOARD",
             "payload": {
                 "text": "Hello Helix",
             }
         })
-        assert mock_write.called
-        assert mock_write.call_args[0][0] == "Hello Helix"
+    assert mock_pyautogui.write.called
+    assert mock_pyautogui.write.call_args[0][0] == "Hello Helix"
 
     # Test REMOTE_CONTROL_KEYBOARD safe key pressing
-    with patch("pyautogui.press") as mock_press:
+    mock_pyautogui = MagicMock()
+    with patch.dict("sys.modules", {"pyautogui": mock_pyautogui}):
         await handler.dispatch({
             "type": "REMOTE_CONTROL_KEYBOARD",
             "payload": {
                 "key": "Enter",
             }
         })
-        assert mock_press.called
-        assert mock_press.call_args[0][0] == "enter"
+    assert mock_pyautogui.press.called
+    assert mock_pyautogui.press.call_args[0][0] == "enter"
