@@ -36,9 +36,11 @@ def test_desktop_event_routing_recipient_selection():
 @pytest.mark.asyncio
 async def test_desktop_streamer_lifecycle():
     published = []
+    frame_published = asyncio.Event()
 
     async def mock_publish(event_name, payload):
         published.append((event_name, payload))
+        frame_published.set()
 
     mock_screen = MagicMock()
     # Mock a minimal 10x10 PNG
@@ -55,18 +57,17 @@ async def test_desktop_streamer_lifecycle():
     streamer.start(device_id)
     assert device_id in streamer.active_devices
 
-    # Allow stream loop to capture at least one frame
-    await asyncio.sleep(0.1)
+    try:
+        await asyncio.wait_for(frame_published.wait(), timeout=2)
+        assert len(published) >= 1
+        event_name, frame_payload = published[0]
+        assert event_name == "DESKTOP_FRAME"
+        assert frame_payload["source_device_id"] == device_id
+        assert "image_base64" in frame_payload
+        assert frame_payload["mime_type"] == "image/jpeg"
+    finally:
+        streamer.stop(device_id)
 
-    assert len(published) >= 1
-    event_name, frame_payload = published[0]
-    assert event_name == "DESKTOP_FRAME"
-    assert frame_payload["source_device_id"] == device_id
-    assert "image_base64" in frame_payload
-    assert frame_payload["mime_type"] == "image/jpeg"
-
-    # Stop streamer
-    streamer.stop(device_id)
     assert device_id not in streamer.active_devices
 
     # Calling stop again is safe
