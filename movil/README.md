@@ -4,7 +4,7 @@ Aplicación móvil multiplataforma para controlar una instalación de HELIX Desk
 
 ## Estado de la auditoría
 
-**Estado: Android 0.3.2 está publicado como release estable firmada y seleccionado en la landing. La descarga recomendada usa el APK ARM64; el APK universal sigue disponible como alternativa.**
+**Estado: Android `mobile-v0.5.0` está publicado con APK firmado universal y variantes por ABI. La disponibilidad de esta versión en el catálogo de la landing debe verificarse por separado; no hay prueba de instalación en dispositivo físico.**
 
 El agente expone un protocolo JSON sobre WebSocket y autentica con `HELIX_WS_TOKEN`. Para un host remoto, el móvil necesita un túnel SSH o un relay autorizado. El flujo existente de pairing temporal sigue disponible; el worktree actual también integra invitaciones QR v2 de cinco minutos, aprobación en Desktop y relay Cloudflare Worker. El Worker debe desplegarse y probarse en un teléfono antes de considerar funcional esa ruta en producción.
 
@@ -72,9 +72,9 @@ La superficie visual ya incluye chat remoto, modo Voice, drawer, estado de conex
 ## Límites conocidos
 
 - El agente actual solo escucha en loopback; el relay SSH requiere que el host remoto tenga SSH habilitado.
-- Android `mobile-v0.3.2` está publicado como release estable firmada, con APK universal y variantes `armeabi-v7a`, `arm64-v8a` y `x86_64`, cada una con SHA-256. El arm64 es el recomendado para la mayoría de teléfonos Android actuales.
+- Android `mobile-v0.5.0` está publicado como release estable firmada, con APK universal y variantes `armeabi-v7a`, `arm64-v8a` y `x86_64`, cada una con SHA-256. No hay prueba de instalación en dispositivo físico.
 - CI verificó firmas y checksums de los cuatro APK. No hay IPA iOS publicado ni evidencia de instalación física.
-- La landing recomienda el APK arm64-v8a y ofrece el universal con su checksum como alternativa. El catálogo valida el checksum que corresponde al APK elegido.
+- La landing ya no se debe describir como seleccionada en `0.5.0` hasta confirmar que su catálogo publica esta versión. El release de GitHub incluye el APK ARM64 y el universal con sus checksums.
 - El build Android local no se verificó: el SDK configurado tiene metadatos inconsistentes para Android 35. El build firmado y la medición se confirmaron en CI.
 - Web solo sirve para previsualizar la interfaz y no puede completar el handshake autenticado.
 

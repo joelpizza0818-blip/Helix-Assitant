@@ -1,4 +1,9 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import {
+  getInstallerHistorySources,
+  mergeInstallerHistoryRows,
+  type InstallerHistoryRow,
+} from '../_shared/installer-history.ts'
 
 const GITHUB_API = 'https://api.github.com'
 const LITE_RELEASE_OWNER = 'joelpizza0818-blip'
@@ -164,6 +169,10 @@ function isHttpsUrl(value: unknown): value is string {
   }
 }
 
+function isAllowedAnnouncementUrl(value: string): boolean {
+  return value.startsWith('/') ? !value.startsWith('//') : isHttpsUrl(value)
+}
+
 function parseAnnouncementPayload(value: unknown): AnnouncementPayload | null {
   if (
     !isRecord(value)
@@ -192,7 +201,7 @@ function parseAnnouncementPayload(value: unknown): AnnouncementPayload | null {
       || typeof item.url !== 'string'
       || item.url.length > 2048
       || (item.external !== undefined && typeof item.external !== 'boolean')
-      || !(isHttpsUrl(item.url) || (item.url.startsWith('/') && !item.url.startsWith('//')))
+      || !isAllowedAnnouncementUrl(item.url)
     ) return null
     links.push({ text: item.text.trim(), url: item.url, external: item.external === true })
   }
@@ -243,9 +252,9 @@ interface GitHubReleaseRecord {
   assets: unknown[]
 }
 
-async function fetchInstallerHistory(): Promise<GitHubReleaseRecord[]> {
-  const owner = Deno.env.get('GITHUB_INSTALLER_OWNER') ?? 'joelpizza0818-blip'
-  const repository = Deno.env.get('GITHUB_INSTALLER_REPO') ?? 'Helix-Assitant'
+async function fetchInstallerHistoryFromSource(
+  source: { owner: string; repository: string },
+): Promise<GitHubReleaseRecord[]> {
   const token = Deno.env.get('GITHUB_INSTALLER_TOKEN')
   const releases: GitHubReleaseRecord[] = []
 
@@ -260,7 +269,7 @@ async function fetchInstallerHistory(): Promise<GitHubReleaseRecord[]> {
     let response: Response
     try {
       response = await fetch(
-        `${GITHUB_API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}/releases?per_page=100&page=${page}`,
+        `${GITHUB_API}/repos/${encodeURIComponent(source.owner)}/${encodeURIComponent(source.repository)}/releases?per_page=100&page=${page}`,
         { headers, signal: AbortSignal.timeout(12000) },
       )
     } catch (error) {
@@ -301,6 +310,15 @@ async function fetchInstallerHistory(): Promise<GitHubReleaseRecord[]> {
   return releases
 }
 
+async function fetchInstallerHistory(): Promise<GitHubReleaseRecord[]> {
+  const sources = getInstallerHistorySources(
+    Deno.env.get('GITHUB_INSTALLER_OWNER'),
+    Deno.env.get('GITHUB_INSTALLER_REPO'),
+  )
+  const releasesBySource = await Promise.all(sources.map(fetchInstallerHistoryFromSource))
+  return releasesBySource.flat()
+}
+
 function findReleaseAsset(release: GitHubReleaseRecord, expectedNames: string[]): string | null {
   for (const candidate of release.assets) {
     if (!isRecord(candidate) || typeof candidate.name !== 'string' || typeof candidate.browser_download_url !== 'string') continue
@@ -311,8 +329,8 @@ function findReleaseAsset(release: GitHubReleaseRecord, expectedNames: string[])
   return null
 }
 
-function historyRows(releases: GitHubReleaseRecord[], profileId: string): Array<Record<string, unknown>> {
-  const rows: Array<Record<string, unknown>> = []
+function historyRows(releases: GitHubReleaseRecord[], profileId: string): InstallerHistoryRow[] {
+  const rows: InstallerHistoryRow[] = []
   for (const release of releases) {
     if (release.draft || !isHttpsUrl(release.html_url)) continue
     const tagUrl = new URL(release.html_url)
@@ -357,7 +375,7 @@ function historyRows(releases: GitHubReleaseRecord[], profileId: string): Array<
       if (hasIos) assetsFor('ios', 'mobile', mobile[1])
     }
   }
-  return rows
+  return mergeInstallerHistoryRows(rows)
 }
 
 async function syncUserProfile(

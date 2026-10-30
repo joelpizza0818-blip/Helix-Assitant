@@ -2,7 +2,7 @@
 
 HELIX is a local-first desktop agent for working with the operating system, terminal, and context the user chooses to share. It combines a desktop shell, Python agent, explicit permission controls, configurable AI providers, and a CLI for supported workflows.
 
-> Code versions in the current checkout: Normal `0.2.13`, Lite `0.2.13`, CLI `0.2.14`, and Mobile `0.1.0`. These values do not by themselves prove publication; verify each channel's release and assets independently.
+> Channel status (2026-10-30): Normal Windows `0.5.0`, Lite Windows `0.5.0`, and Android `0.5.0` have published releases. CLI `0.5.0` is staged but still requires npm maintainer approval with 2FA; npm `latest` remains `0.2.14`. The landing catalogue must be checked separately from GitHub releases.
 
 Links: [landing](https://helix-assistant.vercel.app) · [downloads](https://helix-assistant.vercel.app/download) · [capabilities](https://helix-assistant.vercel.app/features) · [web docs](https://helix-assistant.vercel.app/docs) · [releases](https://github.com/joelpizza0818-blip/Helix-Assitant/releases)
 
@@ -23,10 +23,10 @@ HELIX does not grant implicit authority or promise universal automation. Tool av
 
 | Product | Supported platform | Distribution | Support status |
 |---|---|---|---|
-| HELIX Normal | Windows x64, Electron | `v0.2.13` | Primary desktop product; verify current release asset and checksum |
-| HELIX Lite | Windows x64, Tauri/NSIS | `lite-v0.2.13` | Independent lightweight shell; verify release asset separately |
-| HELIX Mobile | Android via Flutter | `mobile-vX.Y.Z` | Build workflow exists; signed public APK is not confirmed |
-| HELIX CLI | Node.js on Windows, macOS, and Linux where dependencies are available | `npx helix-assistant-cli` | Source version `0.4.1`; npm publication requires stage approval |
+| HELIX Normal | Windows x64, Electron | [`v0.5.0`](https://github.com/joelpizza0818-blip/Helix-Assitant/releases/tag/v0.5.0) | Published installer in the [private installer repository](https://github.com/joelpizza0818-blip/helix-installer-downloads/releases/tag/v0.5.0); SHA-256 available; unsigned by an Authenticode publisher certificate |
+| HELIX Lite | Windows x64, Tauri/NSIS | [`lite-v0.5.0`](https://github.com/joelpizza0818-blip/Helix-Assitant/releases/tag/lite-v0.5.0) | Published installer and SHA-256 sidecar; separate channel |
+| HELIX Mobile | Android via Flutter | [`mobile-v0.5.0`](https://github.com/joelpizza0818-blip/Helix-Assitant/releases/tag/mobile-v0.5.0) | Signed APK universal and ABI variants published; no physical-device test |
+| HELIX CLI | Node.js on Windows, macOS, and Linux where dependencies are available | `npx helix-assistant-cli` | Source `0.5.0` is staged; npm `latest` remains `0.2.14` until 2FA approval |
 | Server | Express/Prisma in its configured deployment environment | internal service | API, tasks, and update subscriptions |
 | Landing | Modern browser | Vercel | Public site, docs, and downloads |
 

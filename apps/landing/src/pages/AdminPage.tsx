@@ -129,13 +129,13 @@ export function AdminPage() {
     }))
   ), [installers])
 
-  const runAction = async (action: () => Promise<void>, successMessage: string) => {
+  const runAction = async (action: () => Promise<void>, successMessage: string | (() => string)) => {
     setSaving(true)
     setError(null)
     setNotice(null)
     try {
       await action()
-      setNotice(successMessage)
+      setNotice(typeof successMessage === 'function' ? successMessage() : successMessage)
     } catch (actionError: unknown) {
       setError(actionError instanceof Error ? actionError.message : 'La operación no se pudo completar.')
     } finally {
@@ -205,10 +205,16 @@ export function AdminPage() {
     }, 'Borrador eliminado.')
   }
 
-  const importInstallerHistory = () => runAction(async () => {
-    await requestAdmin('installers/import-history', 'POST')
-    await loadContent()
-  }, 'Histórico de GitHub sincronizado. Elige una versión existente para publicarla.')
+  const importInstallerHistory = () => {
+    let imported = 0
+    let found = 0
+    return runAction(async () => {
+      const result = await requestAdmin<{ imported: number; found: number }>('installers/import-history', 'POST')
+      imported = result.imported
+      found = result.found
+      await loadContent()
+    }, () => `Sincronización completa: ${imported} entradas nuevas de ${found} encontradas. Publica cada canal por separado.`)
+  }
 
   const changeInstallerPublication = (installer: LandingInstaller) => runAction(async () => {
     await requestAdmin(`installers/${installer.id}/publication`, 'PUT', { isPublished: !installer.isPublished })
@@ -335,7 +341,7 @@ export function AdminPage() {
                   <div className="admin-section-heading">
                     <div>
                       <h2>Histórico completo de instaladores</h2>
-                      <p>El histórico se sincroniza automáticamente desde GitHub. Selecciona aquí cualquier versión anterior con activos válidos para publicarla; las más recientes aparecen primero. Linux y macOS permanecen sin publicar hasta verificar su empaquetado y activos oficiales.</p>
+                      <p>Sincroniza aquí las releases de Normal, Lite y Mobile desde sus repositorios GitHub. Importar solo añade versiones al histórico; selecciona cada canal con activos válidos para publicarlo. Linux y macOS permanecen sin publicar hasta verificar su empaquetado y activos oficiales.</p>
                     </div>
                     <button className="admin-button admin-button--quiet" type="button" disabled={saving} onClick={() => { void importInstallerHistory() }}>
                       Sincronizar historial
