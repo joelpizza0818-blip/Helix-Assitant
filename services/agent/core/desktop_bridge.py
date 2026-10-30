@@ -1,4 +1,4 @@
-﻿import json
+import json
 import hashlib
 import asyncio
 import os
@@ -1150,14 +1150,12 @@ class DesktopRequestHandler:
 
             harness = AdaptiveLearningHarness.get_instance()
 
-            # Episode count
             ep_count = 0
             try:
                 ep_count = harness.episodic_memory.get_episode_count()
             except Exception:
                 pass
 
-            # Profile / rules
             profile = harness.procedural_memory.load_profile()
             rules_raw = profile.get("learned_rules", [])
             rule_count = len(rules_raw)
@@ -1172,21 +1170,18 @@ class DesktopRequestHandler:
                     "uses": int(r.get("usage_count", r.get("uses", 0))),
                 })
 
-            # Skill count
             skill_count = 0
             try:
                 skill_count = len(list(harness.skill_manager.skills_dir.glob("*.json")))
             except Exception:
                 pass
 
-            # Last episode
             last_episode_at = None
             try:
                 last_episode_at = harness.episodic_memory.get_last_episode_timestamp()
             except Exception:
                 pass
 
-            # USER.md presence
             user_md_exists = harness.feedforward_guide.user_md_path.exists()
 
             return {
@@ -1231,6 +1226,7 @@ class DesktopRequestHandler:
             {"id": "google/gemini-flash-1.5:free", "label": "Gemini Flash 1.5", "provider": "free"},
         ]
         return {"models": FREE_MODELS}
+
     async def _clear_memory(self) -> dict:
         if self.memory_manager is None:
             raise RuntimeError("Memory manager is not available.")

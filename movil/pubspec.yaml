@@ -1,5 +1,5 @@
-﻿name: helix_mobile
-description: Cliente mÃ³vil multiplataforma para controlar HELIX Desktop.
+name: helix_mobile
+description: Cliente móvil multiplataforma para controlar HELIX Desktop.
 publish_to: "none"
 version: 0.6.0+7
 environment:
