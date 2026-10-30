@@ -1,4 +1,4 @@
-import json
+﻿import json
 import hashlib
 import asyncio
 import os
@@ -275,6 +275,9 @@ class DesktopRequestHandler:
             "DELETE_SKILL": lambda: self._delete_skill(payload.get("name")),
             "GET_MCP_SERVERS": self._get_mcp_servers,
             "LOAD_CAPABILITY_PACK": lambda: self._load_capability_pack(payload),
+            "GET_LEARNING_STATS": self._get_learning_stats,
+            "RUN_LEARNING_MAINTENANCE": self._run_learning_maintenance,
+            "LIST_FREE_MODELS": self._list_free_models,
         }
 
         if request_id is None:
@@ -1137,6 +1140,97 @@ class DesktopRequestHandler:
             "message": "Memory manager does not expose pgvector status.",
         }
 
+    async def _get_learning_stats(self) -> dict:
+        """Returns adaptive learning harness statistics for the CLI /memory command."""
+        try:
+            try:
+                from services.agent.learning.adaptive_harness import AdaptiveLearningHarness
+            except ImportError:
+                from ..learning.adaptive_harness import AdaptiveLearningHarness
+
+            harness = AdaptiveLearningHarness.get_instance()
+
+            # Episode count
+            ep_count = 0
+            try:
+                ep_count = harness.episodic_memory.get_episode_count()
+            except Exception:
+                pass
+
+            # Profile / rules
+            profile = harness.procedural_memory.load_profile()
+            rules_raw = profile.get("learned_rules", [])
+            rule_count = len(rules_raw)
+            correction_count = sum(1 for r in rules_raw if r.get("category") == "correction")
+
+            top_rules = []
+            for r in sorted(rules_raw, key=lambda x: x.get("confidence", 0), reverse=True)[:10]:
+                top_rules.append({
+                    "category": r.get("category", "general"),
+                    "rule": r.get("rule_text", r.get("rule", "")),
+                    "confidence": round(float(r.get("confidence", 0)), 2),
+                    "uses": int(r.get("usage_count", r.get("uses", 0))),
+                })
+
+            # Skill count
+            skill_count = 0
+            try:
+                skill_count = len(list(harness.skill_manager.skills_dir.glob("*.json")))
+            except Exception:
+                pass
+
+            # Last episode
+            last_episode_at = None
+            try:
+                last_episode_at = harness.episodic_memory.get_last_episode_timestamp()
+            except Exception:
+                pass
+
+            # USER.md presence
+            user_md_exists = harness.feedforward_guide.user_md_path.exists()
+
+            return {
+                "episode_count": ep_count,
+                "rule_count": rule_count,
+                "correction_count": correction_count,
+                "skill_count": skill_count,
+                "top_rules": top_rules,
+                "last_episode_at": last_episode_at,
+                "user_md_exists": user_md_exists,
+            }
+        except Exception as e:
+            return {
+                "episode_count": 0,
+                "rule_count": 0,
+                "correction_count": 0,
+                "skill_count": 0,
+                "top_rules": [],
+                "user_md_exists": False,
+                "error": str(e),
+            }
+
+    async def _run_learning_maintenance(self) -> dict:
+        """Runs the pruning / maintenance cycle of the adaptive learning harness."""
+        try:
+            try:
+                from services.agent.learning.adaptive_harness import AdaptiveLearningHarness
+            except ImportError:
+                from ..learning.adaptive_harness import AdaptiveLearningHarness
+            harness = AdaptiveLearningHarness.get_instance()
+            result = harness.run_maintenance()
+            return result
+        except Exception as e:
+            return {"error": str(e)}
+
+    async def _list_free_models(self) -> dict:
+        """Returns the catalog of 0-cost free models available via OpenRouter."""
+        FREE_MODELS = [
+            {"id": "meta-llama/llama-3.2-3b-instruct:free", "label": "Llama 3.2 3B Instruct", "provider": "free"},
+            {"id": "qwen/qwen-2.5-coder-32b-instruct:free", "label": "Qwen 2.5 Coder 32B", "provider": "free"},
+            {"id": "deepseek/deepseek-r1:free", "label": "DeepSeek R1", "provider": "free"},
+            {"id": "google/gemini-flash-1.5:free", "label": "Gemini Flash 1.5", "provider": "free"},
+        ]
+        return {"models": FREE_MODELS}
     async def _clear_memory(self) -> dict:
         if self.memory_manager is None:
             raise RuntimeError("Memory manager is not available.")

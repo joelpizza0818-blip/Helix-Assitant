@@ -208,3 +208,19 @@ class EpisodicMemory:
                     }
                 )
         return frequent
+
+    def get_episode_count(self) -> int:
+        """Returns the total number of episodes recorded."""
+        with self._get_connection() as conn:
+            cursor = conn.execute("SELECT COUNT(*) FROM episodes")
+            row = cursor.fetchone()
+            return int(row[0]) if row else 0
+
+    def get_last_episode_timestamp(self) -> Optional[str]:
+        """Returns the ISO timestamp of the most recent episode, or None."""
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT created_at FROM episodes ORDER BY created_at DESC LIMIT 1"
+            )
+            row = cursor.fetchone()
+            return str(row["created_at"]) if row else None

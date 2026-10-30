@@ -1,4 +1,4 @@
-{
+﻿{
   "compilerOptions": {
     "target": "ES2022",
     "module": "commonjs",
@@ -9,10 +9,10 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    // @ts-ignore - node is deprecated but required for CommonJS compatibility with current dependencies
     "moduleResolution": "node",
     "resolveJsonModule": true,
-    "declaration": true
+    "declaration": true,
+    "types": ["node", "ws"]
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
