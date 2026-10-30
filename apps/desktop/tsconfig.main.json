@@ -12,7 +12,8 @@
     "moduleResolution": "Node16",
     "declaration": false,
     "noEmitOnError": true,
-    "sourceMap": true
+    "sourceMap": true,
+    "types": ["node", "ws"]
   },
   "include": ["electron/**/*.ts"],
   "exclude": ["node_modules", "dist", "dist-electron", "renderer"]

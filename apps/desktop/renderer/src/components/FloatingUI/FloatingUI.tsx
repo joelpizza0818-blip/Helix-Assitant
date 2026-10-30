@@ -22,6 +22,7 @@ import {
 } from './attachmentFiles'
 import { splitSkillMentions } from './skillMentions'
 import type { ChatAttachment, MCPServerStatus, SkillSummary } from '../../types/global'
+import ModelSelectorDropdown from './ModelSelectorDropdown'
 import './FloatingUI.css'
 
 export default function FloatingUI() {
@@ -605,6 +606,12 @@ export default function FloatingUI() {
 
         {/* Camera status indicator */}
         <span className="camera-indicator" title="Camera status" />
+
+        {/* Model Selector Pill & Dropdown (0-cost free cloud, local Ollama 1-click, and cloud BYOK) */}
+        <ModelSelectorDropdown
+          settings={voiceSettings}
+          onSave={saveSettings}
+        />
 
         {/* Send button */}
         <button

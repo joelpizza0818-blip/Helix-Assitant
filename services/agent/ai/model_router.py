@@ -68,6 +68,10 @@ class ModelRouter:
         routes = []
         seen_credentials = set()
         for candidate in best_candidates:
+            prov = self.provider_registry.get_registered_provider(candidate.provider_id)
+            if prov and getattr(prov, "no_key_required", False):
+                routes.append(candidate)
+                continue
             credential = self.key_manager.get_key(
                 candidate.provider_id,
                 candidate.key_slot,
@@ -161,9 +165,13 @@ class ModelRouter:
         for attr in ['text', 'vision', 'audio', 'computer_use', 'tool_calling', 'streaming', 'low_latency', 'coding', 'reasoning']:
             if getattr(reqs, attr): required_caps[attr] = True
 
+        configured_providers = set(self.key_manager.get_configured_providers())
+        for pid in ["free", "ollama"]:
+            if self.provider_registry.is_provider_available(pid):
+                configured_providers.add(pid)
         providers_to_check = [
             provider
-            for provider in self.key_manager.get_configured_providers()
+            for provider in configured_providers
             if self.provider_registry.is_provider_available(provider)
         ]
         
@@ -194,7 +202,11 @@ class ModelRouter:
             elif quality_preference == "low":
                 score += 20 if model.capabilities.cost_tier == "low" else 0
 
-            for slot, _key in self.key_manager.get_available_keys(model.provider):
+            slots_and_keys = list(self.key_manager.get_available_keys(model.provider))
+            prov_obj = self.provider_registry.get_registered_provider(model.provider)
+            if not slots_and_keys and prov_obj and getattr(prov_obj, "no_key_required", False):
+                slots_and_keys = [(0, "free-or-local")]
+            for slot, _key in slots_and_keys:
                 if (
                     reqs.preferred_key_slot is not None
                     and slot != reqs.preferred_key_slot

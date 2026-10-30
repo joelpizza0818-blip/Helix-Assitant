@@ -32,6 +32,9 @@ class ProviderRegistry:
     def is_provider_available(self, provider_id: str) -> bool:
         if provider_id not in self._providers:
             return False
+        provider = self._providers[provider_id]
+        if getattr(provider, "no_key_required", False) or provider_id in {"free", "ollama", "local"}:
+            return True
         return self.key_manager.is_provider_configured(provider_id)
 
     def get_provider_health(self, provider_id: str) -> dict:

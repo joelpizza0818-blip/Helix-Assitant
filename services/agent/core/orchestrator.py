@@ -752,6 +752,16 @@ class Orchestrator:
                 user_memory_prompt = UserMemoryManager.get_instance().format_context_prompt()
             except Exception:
                 user_memory_prompt = ""
+            try:
+                from services.agent.learning.adaptive_harness import AdaptiveLearningHarness
+                _harness = AdaptiveLearningHarness.get_instance()
+                _, feedforward_prompt = _harness.process_incoming_user_message(
+                    description,
+                    session_id=str(context.get("conversation_id") or "default"),
+                    recent_task_id=task_id,
+                )
+            except Exception:
+                feedforward_prompt = ""
             # Additionally compress older tail via CCL for large histories.
             _session_ccl = get_ccl(task_id)
             if len(history) > memory_turn_limit * 2:
@@ -807,6 +817,11 @@ class Orchestrator:
                         + (
                             f"\n{user_memory_prompt}"
                             if user_memory_prompt
+                            else ""
+                        )
+                        + (
+                            f"\n{feedforward_prompt}"
+                            if feedforward_prompt
                             else ""
                         )
                         + (
@@ -1203,6 +1218,18 @@ class Orchestrator:
                     )
                 except Exception:
                     logger.exception("Could not store HELIX conversation memory.")
+            try:
+                from services.agent.learning.adaptive_harness import AdaptiveLearningHarness
+                AdaptiveLearningHarness.get_instance().record_task_outcome(
+                    session_id=str(context.get("conversation_id") or "default"),
+                    task_id=task_id,
+                    user_query=description,
+                    actions_taken=[],
+                    outcome="success",
+                    feedback_score=1.0,
+                )
+            except Exception:
+                pass
             return
         
         workflow_result = None

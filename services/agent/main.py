@@ -59,6 +59,7 @@ from ai.fallback_manager import FallbackManager
 from ai.openai_provider import OpenAIProvider
 from ai.anthropic_provider import AnthropicProvider
 from ai.google_provider import GoogleProvider
+from ai.free_provider import FreeModelProvider, OllamaProvider
 
 from skills.skill_loader import SkillLoader
 from skills.skill_registry import SkillRegistry
@@ -266,6 +267,15 @@ async def main():
     provider_registry.register_provider(OpenAIProvider())
     provider_registry.register_provider(AnthropicProvider())
     provider_registry.register_provider(GoogleProvider())
+
+    free_provider = FreeModelProvider()
+    ollama_provider = OllamaProvider()
+    provider_registry.register_provider(free_provider)
+    provider_registry.register_provider(ollama_provider)
+    for model in free_provider.get_available_models():
+        capability_registry.register_model(model)
+    for model in ollama_provider.get_available_models():
+        capability_registry.register_model(model)
     
     model_router = ModelRouter(capability_registry, provider_registry, key_manager)
     fallback_manager = FallbackManager(model_router, key_manager, event_bus)
