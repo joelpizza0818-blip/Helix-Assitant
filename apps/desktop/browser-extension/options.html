@@ -20,15 +20,25 @@
       <h1>HELIX Desktop Companion</h1>
       <p>
         Paste the pairing token shown in HELIX Toolbox. HELIX opens a dedicated
-        tab in this browser for its browsing tasks. Only that HELIX-managed tab
-        is readable or controllable by the agent; other tabs are not shared.
+        tab in this browser for its browsing tasks, reusing an open tab from
+        the same site when available. HELIX compares tab URL metadata to find
+        a match, but only the selected HELIX-managed tab is readable or
+        controllable by the agent; other tabs' page content is not shared.
         Snapshots omit form values, but page content may be sent to your configured
-        AI provider as part of a request. The dedicated tab uses this browser
+        AI provider as part of a request. The selected tab uses this browser
         profile and its cookies.
+      </p>
+      <p>
+        HELIX uses Chrome's browser-debugging permission to send real mouse and
+        keyboard input to the selected HELIX-managed tab. Chrome may show a
+        permission notice when you update the extension. Tabs opened in DevTools
+        may reject control; HELIX will report that instead of switching to
+        another tab.
       </p>
       <label for="pairing-token">Pairing token</label>
       <input id="pairing-token" type="password" autocomplete="off" spellcheck="false">
       <button id="save-token" type="button">Save pairing token</button>
+      <button id="test-connection" type="button">Test connection</button>
       <p id="status" role="status" aria-live="polite"></p>
     </main>
     <script src="options.js"></script>

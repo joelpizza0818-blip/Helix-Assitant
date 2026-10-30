@@ -143,7 +143,7 @@ class BrowserSession:
     def is_running(self) -> bool:
         return self._context is not None
 
-    async def navigate(self, url: str):
+    async def navigate(self, url: str, wait_until: str = "domcontentloaded"):
         if not self._page:
             raise RuntimeError("Browser not started")
         parsed = urlparse(url)
@@ -155,7 +155,11 @@ class BrowserSession:
             if trusted and not any(host == domain or host.endswith('.' + domain) for domain in trusted):
                 raise PermissionError(f"Blocked untrusted domain: {host}")
         logger.info(f"Navigating to {url}")
-        await self._page.goto(url, wait_until="domcontentloaded")
+        try:
+            await self._page.goto(url, wait_until="networkidle", timeout=15000)
+        except Exception:
+            # networkidle can time out on SPAs with long-polling; domcontentloaded is fine
+            await self._page.goto(url, wait_until="domcontentloaded")
 
     async def click(self, selector: str):
         if not self._page:
@@ -164,9 +168,18 @@ class BrowserSession:
         if selector.isdecimal():
             selector = f'[data-helix-control="{selector}"]'
         if selector.startswith(("#", ".", "[", "//", "button", "a[href", "input")):
-            await self._page.locator(selector).first.click()
-            return
-        await self._page.get_by_text(selector, exact=True).first.click()
+            locator = self._page.locator(selector).first
+        else:
+            locator = self._page.get_by_text(selector, exact=True).first
+        try:
+            box = await locator.bounding_box()
+            if box:
+                cx = int(box["x"] + box["width"] / 2)
+                cy = int(box["y"] + box["height"] / 2)
+                await self._show_virtual_cursor(cx, cy, clicked=True)
+        except Exception:
+            pass
+        await locator.click()
 
     async def _validate_mouse_coordinates(self, x: int, y: int) -> None:
         if not self._page:
@@ -254,6 +267,14 @@ class BrowserSession:
             locator = self._page.get_by_label(selector.split("=", 1)[1]).first
         else:
             locator = self._page.locator(selector).first
+        try:
+            box = await locator.bounding_box()
+            if box:
+                cx = int(box["x"] + box["width"] / 2)
+                cy = int(box["y"] + box["height"] / 2)
+                await self._show_virtual_cursor(cx, cy, clicked=True)
+        except Exception:
+            pass
         await locator.click()
         await locator.fill(text)
 
@@ -272,17 +293,36 @@ class BrowserSession:
             raise RuntimeError("Browser not started")
         text = await self._page.locator("body").inner_text()
         controls = await self._page.locator(
-            "a, button, input, textarea, select, [role='button']"
+            "a, button, input, textarea, select, [role='button'], [tabindex='0']"
         ).evaluate_all(
-            """elements => elements.slice(0, 100).map((element, index) => {
-                element.setAttribute('data-helix-control', String(index));
-                const label = element.getAttribute('aria-label')
-                    || element.innerText
-                    || element.getAttribute('placeholder')
-                    || element.getAttribute('title')
-                    || '';
-                return `[${index}] selector=[data-helix-control="${index}"] ${element.tagName.toLowerCase()} ${label.trim()}`;
-            }).join('\\n')"""
+            """elements => {
+                let count = 0;
+                const result = [];
+                for (const element of elements) {
+                    if (count >= 100) break;
+                    const rect = element.getBoundingClientRect();
+                    if (rect.width <= 0 || rect.height <= 0) continue;
+                    const style = window.getComputedStyle(element);
+                    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') continue;
+
+                    element.setAttribute('data-helix-control', String(count));
+                    const label = (element.getAttribute('aria-label')
+                        || element.innerText
+                        || element.getAttribute('placeholder')
+                        || element.getAttribute('title')
+                        || element.getAttribute('value')
+                        || '').replace(/\\s+/g, ' ').trim().slice(0, 60);
+
+                    const cx = Math.round(rect.left + rect.width / 2);
+                    const cy = Math.round(rect.top + rect.height / 2);
+                    const tag = element.tagName.toLowerCase();
+                    const typeAttr = element.getAttribute('type') ? `[type=${element.getAttribute('type')}]` : '';
+
+                    result.push(`[${count}] selector=[data-helix-control="${count}"] ${tag}${typeAttr} "${label}" at (${cx}, ${cy})`);
+                    count++;
+                }
+                return result.join('\\n');
+            }"""
         )
         snapshot = f"URL: {self._page.url}\nTitle: {await self._page.title()}\n\n{text}"
         if controls:
@@ -292,8 +332,14 @@ class BrowserSession:
     async def screenshot(self) -> bytes:
         if not self._page:
             raise RuntimeError("Browser not started")
-        await self._page.wait_for_timeout(80)
-        return await self._page.screenshot(type="jpeg", quality=65)
+        # Wait a bit longer for animations/lazy content to settle
+        await self._page.wait_for_timeout(150)
+        return await self._page.screenshot(type="jpeg", quality=75, full_page=False)
+
+    async def screenshot_as_base64(self) -> str:
+        """Return a base64-encoded JPEG screenshot, ready to embed or pass to a vision model."""
+        import base64
+        return base64.b64encode(await self.screenshot()).decode("ascii")
 
     async def scroll(self, direction: str, amount: int):
         if not self._page:

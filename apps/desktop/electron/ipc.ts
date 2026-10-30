@@ -37,6 +37,9 @@ export class IPCBridge {
   private pendingRequests: Map<string, ResponseResolver> = new Map()
   private queuedRequests: Map<string, AgentMessage & { request_id: string }> = new Map()
   private requestTimeouts: Map<string, NodeJS.Timeout> = new Map()
+  private requestDeadlines: Map<string, number> = new Map()
+  private sentRequestIds = new Set<string>()
+  private browserSessionUpdate: { session_id: string; url: string } | null = null
   private reconnectAttempts: number = 0
   private wsUrl: string = ''
   private wsTokenProvider: (() => string) | null = null
@@ -151,7 +154,7 @@ export class IPCBridge {
       return this._request({
         type: 'CHAT_SUBAGENT',
         payload: { profile_id: profileId, message },
-      }, 120000)
+      }, 1200000)
     })
 
     ipcMain.handle('helix:get-subagent-memories', async (_event, profileId: string) => {
@@ -495,9 +498,28 @@ export class IPCBridge {
     })
   }
 
+  clearBrowserPageSnapshot(): boolean {
+    return this._sendToPython({
+      type: 'BROWSER_PAGE_CLEAR',
+      payload: {},
+      timestamp: new Date().toISOString(),
+    })
+  }
+
+  sendBrowserSessionUpdate(session: { session_id: string; url: string }): boolean {
+    this.browserSessionUpdate = { ...session }
+    return this._sendToPython({
+      type: 'BROWSER_SESSION_UPDATE',
+      payload: { ...session },
+      timestamp: new Date().toISOString(),
+    })
+  }
+
   close(): void {
     for (const timeout of this.requestTimeouts.values()) clearTimeout(timeout)
     this.requestTimeouts.clear()
+    this.requestDeadlines.clear()
+    this.sentRequestIds.clear()
 
     for (const [requestId, resolver] of this.pendingRequests) {
       resolver(undefined, 'HELIX is shutting down.')
@@ -530,13 +552,24 @@ export class IPCBridge {
           console.log('[IPCBridge] Connected to Python agent WebSocket')
           this.reconnectAttempts = 0
           this.reconnecting = false
+          if (this.browserSessionUpdate) {
+            this._sendToPython({
+              type: 'BROWSER_SESSION_UPDATE',
+              payload: { ...this.browserSessionUpdate },
+              timestamp: new Date().toISOString(),
+            })
+          }
           for (const [requestId, message] of this.queuedRequests) {
             if (!this.pendingRequests.has(requestId)) {
               this.queuedRequests.delete(requestId)
               continue
             }
-            this.queuedRequests.delete(requestId)
-            this._sendRequest(ws, message)
+            const remainingMs = (this.requestDeadlines.get(requestId) ?? 0) - Date.now()
+            if (remainingMs <= 0) {
+              this._expireRequest(requestId, `Request timeout: ${message.type}`)
+            } else {
+              this._sendRequest(ws, message)
+            }
           }
           resolve()
         })
@@ -554,6 +587,9 @@ export class IPCBridge {
               const timeout = this.requestTimeouts.get(message.request_id)
               if (timeout) clearTimeout(timeout)
               this.requestTimeouts.delete(message.request_id)
+              this.requestDeadlines.delete(message.request_id)
+              this.sentRequestIds.delete(message.request_id)
+              this.queuedRequests.delete(message.request_id)
               this.pendingRequests.delete(message.request_id)
               resolver(message.payload, message.error)
               return
@@ -648,9 +684,14 @@ export class IPCBridge {
         if (error) reject(new Error(error))
         else resolve(data)
       })
+      this.requestDeadlines.set(requestId, Date.now() + timeoutMs)
+      this.requestTimeouts.set(requestId, setTimeout(
+        () => this._expireRequest(requestId, `Request timeout: ${message.type}`),
+        timeoutMs,
+      ))
 
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this._sendRequest(this.ws, messageWithId, timeoutMs)
+        this._sendRequest(this.ws, messageWithId)
       } else {
         this.queuedRequests.set(requestId, messageWithId)
       }
@@ -660,17 +701,47 @@ export class IPCBridge {
   private _sendRequest(
     ws: WebSocket,
     message: AgentMessage & { request_id: string },
-    timeoutMs: number = 10000
   ): void {
-    const timeout = setTimeout(() => {
-      this.requestTimeouts.delete(message.request_id)
-      const resolver = this.pendingRequests.get(message.request_id)
-      this.pendingRequests.delete(message.request_id)
-      this.queuedRequests.delete(message.request_id)
-      resolver?.(undefined, `Request timeout: ${message.type}`)
-    }, timeoutMs)
-    this.requestTimeouts.set(message.request_id, timeout)
-    ws.send(JSON.stringify(message))
+    if (!this.pendingRequests.has(message.request_id)) return
+    if ((this.requestDeadlines.get(message.request_id) ?? 0) <= Date.now()) {
+      this._expireRequest(message.request_id, `Request timeout: ${message.type}`)
+      return
+    }
+    this.queuedRequests.delete(message.request_id)
+    this.sentRequestIds.add(message.request_id)
+    try {
+      ws.send(JSON.stringify(message))
+    } catch (error) {
+      this._expireRequest(
+        message.request_id,
+        error instanceof Error ? error.message : 'Could not send request to the agent.',
+      )
+    }
+  }
+
+  private _expireRequest(requestId: string, reason: string): void {
+    const timeout = this.requestTimeouts.get(requestId)
+    if (timeout) clearTimeout(timeout)
+    this.requestTimeouts.delete(requestId)
+    this.requestDeadlines.delete(requestId)
+    this.queuedRequests.delete(requestId)
+    if (this.sentRequestIds.delete(requestId)) {
+      try {
+        this._sendToPython({
+          type: 'CANCEL_REQUEST',
+          payload: { request_id: requestId },
+          timestamp: new Date().toISOString(),
+        })
+      } catch (error) {
+        console.warn(
+          '[IPCBridge] Could not send cancellation for an expired request:',
+          error,
+        )
+      }
+    }
+    const resolver = this.pendingRequests.get(requestId)
+    this.pendingRequests.delete(requestId)
+    resolver?.(undefined, reason)
   }
 
   private _forwardToRenderer(message: AgentMessage): void {

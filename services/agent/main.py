@@ -25,7 +25,9 @@ from core.event_bus import EventBus
 from core.desktop_bridge import (
     MAX_AGENT_WEBSOCKET_MESSAGE_BYTES,
     DesktopRequestHandler,
+    _safe_task_failure_message,
     _serialize_task_for_desktop,
+    safe_desktop_request_error,
 )
 from core.desktop_event_routing import select_desktop_event_recipients
 from security.websocket_auth import authenticate_websocket_handshake
@@ -105,6 +107,7 @@ async def ws_handler(
     clients.add(websocket)
     response_lock = asyncio.Lock()
     request_tasks: set[asyncio.Task] = set()
+    request_tasks_by_id: dict[str, asyncio.Task] = {}
     registered_conversations: list[str] = []
 
     async def dispatch_message(raw_message: str) -> None:
@@ -134,12 +137,13 @@ async def ws_handler(
                 async with response_lock:
                     await websocket.send(json.dumps({
                         "request_id": request_id,
-                        "error": "Internal agent request failed",
+                        "error": safe_desktop_request_error(error),
                     }))
 
     try:
         async for raw_message in websocket:
             request_id = None
+            message = None
             try:
                 message = json.loads(raw_message)
                 if isinstance(message, dict):
@@ -167,12 +171,37 @@ async def ws_handler(
                         conversation_clients.setdefault(conversation_id, set()).add(websocket)
             except json.JSONDecodeError:
                 pass
+            if (
+                isinstance(message, dict)
+                and message.get("type") == "CANCEL_REQUEST"
+                and request_id is None
+            ):
+                payload = message.get("payload")
+                cancelled_request_id = (
+                    payload.get("request_id") if isinstance(payload, dict) else None
+                )
+                request_task = (
+                    request_tasks_by_id.get(cancelled_request_id)
+                    if isinstance(cancelled_request_id, str)
+                    else None
+                )
+                if request_task is not None:
+                    request_task.cancel()
+                continue
             if request_id is None:
                 await dispatch_message(raw_message)
                 continue
             task = asyncio.create_task(dispatch_message(raw_message))
             request_tasks.add(task)
-            task.add_done_callback(request_tasks.discard)
+            if isinstance(request_id, str):
+                request_tasks_by_id[request_id] = task
+
+            def finish_request(completed: asyncio.Task, request_id=request_id) -> None:
+                request_tasks.discard(completed)
+                if request_tasks_by_id.get(request_id) is completed:
+                    request_tasks_by_id.pop(request_id, None)
+
+            task.add_done_callback(finish_request)
     finally:
         for task in request_tasks:
             task.cancel()
@@ -374,8 +403,15 @@ async def main():
         agent_manager=agent_manager,
     )
     def configure_from_saved_settings():
+        saved = request_handler.get_settings()
+        for configured_tool in tool_registry.get_all_tools():
+            configure = getattr(configured_tool, 'configure', None)
+            if callable(configure):
+                configure(saved)
+        from browser.browser_session import BrowserSession
+        BrowserSession.configure_defaults(saved)
         return configure_subagent_delegation(
-            request_handler.get_settings(),
+            saved,
             key_manager,
             tool_registry,
             delegate_task_tool,
@@ -419,6 +455,7 @@ async def main():
             "AGENT_CANCELLED": "agent_update",
             "REACT_STEP": "react_step",
             "BROWSER_FRAME": "browser_frame",
+            "DESKTOP_FRAME": "desktop_frame",
             "HAND_LANDMARKS": "hand_landmarks",
             "CAPABILITY_REQUIRED": "capability-required",
         }
@@ -432,7 +469,10 @@ async def main():
             if task is None:
                 return
             event_payload = _serialize_task_for_desktop(task)
-            event_payload["error"] = None
+            event_payload["error"] = _safe_task_failure_message(
+                getattr(task, "error", None),
+                getattr(task, "provider", None),
+            )
         elif event_name in {
             "SUBAGENT_SPAWNED",
             "SUBAGENT_STATUS_CHANGED",
@@ -475,6 +515,7 @@ async def main():
                                 current_action=label,
                             )
             event_payload = safe_subagent_lifecycle_payload(lifecycle_payload)
+            event_payload["event_type"] = event_name
         else:
             event_payload = payload
 

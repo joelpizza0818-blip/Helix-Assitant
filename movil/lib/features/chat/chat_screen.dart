@@ -31,6 +31,8 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
+  final _remoteKeyController = TextEditingController();
+  bool _showRemoteKeyboard = false;
   final _pairingStore = const SecurePairingStore();
   final _backgroundConnection = const MobileBackgroundConnection();
   final _notifications = MobileTaskNotifications();
@@ -90,6 +92,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _controller.dispose();
     _scrollController.dispose();
+    _remoteKeyController.dispose();
     for (final link in _links.values) {
       unawaited(link.dispose());
     }
@@ -374,6 +377,29 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
     if (event.type == 'task_update') {
       _updateProgress(event.payload, link);
+      return;
+    }
+    if (event.type == 'desktop_frame') {
+      final encoded = event.payload['image_base64'];
+      final expectedDeviceId = link.connection.session?.sourceDeviceId;
+      final sourceDeviceId = event.payload['source_device_id'];
+      if (encoded is! String ||
+          encoded.length > 800000 ||
+          (expectedDeviceId != null &&
+              sourceDeviceId != null &&
+              sourceDeviceId != expectedDeviceId)) {
+        return;
+      }
+      try {
+        final frame = base64Decode(encoded);
+        if (frame.length > 560000) return;
+        link.desktopFrame = Uint8List.fromList(frame);
+        if (_selectedSessionId == link.sessionId && _tab == 4) {
+          setState(() {});
+        }
+      } catch (error) {
+        // ignore malformed frame
+      }
       return;
     }
     if (event.type == 'browser_frame') {
@@ -942,8 +968,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                                 key: ValueKey(_selectedSessionId),
                                 session: _activeLink?.connection.session,
                               )
-                            : _buildBrowserPanel(theme)),
-            _buildComposer(theme),
+                            : _tab == 3
+                                ? _buildBrowserPanel(theme)
+                                : _buildRemoteDesktopPanel(theme)),
+            if (_tab != 4) _buildComposer(theme),
           ],
         ),
       ),
@@ -1005,6 +1033,17 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                           onTap: () {
                             Navigator.pop(context);
                             setState(() => _tab = 3);
+                          }),
+                      _DrawerAction(
+                          icon: Icons.settings_remote_rounded,
+                          label: 'Control remoto del Desktop',
+                          onTap: () {
+                            Navigator.pop(context);
+                            setState(() => _tab = 4);
+                            final link = _activeLink;
+                            if (link != null && !link.desktopStreamActive) {
+                              unawaited(_toggleDesktopStream(link));
+                            }
                           }),
                       _DrawerAction(
                           icon: Icons.add_link_rounded,
@@ -1261,6 +1300,198 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 Icon(_connected ? Icons.link_off_rounded : Icons.link_rounded),
             label: Text(_connected ? 'Desconectar' : 'Conectar Desktop')),
       ]);
+
+
+  Future<void> _toggleDesktopStream(_MobileLink link) async {
+    final session = link.connection.session;
+    if (session == null) return;
+    try {
+      if (link.desktopStreamActive) {
+        await session.stopDesktopStream();
+        link.desktopStreamActive = false;
+      } else {
+        await session.startDesktopStream(fps: 10);
+        link.desktopStreamActive = true;
+      }
+      setState(() {});
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error con control remoto: $e')),
+        );
+      }
+    }
+  }
+
+  void _sendRemoteMouse(String action, Offset localPos, Size renderSize) {
+    final session = _activeLink?.connection.session;
+    if (session == null || renderSize.width <= 0 || renderSize.height <= 0) return;
+    final xRatio = (localPos.dx / renderSize.width).clamp(0.0, 1.0);
+    final yRatio = (localPos.dy / renderSize.height).clamp(0.0, 1.0);
+    session.sendRemoteMouseEvent(
+      action: action,
+      xRatio: xRatio,
+      yRatio: yRatio,
+    );
+  }
+
+  void _sendRemoteKey(String key) {
+    final session = _activeLink?.connection.session;
+    if (session == null) return;
+    session.sendRemoteKeyboardInput(key: key);
+  }
+
+  void _sendRemoteText(String text) {
+    if (text.isEmpty) return;
+    final session = _activeLink?.connection.session;
+    if (session == null) return;
+    session.sendRemoteKeyboardInput(text: text);
+    _remoteKeyController.clear();
+  }
+
+  Widget _buildRemoteDesktopPanel(ThemeData theme) {
+    final link = _activeLink;
+    final frame = link?.desktopFrame;
+    if (link == null) {
+      return const Center(child: Text('Agrega un Desktop para iniciar control remoto.'));
+    }
+
+    return Column(
+      children: [
+        ListTile(
+          leading: const Icon(Icons.settings_remote_rounded, color: Color(0xFFEE6018)),
+          title: const Text('Control Remoto de Pantalla'),
+          subtitle: Text(link.desktopStreamActive
+              ? (frame != null ? 'Transmisión activa · Toca para controlar' : 'Iniciando captura...')
+              : 'Transmisión detenida'),
+          trailing: IconButton(
+            tooltip: link.desktopStreamActive ? 'Detener transmisión' : 'Iniciar transmisión',
+            icon: Icon(
+              link.desktopStreamActive ? Icons.stop_circle_rounded : Icons.play_circle_fill_rounded,
+              color: link.desktopStreamActive ? Colors.redAccent : const Color(0xFF77D89A),
+              size: 28,
+            ),
+            onPressed: () => _toggleDesktopStream(link),
+          ),
+        ),
+        Container(
+          height: 44,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          color: const Color(0xFF18181A),
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            children: [
+              TextButton.icon(
+                icon: const Icon(Icons.keyboard_rounded, size: 16),
+                label: Text(_showRemoteKeyboard ? 'Ocultar teclado' : 'Escribir texto'),
+                onPressed: () => setState(() => _showRemoteKeyboard = !_showRemoteKeyboard),
+              ),
+              const SizedBox(width: 4),
+              OutlinedButton(
+                onPressed: () => _sendRemoteKey('enter'),
+                child: const Text('Enter'),
+              ),
+              const SizedBox(width: 4),
+              OutlinedButton(
+                onPressed: () => _sendRemoteKey('backspace'),
+                child: const Text('Backspace'),
+              ),
+              const SizedBox(width: 4),
+              OutlinedButton(
+                onPressed: () => _sendRemoteKey('esc'),
+                child: const Text('Esc'),
+              ),
+              const SizedBox(width: 4),
+              OutlinedButton(
+                onPressed: () => _sendRemoteKey('tab'),
+                child: const Text('Tab'),
+              ),
+              const SizedBox(width: 4),
+              OutlinedButton(
+                onPressed: () => _sendRemoteKey('space'),
+                child: const Text('Espacio'),
+              ),
+            ],
+          ),
+        ),
+        if (_showRemoteKeyboard)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            color: const Color(0xFF222226),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _remoteKeyController,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      hintText: 'Escribe aquí para enviar al Desktop…',
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    ),
+                    onSubmitted: (txt) => _sendRemoteText(txt),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton.filled(
+                  icon: const Icon(Icons.send_rounded, size: 18),
+                  onPressed: () => _sendRemoteText(_remoteKeyController.text),
+                ),
+              ],
+            ),
+          ),
+        Expanded(
+          child: frame == null
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.desktop_windows_outlined, size: 54, color: Color(0xFF85898E)),
+                      const SizedBox(height: 14),
+                      Text(
+                        link.desktopStreamActive
+                            ? 'Esperando primer fotograma del Desktop…'
+                            : 'Inicia la transmisión para ver y controlar\nla pantalla de tu PC desde el móvil.',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Color(0xFF85898E)),
+                      ),
+                      const SizedBox(height: 16),
+                      if (!link.desktopStreamActive)
+                        ElevatedButton.icon(
+                          onPressed: () => _toggleDesktopStream(link),
+                          icon: const Icon(Icons.play_arrow_rounded),
+                          label: const Text('Iniciar Transmisión'),
+                        ),
+                    ],
+                  ),
+                )
+              : LayoutBuilder(
+                  builder: (context, constraints) {
+                    final renderSize = Size(constraints.maxWidth, constraints.maxHeight);
+                    return GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTapUp: (details) => _sendRemoteMouse('click', details.localPosition, renderSize),
+                      onDoubleTapDown: (details) => _sendRemoteMouse('double_click', details.localPosition, renderSize),
+                      onLongPressStart: (details) => _sendRemoteMouse('right_click', details.localPosition, renderSize),
+                      onPanUpdate: (details) => _sendRemoteMouse('move', details.localPosition, renderSize),
+                      child: InteractiveViewer(
+                        minScale: 0.8,
+                        maxScale: 3.5,
+                        child: Center(
+                          child: Image.memory(
+                            frame,
+                            fit: BoxFit.contain,
+                            gaplessPlayback: true,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
 
   Widget _buildBrowserPanel(ThemeData theme) {
     final link = _activeLink;
@@ -1577,6 +1808,8 @@ class _MobileLink {
   String? activeTaskId;
   Uint8List? browserFrame;
   bool browserLivePaused = false;
+  Uint8List? desktopFrame;
+  bool desktopStreamActive = false;
 
   Future<void> dispose() async {
     await events?.cancel();

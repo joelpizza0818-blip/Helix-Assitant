@@ -57,20 +57,25 @@ export default function AgentPanel() {
   const [model, setModel] = useState('')
   const [keySlot, setKeySlot] = useState<number | null>(null)
   const [turnsByProfile, setTurnsByProfile] = useState<Record<string, ChatTurn[]>>({})
+  const [messagesByProfile, setMessagesByProfile] = useState<Record<string, string>>({})
+  const [sendingProfiles, setSendingProfiles] = useState<Set<string>>(() => new Set())
+  const [chatErrors, setChatErrors] = useState<Record<string, string>>({})
   const [memories, setMemories] = useState<UserMemory[]>([])
   const [memoryDraft, setMemoryDraft] = useState('')
   const [memoryCategory, setMemoryCategory] = useState<UserMemory['category']>('general')
   const [editingMemoryId, setEditingMemoryId] = useState<string | null>(null)
-  const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(true)
-  const [sending, setSending] = useState(false)
   const [savingRoute, setSavingRoute] = useState(false)
   const [promotionNotice, setPromotionNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const preserveKeySelection = useRef(false)
+  const sendingProfilesRef = useRef(new Set<string>())
+  const statusRequestRef = useRef<Promise<AgentLifecycleEvent[]> | null>(null)
 
   const selectedProfile = profiles.find((profile) => profile.profile_id === selectedId) ?? null
   const selectedTurns = selectedId ? turnsByProfile[selectedId] ?? [] : []
+  const message = selectedId ? messagesByProfile[selectedId] ?? '' : ''
+  const selectedProfileSending = selectedId ? sendingProfiles.has(selectedId) : false
   const selectedProvider = routingOptions.providers.find((item) => item.id === provider)
   const availableModels = routingOptions.models.filter((item) => item.provider === provider)
   const selectedStatus = selectedId
@@ -79,27 +84,37 @@ export default function AgentPanel() {
       .sort((left, right) => (right.created_at ?? '').localeCompare(left.created_at ?? ''))[0]
     : undefined
 
-  const refresh = useCallback(async (includeRouting: boolean) => {
+  const refresh = useCallback(async (includeRouting: boolean, includeProfiles = false) => {
+    if (!statusRequestRef.current) {
+      const request = window.helix.getSubagentStatus().finally(() => {
+        statusRequestRef.current = null
+      })
+      statusRequestRef.current = request
+    }
     const [nextProfiles, nextStatuses, nextRouting] = await Promise.all([
-      window.helix.getSubagentProfiles(),
-      window.helix.getSubagentStatus(),
+      includeProfiles
+        ? window.helix.getSubagentProfiles()
+        : Promise.resolve(null),
+      statusRequestRef.current,
       includeRouting
         ? window.helix.getSubagentRoutingOptions()
         : Promise.resolve(null),
     ])
-    setProfiles(nextProfiles)
+    if (nextProfiles) {
+      setProfiles(nextProfiles)
+      setSelectedId((current) => (
+        current && nextProfiles.some((profile) => profile.profile_id === current)
+          ? current
+          : nextProfiles[0]?.profile_id ?? null
+      ))
+    }
     setStatuses(nextStatuses)
     if (nextRouting) setRoutingOptions(nextRouting)
-    setSelectedId((current) => (
-      current && nextProfiles.some((profile) => profile.profile_id === current)
-        ? current
-        : nextProfiles[0]?.profile_id ?? null
-    ))
   }, [])
 
   useEffect(() => {
     let active = true
-    void refresh(true)
+    void refresh(true, true)
       .catch((cause: unknown) => {
         if (active) setError(messageFromError(cause))
       })
@@ -127,7 +142,9 @@ export default function AgentPanel() {
           return next
         })
       }
-      void refresh(false)
+      const profilesChanged = event.event_type === 'SUBAGENT_SPAWNED'
+        || event.event_type === 'SUBAGENT_PROMOTED'
+      void refresh(false, profilesChanged)
         .catch((cause: unknown) => {
           if (active) setError(messageFromError(cause))
         })
@@ -195,11 +212,23 @@ export default function AgentPanel() {
   const sendMessage = async (event: FormEvent) => {
     event.preventDefault()
     const text = message.trim()
-    if (!selectedProfile || !text || sending) return
+    if (!selectedProfile || !text) return
     const profileId = selectedProfile.profile_id
-    setMessage('')
-    setError(null)
-    setSending(true)
+    if (sendingProfilesRef.current.has(profileId)) return
+    const nextSendingProfiles = new Set(sendingProfilesRef.current)
+    nextSendingProfiles.add(profileId)
+    sendingProfilesRef.current = nextSendingProfiles
+    setSendingProfiles(nextSendingProfiles)
+    setMessagesByProfile((current) => {
+      const next = { ...current }
+      delete next[profileId]
+      return next
+    })
+    setChatErrors((current) => {
+      const next = { ...current }
+      delete next[profileId]
+      return next
+    })
     setTurnsByProfile((current) => ({
       ...current,
       [profileId]: [...(current[profileId] ?? []), { role: 'user', content: text }],
@@ -214,9 +243,15 @@ export default function AgentPanel() {
         ],
       }))
     } catch (cause) {
-      setError(messageFromError(cause))
+      setChatErrors((current) => ({
+        ...current,
+        [profileId]: messageFromError(cause),
+      }))
     } finally {
-      setSending(false)
+      const remainingSendingProfiles = new Set(sendingProfilesRef.current)
+      remainingSendingProfiles.delete(profileId)
+      sendingProfilesRef.current = remainingSendingProfiles
+      setSendingProfiles(remainingSendingProfiles)
     }
   }
 
@@ -524,7 +559,8 @@ export default function AgentPanel() {
                       ? current.current_action.slice('Waiting for '.length)
                       : undefined)
                   : undefined
-                const active = Boolean(waitingResource)
+                const chatSending = sendingProfiles.has(profile.profile_id)
+                const active = chatSending || Boolean(waitingResource)
                   || current?.status === 'running'
                   || current?.status === 'queued'
                 const progress = current?.status === 'completed'
@@ -545,7 +581,9 @@ export default function AgentPanel() {
                       <span className="agent-profile__progress"><span style={{ width: `${progress}%` }} /></span>
                     </span>
                     <span className={`agent-profile__status ${active ? 'is-active' : ''}`}>
-                      {waitingResource
+                      {chatSending
+                        ? 'responding'
+                        : waitingResource
                         ? `waiting · ${waitingResource}`
                         : active ? current?.status : current ? current.status : 'available'}
                     </span>
@@ -614,7 +652,7 @@ export default function AgentPanel() {
               </div>
               <div className="agent-detail__status">
                 <span>Status</span>
-                <strong>{selectedStatus?.status ?? 'available'}</strong>
+                <strong>{selectedProfileSending ? 'responding' : selectedStatus?.status ?? 'available'}</strong>
                 <span>{selectedProfile.model_route
                   ? `${selectedProfile.model_route.provider} · ${selectedProfile.model_route.model} · key ${selectedProfile.model_route.key_slot + 1}`
                   : 'Automatic model routing'}
@@ -688,19 +726,30 @@ export default function AgentPanel() {
                       <p>{turn.content}</p>
                     </div>
                   ))}
-                  {sending && <div className="agent-chat__working">{selectedProfile.name} is responding…</div>}
+                  {selectedProfileSending && <div className="agent-chat__working">{selectedProfile.name} is responding…</div>}
+                  {chatErrors[selectedProfile.profile_id] && (
+                    <div className="agent-panel__error" role="alert">
+                      {chatErrors[selectedProfile.profile_id]}
+                    </div>
+                  )}
                 </div>
                 <form className="agent-chat__form" onSubmit={(event) => void sendMessage(event)}>
                   <textarea
                     value={message}
-                    onChange={(event) => setMessage(event.target.value)}
+                    onChange={(event) => {
+                      const profileId = selectedProfile.profile_id
+                      setMessagesByProfile((current) => ({
+                        ...current,
+                        [profileId]: event.target.value,
+                      }))
+                    }}
                     placeholder={`Message ${selectedProfile.name}…`}
                     maxLength={4000}
                     rows={2}
-                    disabled={sending}
+                    disabled={selectedProfileSending}
                   />
-                  <button type="submit" className="agent-panel__primary" disabled={sending || !message.trim()}>
-                    {sending ? 'Sending…' : 'Send'}
+                  <button type="submit" className="agent-panel__primary" disabled={selectedProfileSending || !message.trim()}>
+                    {selectedProfileSending ? 'Sending…' : 'Send'}
                   </button>
                 </form>
               </div>

@@ -142,7 +142,7 @@ async def test_browser_control_uses_only_the_paired_extension_tab(monkeypatch):
     monkeypatch.setenv("HELIX_BROWSER_EXTENSION_TOKEN", "a" * 64)
     monkeypatch.setattr(browser_control_module, "_active_extension_session_id", None)
     monkeypatch.setattr(tool, "_get_or_create_session", lambda: pytest.fail("Playwright fallback was used"))
-    assert "drag" not in tool.get_schema()["properties"]["action"]["enum"]
+    assert "drag" in tool.get_schema()["properties"]["action"]["enum"]
 
     def fake_request(method, path, payload=None):
         assert method == "GET" and path == "/status"
@@ -151,7 +151,7 @@ async def test_browser_control_uses_only_the_paired_extension_tab(monkeypatch):
     async def fake_command(command):
         commands.append(command)
         if command["action"] == "open_session":
-            return {"session_id": "42", "url": command["url"]}
+            return {"session_id": "42", "url": f"{command['url'].rstrip('/')}/inbox"}
         if command["action"] == "snapshot":
             return {"title": "HELIX page", "url": "https://example.org", "text": "page text"}
         if command["action"] == "screenshot":
@@ -163,13 +163,67 @@ async def test_browser_control_uses_only_the_paired_extension_tab(monkeypatch):
     monkeypatch.setattr(tool, "_extension_command", fake_command)
 
     navigation = await tool.execute({"action": "navigate", "url": "example.org"})
-    click = await tool.execute({"action": "click", "selector": "2"})
+    click = await tool.execute({
+        "action": "click",
+        "selector": '[data-helix-control="helix-2"]',
+    })
+    double_click = await tool.execute({
+        "action": "double_click_at", "x": 22, "y": 32, "button": "right",
+    })
+    drag = await tool.execute({
+        "action": "drag", "x": 20, "y": 30, "end_x": 80, "end_y": 90,
+    })
     screenshot = await tool.execute({"action": "screenshot"})
 
     assert navigation.success and navigation.output["page"]["title"] == "HELIX page"
+    assert navigation.output["url"] == "https://example.org/inbox"
     assert click.success
-    assert {"action": "click", "session_id": "42", "selector": '[data-helix-control="2"]'} in commands
+    assert double_click.success
+    assert {
+        "action": "double_click_at",
+        "session_id": "42",
+        "x": 22,
+        "y": 32,
+        "button": "right",
+    } in commands
+    assert drag.success
+    assert {
+        "action": "drag",
+        "session_id": "42",
+        "x": 20,
+        "y": 30,
+        "end_x": 80,
+        "end_y": 90,
+        "button": "left",
+    } in commands
+    assert {
+        "action": "click",
+        "session_id": "42",
+        "selector": '[data-helix-control="helix-2"]',
+    } in commands
     assert screenshot.output["screenshot_bytes"] == b"image-bytes"
+
+
+@pytest.mark.asyncio
+async def test_browser_control_rejects_stale_numeric_control_indices(monkeypatch):
+    tool = BrowserControlTool()
+    monkeypatch.setenv("HELIX_BROWSER_CONTROL_MODE", "extension")
+    monkeypatch.setenv("HELIX_BROWSER_EXTENSION_TOKEN", "a" * 64)
+    monkeypatch.setattr(browser_control_module, "_active_extension_session_id", "42")
+    monkeypatch.setattr(
+        browser_control_module,
+        "_active_extension_session_url",
+        "https://example.org/inbox",
+    )
+    monkeypatch.setattr(tool, "_extension_request", lambda *_args, **_kwargs: {"connected": True})
+
+    result = await tool.execute({
+        "action": "click",
+        "selector": "2",
+    })
+
+    assert not result.success
+    assert "stale" in result.error.lower()
 
 
 @pytest.mark.asyncio
@@ -184,6 +238,67 @@ async def test_browser_control_fails_clearly_when_extension_is_not_connected(mon
 
     assert not result.success
     assert "extension is not connected" in result.error
+
+
+@pytest.mark.asyncio
+async def test_browser_control_recovers_when_browser_restart_clears_managed_tab(monkeypatch):
+    tool = BrowserControlTool()
+    requests = []
+    monkeypatch.setenv("HELIX_BROWSER_CONTROL_MODE", "extension")
+    monkeypatch.setenv("HELIX_BROWSER_EXTENSION_TOKEN", "a" * 64)
+    monkeypatch.setattr(browser_control_module, "_active_extension_session_id", "7")
+    monkeypatch.setattr(
+        browser_control_module,
+        "_active_extension_session_url",
+        "https://example.org/inbox",
+    )
+
+    def fake_request(method, path, payload=None):
+        requests.append((method, path, payload))
+        if method == "GET":
+            return {"connected": True}
+        if payload["action"] == "click" and payload["session_id"] == "7":
+            return {
+                "ok": False,
+                "error": (
+                    "Browser companion request failed: "
+                    "Could not process browser page snapshot: "
+                    "This tab is not managed by HELIX."
+                ),
+            }
+        if payload["action"] == "open_session":
+            return {
+                "ok": True,
+                "result": {"session_id": "9", "url": "https://example.org/inbox"},
+            }
+        if payload["action"] == "snapshot":
+            return {
+                "ok": True,
+                "result": {
+                    "title": "Inbox",
+                    "url": "https://example.org/inbox",
+                    "text": "Mail",
+                },
+            }
+        return {"ok": True, "result": {"clicked": True}}
+
+    monkeypatch.setattr(tool, "_extension_request", fake_request)
+    result = await tool.execute({
+        "action": "click",
+        "selector": '[data-helix-control="helix-2"]',
+    })
+
+    assert result.success
+    assert ("POST", "/control", {
+        "action": "open_session",
+        "url": "https://example.org/inbox",
+    }) in requests
+    assert ("POST", "/control", {
+        "action": "click",
+        "session_id": "9",
+        "selector": '[data-helix-control="helix-2"]',
+    }) in requests
+    assert browser_control_module._active_extension_session_id == "9"
 
 
 def test_browser_control_validates_virtual_mouse_coordinates():

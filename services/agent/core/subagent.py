@@ -27,6 +27,7 @@ class SubAgent:
         self._status = "idle"
         self._result: Any = None
         self._error: Optional[str] = None
+        self._current_task: Optional[asyncio.Task] = None
         self.created_at = datetime.now(timezone.utc)
         self.started_at: Optional[datetime] = None
         self.completed_at: Optional[datetime] = None
@@ -38,6 +39,19 @@ class SubAgent:
             if self.profile
             else f"conv_{self.agent_id}"
         )
+
+    def _preferred_tools(self) -> Optional[list[str]]:
+        tools = []
+        caps = set(self.profile.capabilities) if self.profile else set()
+        if "browser" in caps or "automation" in caps or self.role == "automation":
+            tools.extend(["browser_control", "read_active_browser_page"])
+        if "coding" in caps or self.role == "coding":
+            tools.extend(["filesystem_tool", "shell_tool", "powershell_tool", "cmd_tool"])
+        if "research" in caps or "analysis" in caps or self.role == "research":
+            tools.extend(["read_active_browser_page", "browser_control", "context_retrieve_tool", "indexed_file_search_tool"])
+        if "planning" in caps or self.role == "planning":
+            tools.extend(["delegate_task", "message_subagent"])
+        return tools if tools else None
 
     def _system_prompt(self) -> str:
         prompt = self.context_manager.get_system_prompt(self.role)
@@ -107,6 +121,7 @@ class SubAgent:
         excluded_api_keys: Optional[list[str]] = None,
     ) -> dict:
         self._status = "running"
+        self._current_task = asyncio.current_task()
         self.started_at = datetime.now(timezone.utc)
         await self.event_bus.publish("AGENT_STARTED", {
             "agent_id": self.agent_id,
@@ -127,11 +142,14 @@ class SubAgent:
             
             messages = self.context_manager.get_messages(conversation_id)
             
+            preferred_tools = self._preferred_tools()
             execute_options = {
                 "messages": messages,
                 "role": self.role,
                 "task_id": self.agent_id,
             }
+            if preferred_tools:
+                execute_options["preferred_tool_names"] = preferred_tools
             if context:
                 for key in ("conversation_id", "source_device_id"):
                     if isinstance(context.get(key), str):
@@ -195,6 +213,9 @@ class SubAgent:
             })
             return result
 
+        finally:
+            self._current_task = None
+
     async def chat(self, message: str, task_id: str) -> str:
         if not self.profile:
             raise RuntimeError("Direct chat requires a persistent subagent profile.")
@@ -204,12 +225,15 @@ class SubAgent:
             conversation_id,
             ChatMessage(role="user", content=message),
         )
+        preferred_tools = self._preferred_tools()
         execute_options = {
             "messages": self.context_manager.get_messages(conversation_id),
             "role": self.role,
             "task_id": task_id,
             "conversation_id": conversation_id,
         }
+        if preferred_tools:
+            execute_options["preferred_tool_names"] = preferred_tools
         if self.profile.model_route is not None:
             execute_options["preferred_route"] = dict(self.profile.model_route)
         with user_memory_scope(self.memory_manager):
@@ -223,6 +247,11 @@ class SubAgent:
     async def stop(self):
         if self._status in {"completed", "failed", "cancelled", "stopped"}:
             return
+        # Cancel the underlying asyncio.Task immediately so the ReActLoop stops
+        # even if it is waiting for a model response or tool result.
+        current_task = getattr(self, "_current_task", None)
+        if current_task is not None and not current_task.done():
+            current_task.cancel()
         self._status = "cancelled"
         self._error = "Agent execution was cancelled."
         self.completed_at = datetime.now(timezone.utc)

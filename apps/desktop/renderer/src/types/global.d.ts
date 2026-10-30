@@ -27,7 +27,7 @@ export interface HelixAPI {
   openAgentPanel: () => void
   setFloatingWindowMode: (mode: 'full' | 'suppressed') => Promise<void>
   openExternal: (url: string) => void
-  openManagedBrowserTab: (url: string) => Promise<void>
+  openManagedBrowserTab: (url: string) => Promise<{ session_id: string; url: string }>
   getAppVersion: () => Promise<string>
   createMobilePairing: () => Promise<MobilePairingInvitation>
   getMobileRelayUrl: () => Promise<string>
@@ -413,6 +413,7 @@ export interface AgentMessage {
 }
 
 export interface AgentLifecycleEvent {
+  event_type?: string
   agent_id: string
   parent_id?: string | null
   profile_id?: string | null
@@ -509,6 +510,7 @@ export interface BrowserExtensionInfo {
   extensionPath: string
   listening: boolean
   extensionConnected: boolean
+  connectionIssue: 'invalid_token' | 'not_detected' | null
   lastPage: { title: string; url: string; captured_at: string } | null
   error: string | null
 }
@@ -632,6 +634,7 @@ export interface HelixSettings {
   sandbox_enabled?: boolean
   sandbox_mode?: 'restricted' | 'isolated' | 'windows_sandbox' | 'docker'
   sound_effects_enabled?: boolean
+  browser_control_mode?: 'extension' | 'playwright'
   browser_engine?: 'chromium' | 'firefox' | 'webkit'
   browser_headless?: boolean
   search_provider?: 'google' | 'duckduckgo' | 'bing'

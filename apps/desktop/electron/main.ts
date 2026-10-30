@@ -857,6 +857,7 @@ function setupIPC(): void {
       extensionPath: '',
       listening: false,
       lastPage: null,
+      connectionIssue: 'not_detected',
       error: 'Browser companion is not initialized.',
     }
   })
@@ -870,7 +871,9 @@ function setupIPC(): void {
     if (typeof url !== 'string') {
       throw new TypeError('The plugin URL must be a string.')
     }
-    await browserExtensionBridge.openManagedTab(url)
+    const session = await browserExtensionBridge.openManagedTab(url)
+    ipcBridge?.sendBrowserSessionUpdate(session)
+    return session
   })
   ipcMain.handle('helix:open-browser-extension-folder', async () => {
     if (!browserExtensionBridge) throw new Error('Browser companion is not initialized.')
@@ -1022,7 +1025,11 @@ async function startBrowserExtensionBridge(): Promise<void> {
   browserExtensionBridge = new BrowserExtensionBridge(
     path.join(app.getPath('userData'), 'browser-extension-token'),
     extensionPath,
-    (snapshot) => ipcBridge?.sendBrowserPageUpdate(snapshot) ?? false,
+    (snapshot) => (
+      snapshot
+        ? ipcBridge?.sendBrowserPageUpdate(snapshot) ?? false
+        : ipcBridge?.clearBrowserPageSnapshot() ?? false
+    ),
   )
   try {
     await browserExtensionBridge.start()

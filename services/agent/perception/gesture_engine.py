@@ -1,6 +1,7 @@
 import logging
 import asyncio
 import base64
+import inspect
 import threading
 import os
 from enum import Enum
@@ -148,12 +149,14 @@ class GestureEngine:
                 "La cámara puede no estar disponible en este entorno.",
                 _session_name,
             )
-            asyncio.ensure_future(
-                self.event_bus.publish(
+            publish = getattr(self.event_bus, "publish", None)
+            if publish is not None:
+                result = publish(
                     "GESTURE_HARDWARE_UNAVAILABLE",
                     {"reason": "rdp_session", "session_name": _session_name},
                 )
-            )
+                if inspect.isawaitable(result):
+                    await result
             return
 
         try:

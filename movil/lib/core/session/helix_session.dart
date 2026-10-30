@@ -5,6 +5,8 @@ import '../models/protocol_message.dart';
 import '../transport/helix_transport.dart';
 
 class HelixSession {
+  static const _subagentChatTimeout = Duration(minutes: 20);
+
   HelixSession(
     this.transport, {
     this.requestTimeout = const Duration(seconds: 30),
@@ -117,7 +119,7 @@ class HelixSession {
         },
       ));
       return await completer.future.timeout(
-        action == 'chat' ? const Duration(minutes: 2) : requestTimeout,
+        action == 'chat' ? _subagentChatTimeout : requestTimeout,
       );
     } finally {
       _pendingRelayRequests.remove(correlationId);
@@ -131,6 +133,59 @@ class HelixSession {
     return transport.send(HelixMessage(
       type: 'BROWSER_LIVE_CONTROL',
       payload: {'paused': paused},
+    ));
+  }
+
+  Future<void> startDesktopStream({int fps = 10}) {
+    return transport.send(HelixMessage(
+      type: 'DESKTOP_STREAM_START',
+      payload: {
+        if (sourceDeviceId != null) 'source_device_id': sourceDeviceId,
+        'fps': fps,
+      },
+    ));
+  }
+
+  Future<void> stopDesktopStream() {
+    return transport.send(HelixMessage(
+      type: 'DESKTOP_STREAM_STOP',
+      payload: {
+        if (sourceDeviceId != null) 'source_device_id': sourceDeviceId,
+      },
+    ));
+  }
+
+  Future<void> sendRemoteMouseEvent({
+    required String action,
+    double? xRatio,
+    double? yRatio,
+    String button = 'left',
+    int amount = 0,
+  }) {
+    return transport.send(HelixMessage(
+      type: 'REMOTE_CONTROL_MOUSE',
+      payload: {
+        'action': action,
+        if (xRatio != null) 'x_ratio': xRatio,
+        if (yRatio != null) 'y_ratio': yRatio,
+        'button': button,
+        'amount': amount,
+        if (sourceDeviceId != null) 'source_device_id': sourceDeviceId,
+      },
+    ));
+  }
+
+  Future<void> sendRemoteKeyboardInput({
+    String? text,
+    String? key,
+  }) {
+    return transport.send(HelixMessage(
+      type: 'REMOTE_CONTROL_KEYBOARD',
+      payload: {
+        if (text != null) 'text': text,
+        if (key != null) 'key': key,
+        if (sourceDeviceId != null) 'source_device_id': sourceDeviceId,
+      },
     ));
   }
 

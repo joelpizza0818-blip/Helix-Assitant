@@ -198,6 +198,46 @@ async def test_same_profile_tasks_queue_while_different_profiles_run_in_parallel
 
 
 @pytest.mark.asyncio
+async def test_direct_chats_for_different_profiles_run_independently():
+    class ConcurrentLoop(FakeReactLoop):
+        def __init__(self):
+            super().__init__()
+            self.active = 0
+            self.max_active = 0
+            self.conversation_ids = []
+
+        async def execute(self, **kwargs):
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+            self.conversation_ids.append(kwargs["conversation_id"])
+            try:
+                await asyncio.sleep(0.02)
+                return SimpleNamespace(content="done")
+            finally:
+                self.active -= 1
+
+    loop = ConcurrentLoop()
+    context_manager = FakeContextManager()
+    manager = AgentManager(
+        react_loop=loop,
+        context_manager=context_manager,
+        event_bus=EventBus(),
+        role_config=None,
+        tool_registry=None,
+    )
+
+    await asyncio.gather(
+        manager.chat_with_agent("joel", "Inspect this implementation."),
+        manager.chat_with_agent("flowbot", "Check this workflow."),
+    )
+
+    assert loop.max_active == 2
+    assert set(loop.conversation_ids) == {"subagent_joel", "subagent_flowbot"}
+    assert len(context_manager.get_messages("subagent_joel")) == 3
+    assert len(context_manager.get_messages("subagent_flowbot")) == 3
+
+
+@pytest.mark.asyncio
 async def test_promotion_updates_the_next_turn_system_scope(tmp_path: Path):
     context_manager = FakeContextManager()
     manager = AgentManager(

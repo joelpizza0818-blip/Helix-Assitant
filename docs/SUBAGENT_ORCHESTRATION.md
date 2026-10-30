@@ -40,7 +40,17 @@ session.
 the reply to the sender. The main agent can also use this tool. Peer requests
 have a depth limit of two to prevent unbounded cycles. Direct user-to-agent
 requests use `CHAT_SUBAGENT` over the existing Desktop/Python WebSocket request
-bridge.
+bridge. Provider outages and timeouts are returned as actionable, allowlisted
+messages; raw provider exceptions, model names, and credentials are not exposed
+to the renderer. Explicit model routes remain strict, so a temporary outage on
+a pinned model asks the user to retry or choose another route.
+
+Desktop request deadlines begin when a request is queued and retain their
+remaining time across reconnects. If a sent request expires, Electron sends
+`CANCEL_REQUEST` so the Python WebSocket handler cancels the matching request
+task. Direct subagent chat allows up to 20 minutes in Desktop and the Mobile
+relay path. Failed task updates carry a sanitized explanation that the Task
+Manager displays; raw exception text is not forwarded.
 
 Each profile gets a separate `UserMemoryManager` file under
 `<settings directory>/subagents/memories/<profile_id>.json`. `manage_memory`
@@ -99,6 +109,12 @@ uses the restricted preload bridge and exposes:
 - Private memory review, add, edit, and delete.
 - Optional provider/model/key-slot assignment with a visual connection to
   invoked and not-invoked profiles.
+
+Direct-chat activity is tracked per profile in the renderer: a request to one
+profile does not mark other profiles as responding or disable their chat input.
+Different profiles continue to execute concurrently, while requests to the same
+profile remain serialized. Status refreshes share an in-flight request, and the
+backend fetches task progress for all returned subagents in one locked snapshot.
 
 The Python request handler provides `GET_SUBAGENT_PROFILES`,
 `GET_SUBAGENT_STATUS`, `GET_SUBAGENT_ROUTING_OPTIONS`, `SET_SUBAGENT_ROUTE`,

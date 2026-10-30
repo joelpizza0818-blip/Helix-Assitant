@@ -24,6 +24,7 @@
     "react-dom": "^18.2.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
+    "tldts": "^7.4.19",
     "ws": "^8.16.0"
   },
   "devDependencies": {

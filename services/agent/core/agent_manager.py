@@ -303,6 +303,9 @@ class AgentManager:
                 role=t.get("role", "main"),
                 parent_id=t.get("parent_id"),
                 context=t.get("context"),
+                excluded_api_keys=t.get("excluded_api_keys"),
+                profile_id=t.get("profile_id"),
+                new_profile=t.get("new_profile"),
             )
             for t in tasks
         ]
@@ -413,9 +416,21 @@ class AgentManager:
         task_id = f"subagent-chat-{profile_id}-{uuid.uuid4()}"
         self._execution_profiles[task_id] = profile_id
         lock = self._profile_locks.setdefault(profile_id, asyncio.Lock())
+        # Apply a generous but bounded timeout so a stuck provider cannot block
+        # a profile lock indefinitely.  20 minutes matches the Desktop relay path.
+        CHAT_TIMEOUT_SECONDS = 1200
         try:
             async with lock:
-                response = await agent.chat(message.strip(), task_id)
+                try:
+                    response = await asyncio.wait_for(
+                        agent.chat(message.strip(), task_id),
+                        timeout=CHAT_TIMEOUT_SECONDS,
+                    )
+                except asyncio.TimeoutError:
+                    raise RuntimeError(
+                        f"Subagent chat with '{profile.name}' timed out after "
+                        f"{CHAT_TIMEOUT_SECONDS // 60} minutes."
+                    )
             return {
                 "profile_id": profile.profile_id,
                 "name": profile.name,

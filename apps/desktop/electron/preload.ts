@@ -63,7 +63,7 @@ contextBridge.exposeInMainWorld('helix', {
   openExternal: (url: string): void => {
     ipcRenderer.send('helix:open-external', url)
   },
-  openManagedBrowserTab: (url: string): Promise<void> =>
+  openManagedBrowserTab: (url: string): Promise<{ session_id: string; url: string }> =>
     ipcRenderer.invoke('helix:open-managed-browser-tab', url),
 
   // Request/response operations

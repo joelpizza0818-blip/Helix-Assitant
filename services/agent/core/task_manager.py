@@ -2,9 +2,14 @@ import asyncio
 import re
 from copy import deepcopy
 from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Set
+from datetime import datetime, timezone
+from typing import Any, Awaitable, Callable, Dict, Iterable, List, Optional, Set
 from enum import Enum
+
+
+def _utcnow() -> datetime:
+    """Return a timezone-aware UTC datetime (replaces deprecated datetime.utcnow())."""
+    return datetime.now(timezone.utc)
 
 
 _SENSITIVE_VALUE = re.compile(
@@ -109,7 +114,7 @@ class Task:
     description: str
     status: TaskStatus = TaskStatus.QUEUED
     priority: int = 0
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=_utcnow)
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     current_action: Optional[str] = None
@@ -179,7 +184,7 @@ class TaskManager:
                 if task.status == TaskStatus.CANCELLED and status != TaskStatus.CANCELLED:
                     return False
                 task.status = status
-                now = datetime.utcnow()
+                now = _utcnow()
                 if status == TaskStatus.RUNNING and task.started_at is None:
                     task.started_at = now
                 if status in {
@@ -212,7 +217,7 @@ class TaskManager:
             task.cancelled = True
             task.status = TaskStatus.CANCELLED
             task.execution_summary.progress_label = "Cancelled"
-            task.completed_at = task.completed_at or datetime.utcnow()
+            task.completed_at = task.completed_at or _utcnow()
             handle = self._task_handles.get(task_id)
             if notify:
                 callbacks = list(self._cancel_callbacks)
@@ -302,6 +307,19 @@ class TaskManager:
         async with self.lock:
             task = self.tasks.get(task_id)
             return deepcopy(task) if task is not None else None
+
+    async def get_task_progress(self, task_ids: Iterable[str]) -> Dict[str, dict]:
+        async with self.lock:
+            progress = {}
+            for task_id in task_ids:
+                task = self.tasks.get(task_id)
+                if task is None:
+                    continue
+                task_progress = {"progress": task.progress}
+                if isinstance(task.current_action, str):
+                    task_progress["current_action"] = task.current_action[:120]
+                progress[task_id] = task_progress
+            return progress
 
     async def record_model_request(self, task_id: str, request_detail: dict) -> None:
         async with self.lock:

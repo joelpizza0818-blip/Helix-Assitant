@@ -314,7 +314,7 @@ export default function CommunitySection({
     setError(null)
     try {
       await window.helix.openManagedBrowserTab(url)
-      setNotice(`${item.name} se abrió en la pestaña dedicada de HELIX.`)
+      setNotice(`${item.name} se abrió o reutilizó en una pestaña HELIX.`)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : `No se pudo abrir ${item.name}.`)
     } finally {

@@ -14,7 +14,7 @@ const BUILT_IN_PLUGINS = [
     name: 'Gmail',
     role: 'Correo',
     url: 'https://mail.google.com/',
-    description: 'Abre tu bandeja de Gmail en la pestaña dedicada de HELIX.',
+    description: 'Usa una pestaña abierta del sitio de Google si existe; si no, abre Gmail en HELIX.',
     color: '#EA4335',
     mark: 'G',
   },
@@ -23,7 +23,7 @@ const BUILT_IN_PLUGINS = [
     name: 'ChatGPT',
     role: 'Asistente web',
     url: 'https://chatgpt.com/',
-    description: 'Usa la sesión web de ChatGPT en la pestaña dedicada de HELIX.',
+    description: 'Usa una pestaña abierta de ChatGPT si existe; si no, la abre en HELIX.',
     color: '#10A37F',
     mark: 'AI',
   },
@@ -58,6 +58,7 @@ const BUILT_IN_PLUGINS = [
 
 export default function PluginsSection() {
   const [browserConnected, setBrowserConnected] = useState(false)
+  const [browserConnectionIssue, setBrowserConnectionIssue] = useState<'invalid_token' | 'not_detected' | null>(null)
   const [communityPlugins, setCommunityPlugins] = useState<InstalledCommunityPlugin[]>([])
   const [busyPlugin, setBusyPlugin] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -67,14 +68,17 @@ export default function PluginsSection() {
     try {
       const info = await window.helix.getBrowserExtensionInfo()
       setBrowserConnected(info.listening && info.extensionConnected)
+      setBrowserConnectionIssue(info.connectionIssue)
     } catch (cause) {
       setBrowserConnected(false)
+      setBrowserConnectionIssue(null)
       setError(cause instanceof Error ? cause.message : 'No se pudo consultar el navegador HELIX.')
     }
   }
 
   useEffect(() => {
     void refreshBrowserStatus()
+    const interval = window.setInterval(() => void refreshBrowserStatus(), 4000)
     try {
       const saved = JSON.parse(localStorage.getItem(COMMUNITY_INSTALLED_PLUGINS_KEY) ?? '[]')
       if (!Array.isArray(saved)) throw new Error('The local Community plugin list is invalid.')
@@ -100,6 +104,7 @@ export default function PluginsSection() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'No se pudo leer la lista local de plugins.')
     }
+    return () => window.clearInterval(interval)
   }, [])
 
   const openPlugin = async (plugin: typeof BUILT_IN_PLUGINS[number]) => {
@@ -133,14 +138,16 @@ export default function PluginsSection() {
     <section className="toolbox-section">
       <h2 className="toolbox-section__title">Plugins</h2>
       <p className="toolbox-section__desc">
-        Conectores web de HELIX. Se abren en una pestaña dedicada del navegador emparejado; las cuentas y cookies siguen siendo las de tu perfil habitual.
+        Conectores web de HELIX. Reutilizan una pestaña abierta del mismo sitio cuando existe; si no, abren una nueva. HELIX puede leer y controlar la pestaña reutilizada durante la tarea. Las demás pestañas no se inspeccionan.
       </p>
       <div className={`community-browser-status ${browserConnected ? 'is-connected' : ''}`}>
         <span className="community-status-dot" />
         <span>
           {browserConnected
             ? 'Navegador HELIX conectado'
-            : 'Conecta Browser Companion para abrir plugins en la pestaña HELIX'}
+            : browserConnectionIssue === 'invalid_token'
+              ? 'El token de Browser Companion fue rechazado; vuelve a emparejarlo en sus opciones'
+              : 'Conecta Browser Companion para abrir plugins en la pestaña HELIX'}
         </span>
         <button type="button" className="community-text-button" onClick={() => void refreshBrowserStatus()}>
           Actualizar

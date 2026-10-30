@@ -9,7 +9,7 @@ from dataclasses import asdict
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 from urllib.parse import urlparse
 try:
     from services.agent.perception.screen_vision_sampling import (
@@ -24,7 +24,7 @@ except ImportError:
         validate_screen_vision_interval_ms,
     )
 
-from services.agent.core.browser_page_context import update_current_page
+from services.agent.core.browser_page_context import clear_current_page, update_current_page
 try:
     from services.agent.memory.user_memory_manager import UserMemoryManager
 except ImportError:
@@ -87,6 +87,7 @@ DEFAULT_SETTINGS = {
     "block_elevated_execution": True,
     "browser_engine": "chromium",
     "browser_headless": True,
+    "browser_control_mode": "playwright",
     "search_provider": "google",
     "research_depth": 2,
     "block_downloads": True,
@@ -116,6 +117,43 @@ DEFAULT_SETTINGS = {
 
 MAX_USER_TEXT_ATTACHMENT_BYTES = 8 * 1024 * 1024
 MAX_AGENT_WEBSOCKET_MESSAGE_BYTES = 16 * 1024 * 1024
+
+
+def safe_desktop_request_error(error: Exception) -> str:
+    messages = {
+        "MODEL_TEMPORARILY_UNAVAILABLE": (
+            "The selected AI model is temporarily overloaded. Try again later "
+            "or choose another model in AI settings."
+        ),
+        "TIMEOUT": (
+            "The AI provider did not respond in time. Try again or choose "
+            "another model in AI settings."
+        ),
+        "NETWORK_ERROR": (
+            "HELIX could not reach the AI provider. Check your connection "
+            "and try again."
+        ),
+        "RATE_LIMIT": (
+            "The AI provider is rate-limiting requests. Wait briefly and try again."
+        ),
+        "QUOTA_EXCEEDED": (
+            "The AI provider quota is exhausted for this key. Check provider "
+            "usage or choose another key in AI settings."
+        ),
+        "AUTH_ERROR": (
+            "The AI provider rejected its configured key. Validate the key "
+            "in AI settings."
+        ),
+    }
+    current: Optional[BaseException] = error
+    seen = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        code = getattr(current, "code", None)
+        if isinstance(code, str) and code in messages:
+            return messages[code]
+        current = current.__cause__ or current.__context__
+    return "Internal agent request failed"
 
 
 def _serialize(value: Any) -> Any:
@@ -157,6 +195,17 @@ def _serialize_task_for_desktop(task: Any) -> dict:
     return serialized
 
 
+def _safe_task_failure_message(error: Any, provider: Any = None) -> str | None:
+    if not isinstance(error, str) or not error:
+        return None
+    if isinstance(provider, str) and re.fullmatch(r"[A-Za-z0-9_.-]{1,60}", provider):
+        return (
+            f"The subagent could not complete its request with {provider}. "
+            "Check provider availability and routing, then retry."
+        )
+    return "The subagent task failed. Retry or inspect the local agent logs."
+
+
 class DesktopRequestHandler:
     def __init__(
         self,
@@ -189,6 +238,7 @@ class DesktopRequestHandler:
         self.agent_manager = agent_manager
         self.credentials_updated_callback = None
         self.mcp_status_provider = None
+        self._desktop_streamer = None
 
     async def dispatch(self, message: dict) -> dict:
         message_type = message.get("type")
@@ -276,6 +326,31 @@ class DesktopRequestHandler:
     async def _dispatch_event(self, message_type: str, payload: dict) -> None:
         if message_type == "BROWSER_PAGE_UPDATE":
             self._update_browser_page(payload)
+        elif message_type == "BROWSER_PAGE_CLEAR":
+            clear_current_page()
+        elif message_type == "BROWSER_SESSION_UPDATE":
+            session_id = payload.get("session_id")
+            url = payload.get("url")
+            if (
+                not isinstance(session_id, str)
+                or not isinstance(url, str)
+                or len(session_id) > 20
+                or len(url) > 4096
+            ):
+                raise ValueError("BROWSER_SESSION_UPDATE contains invalid session data")
+            parsed_url = urlparse(url)
+            if (
+                parsed_url.scheme not in {"http", "https"}
+                or not parsed_url.netloc
+                or parsed_url.username is not None
+                or parsed_url.password is not None
+            ):
+                raise ValueError("BROWSER_SESSION_UPDATE requires a safe HTTP or HTTPS URL")
+            try:
+                from services.agent.tools.browser_control_tool import set_active_extension_session
+            except ImportError:
+                from ..tools.browser_control_tool import set_active_extension_session
+            set_active_extension_session(session_id, url)
         elif message_type == "USER_TEXT":
             text = payload.get("text")
             if not isinstance(text, str) or (not text.strip() and not payload.get("attachments")):
@@ -364,8 +439,92 @@ class DesktopRequestHandler:
                 await self.task_manager.cancel(task.id)
         elif message_type in {"CONFIRMATION_GRANTED", "CONFIRMATION_REJECTED", "CAPABILITY_RESOLVED"}:
             await self.task_manager.event_bus.publish(message_type, payload)
+        elif message_type == "DESKTOP_STREAM_START":
+            source_device_id = payload.get("source_device_id")
+            if not isinstance(source_device_id, str) or re.fullmatch(r"[A-Za-z0-9_-]{20,64}", source_device_id) is None:
+                raise ValueError("Invalid source_device_id for DESKTOP_STREAM_START")
+            fps = payload.get("fps", 10)
+            if not isinstance(fps, int) or fps < 1 or fps > 30:
+                fps = 10
+            streamer = self._get_or_create_desktop_streamer(fps=fps)
+            streamer.start(source_device_id)
+        elif message_type == "DESKTOP_STREAM_STOP":
+            source_device_id = payload.get("source_device_id")
+            if isinstance(source_device_id, str) and self._desktop_streamer:
+                self._desktop_streamer.stop(source_device_id)
+        elif message_type == "REMOTE_CONTROL_MOUSE":
+            await self._handle_remote_mouse(payload)
+        elif message_type == "REMOTE_CONTROL_KEYBOARD":
+            await self._handle_remote_keyboard(payload)
         else:
             raise ValueError(f"Unsupported desktop event: {message_type}")
+
+    def _get_or_create_desktop_streamer(self, fps: int = 10):
+        if self._desktop_streamer is None:
+            try:
+                from services.agent.perception.screen_engine import ScreenEngine
+                from services.agent.core.desktop_streamer import DesktopStreamer
+            except ImportError:
+                from ..perception.screen_engine import ScreenEngine
+                from .desktop_streamer import DesktopStreamer
+            screen_engine = ScreenEngine()
+            async def publish_frame(event_name: str, frame_payload: dict):
+                await self.task_manager.event_bus.publish(event_name, frame_payload)
+            self._desktop_streamer = DesktopStreamer(publish_frame, screen_engine, fps=fps)
+        return self._desktop_streamer
+
+    async def _handle_remote_mouse(self, payload: dict) -> None:
+        try:
+            import pyautogui
+        except Exception:
+            return
+        action = payload.get("action")
+        x_ratio = payload.get("x_ratio")
+        y_ratio = payload.get("y_ratio")
+        button = payload.get("button", "left")
+        scroll_amount = payload.get("amount", 0)
+
+        screen_w, screen_h = pyautogui.size()
+        if isinstance(x_ratio, (int, float)) and isinstance(y_ratio, (int, float)):
+            target_x = max(0, min(screen_w - 1, int(x_ratio * screen_w)))
+            target_y = max(0, min(screen_h - 1, int(y_ratio * screen_h)))
+        else:
+            target_x, target_y = None, None
+
+        if action == "move" and target_x is not None:
+            await asyncio.to_thread(pyautogui.moveTo, target_x, target_y)
+        elif action == "click" and target_x is not None:
+            btn = button if button in {"left", "middle", "right"} else "left"
+            await asyncio.to_thread(pyautogui.click, x=target_x, y=target_y, button=btn)
+        elif action == "double_click" and target_x is not None:
+            await asyncio.to_thread(pyautogui.doubleClick, x=target_x, y=target_y)
+        elif action == "right_click" and target_x is not None:
+            await asyncio.to_thread(pyautogui.rightClick, x=target_x, y=target_y)
+        elif action == "drag" and target_x is not None:
+            await asyncio.to_thread(pyautogui.dragTo, target_x, target_y, duration=0.2, button="left")
+        elif action == "scroll":
+            if target_x is not None and target_y is not None:
+                await asyncio.to_thread(pyautogui.moveTo, target_x, target_y)
+            if isinstance(scroll_amount, int) and -10 <= scroll_amount <= 10:
+                await asyncio.to_thread(pyautogui.scroll, scroll_amount * 100)
+
+    async def _handle_remote_keyboard(self, payload: dict) -> None:
+        try:
+            import pyautogui
+        except Exception:
+            return
+        text = payload.get("text")
+        key = payload.get("key")
+        if isinstance(text, str) and text:
+            await asyncio.to_thread(pyautogui.write, text[:1000], 0.01)
+        elif isinstance(key, str) and key:
+            safe_key = key.lower().strip()
+            allowed = {
+                "enter", "tab", "esc", "backspace", "space", "up", "down",
+                "left", "right", "home", "end", "delete", "return",
+            }
+            if safe_key in allowed:
+                await asyncio.to_thread(pyautogui.press, safe_key)
 
     @staticmethod
     def _update_browser_page(payload: dict) -> None:
@@ -441,7 +600,10 @@ class DesktopRequestHandler:
         result = []
         for task in tasks:
             serialized = _serialize_task_for_desktop(task)
-            serialized["error"] = None
+            serialized["error"] = _safe_task_failure_message(
+                getattr(task, "error", None),
+                getattr(task, "provider", None),
+            )
             result.append(serialized)
         return result
 
@@ -506,15 +668,26 @@ class DesktopRequestHandler:
             "agent_id", "parent_id", "profile_id", "name", "color", "role",
             "status", "created_at", "started_at", "completed_at",
         )
+        task_progress = (
+            await self.task_manager.get_task_progress(
+                record["agent_id"] for record in records
+            )
+            if self.task_manager is not None
+            else {}
+        )
         result = []
         for record in records:
             status = {key: record[key] for key in safe_fields if key in record}
-            if self.task_manager is not None:
-                task = await self.task_manager.get_task(record["agent_id"])
-                if task is not None:
-                    status["progress"] = max(0, min(100, int(task.progress)))
-                    if isinstance(task.current_action, str):
-                        status["current_action"] = task.current_action[:120]
+            if record.get("status") == "failed":
+                status["error"] = _safe_task_failure_message(
+                    record.get("error"),
+                    record.get("provider"),
+                )
+            task = task_progress.get(record["agent_id"])
+            if task is not None:
+                status["progress"] = max(0, min(100, int(task["progress"])))
+                if "current_action" in task:
+                    status["current_action"] = task["current_action"]
             result.append(status)
         return result
 
@@ -788,6 +961,10 @@ class DesktopRequestHandler:
             self.model_router.default_model = settings.get("default_model")
         self._configure_custom_endpoints(settings)
         self._configure_custom_models(settings)
+        browser_mode = settings.get("browser_control_mode")
+        if browser_mode in {"playwright", "extension"}:
+            import os
+            os.environ["HELIX_BROWSER_CONTROL_MODE"] = browser_mode
         if self.memory_manager is not None:
             self.memory_manager.configure(settings)
         if self.react_loop is not None:

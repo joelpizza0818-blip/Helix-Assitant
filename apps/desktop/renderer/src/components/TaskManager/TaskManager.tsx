@@ -116,6 +116,11 @@ export default function TaskManager() {
                 {expandedTaskId === task.id && (
                   <div className="task-item__logs">
                     <div className="task-logs-header">Execution Logs</div>
+                    {task.status === 'failed' && task.error && (
+                      <div className="task-item__failure" role="alert">
+                        {safeSummaryText(task.error)}
+                      </div>
+                    )}
                     {task.task_type === 'subagent' && (
                       <div className="task-agent-details">
                         <span>Child agent task</span>

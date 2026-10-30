@@ -4,72 +4,62 @@ from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-# Script JS ligero inyectado en el DOM del navegador para dibujar el cursor virtual de HELIX
+# Script JS inyectado en el DOM con Shadow DOM para aislar el cursor de estilos de la página web
 VIRTUAL_CURSOR_INJECTION_JS = """
-(function() {
-  if (document.getElementById('helix-virtual-cursor')) return;
-
-  const cursor = document.createElement('div');
-  cursor.id = 'helix-virtual-cursor';
-  cursor.setAttribute('aria-hidden', 'true');
-  cursor.style.cssText = `
-    position: fixed;
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    background-color: rgba(238, 96, 24, 0.88);
-    border: 2px solid #ffffff;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
-    pointer-events: none !important;
-    z-index: 2147483647 !important;
-    transition: transform 0.15s ease-out, opacity 0.2s ease;
-    transform: translate(-50%, -50%) scale(1);
-    top: -100px;
-    left: -100px;
-    opacity: 0;
-  `;
-
-  const dot = document.createElement('div');
-  dot.style.cssText = `
-    width: 6px;
-    height: 6px;
-    background: #ffffff;
-    border-radius: 50%;
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-  `;
-  cursor.appendChild(dot);
-  document.documentElement.appendChild(cursor);
-  const frame = document.createElement('div');
-  frame.setAttribute('aria-hidden', 'true');
-  frame.style.cssText = `
-    position: fixed;
-    inset: 0;
-    border: 3px solid #ee6018;
-    box-shadow: inset 0 0 14px rgba(238, 96, 24, 0.85), 0 0 12px rgba(238, 96, 24, 0.75);
-    pointer-events: none !important;
-    z-index: 2147483646 !important;
-  `;
-  document.documentElement.appendChild(frame);
-
-  window.__helixMoveCursor = function(x, y) {
-    cursor.style.opacity = '1';
-    cursor.style.left = x + 'px';
-    cursor.style.top = y + 'px';
-  };
-
-  window.__helixClickCursor = function() {
-    cursor.style.transform = 'translate(-50%, -50%) scale(0.65)';
-    setTimeout(() => {
-      cursor.style.transform = 'translate(-50%, -50%) scale(1)';
-    }, 140);
-  };
-
-  window.__helixHideCursor = function() {
-    cursor.style.opacity = '0';
-  };
+(() => {
+    const install = () => {
+        if (document.getElementById('helix-virtual-cursor')) return;
+        const host = document.createElement('div');
+        host.id = 'helix-virtual-cursor';
+        host.setAttribute('aria-hidden', 'true');
+        host.style.cssText = 'position:fixed;inset:0;z-index:2147483647;pointer-events:none;';
+        const shadow = host.attachShadow({ mode: 'closed' });
+        shadow.innerHTML = `
+            <style>
+                :host { all: initial; }
+                .frame { position:fixed; inset:0; border:3px solid #ee6018;
+                    box-shadow:inset 0 0 14px rgba(238,96,24,.85), 0 0 12px rgba(238,96,24,.75);
+                    pointer-events:none; }
+                .cursor { position:fixed; left:0; top:0; width:28px; height:36px;
+                    opacity:0; transform:translate3d(-100px,-100px,0);
+                    transition:transform 20ms linear; will-change:transform; }
+                .cursor svg { width:100%; height:100%; overflow:visible;
+                    filter:drop-shadow(0 1px 2px rgba(0,0,0,.7)); }
+                .pulse { position:fixed; width:28px; height:28px; margin:-14px 0 0 -14px;
+                    border:2px solid #ee6018; border-radius:50%; opacity:0;
+                    transform:scale(.35); }
+                .pulse.active { animation:helix-click 420ms ease-out; }
+                @keyframes helix-click {
+                    0% { opacity:.9; transform:scale(.35); }
+                    100% { opacity:0; transform:scale(1.7); }
+                }
+            </style>
+            <div class="frame"></div>
+            <div class="cursor"><svg viewBox="0 0 28 36" xmlns="http://www.w3.org/2000/svg">
+                <path d="M3 2v25l6.4-6.1 4.1 9.2 4.1-1.8-4.1-9.1H23L3 2Z"
+                    fill="#ee6018" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/>
+            </svg></div>
+            <div class="pulse"></div>`;
+        (document.documentElement || document).appendChild(host);
+        const cursor = shadow.querySelector('.cursor');
+        const pulse = shadow.querySelector('.pulse');
+        window.__helixMoveCursor = (x, y) => {
+            cursor.style.opacity = '1';
+            cursor.style.transform = `translate3d(${x}px,${y}px,0)`;
+        };
+        window.__helixClickCursor = (x, y) => {
+            pulse.style.left = `${x}px`;
+            pulse.style.top = `${y}px`;
+            pulse.classList.remove('active');
+            void pulse.offsetWidth;
+            pulse.classList.add('active');
+        };
+        window.__helixHideCursor = () => {
+            cursor.style.opacity = '0';
+        };
+    };
+    if (document.documentElement) install();
+    else document.addEventListener('DOMContentLoaded', install, { once: true });
 })();
 """
 
@@ -112,7 +102,7 @@ class VirtualCursorManager:
         """Mueve el cursor hacia la posición y simula la pulsación visual y el click sintético."""
         await self.move_to(x, y, steps=6)
         try:
-            await self.page.evaluate("window.__helixClickCursor && window.__helixClickCursor()")
+            await self.page.evaluate(f"window.__helixClickCursor && window.__helixClickCursor({x}, {y})")
         except Exception:
             pass
         # Despacho de click a nivel CDP en Chromium (no mueve el ratón del usuario)

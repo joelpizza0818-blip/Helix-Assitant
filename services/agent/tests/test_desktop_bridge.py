@@ -13,15 +13,20 @@ from services.agent.ai.key_manager import KeyManager
 from services.agent.ai.openai_provider import OpenAIProvider
 from services.agent.ai.custom_provider import OpenAICompatibleProvider
 from services.agent.ai.provider_registry import ProviderRegistry
-from services.agent.ai.base_provider import KeyHealth
-from services.agent.core.desktop_bridge import DesktopRequestHandler
-from services.agent.core.desktop_bridge import _serialize_task_for_desktop
+from services.agent.ai.base_provider import AgentError, KeyHealth
+from services.agent.core.desktop_bridge import (
+    DesktopRequestHandler,
+    _safe_task_failure_message,
+    _serialize_task_for_desktop,
+    safe_desktop_request_error,
+)
 from services.agent.core.event_bus import EventBus
 from services.agent.core.browser_page_context import clear_current_page, get_current_page
 from services.agent.core.mcp_settings import _mcp_server_statuses
 from services.agent.core.task_manager import TaskManager, TaskStatus
 from services.agent.skills.skill_loader import SkillLoader
 from services.agent.skills.skill_registry import SkillRegistry
+from services.agent.tools import browser_control_tool as browser_control_module
 
 
 @pytest.fixture
@@ -157,6 +162,66 @@ async def test_subagent_task_serialization_exposes_only_allowlisted_metadata():
     assert "metadata" not in serialized
     assert "result" not in serialized
     assert "never expose" not in str(serialized)
+
+
+@pytest.mark.asyncio
+async def test_subagent_status_uses_one_batched_task_progress_snapshot(request_handler):
+    task_manager = request_handler.task_manager
+    task = await task_manager.create_task("subagent-1", "Research task")
+    task.progress = 43
+    task.current_action = "Reviewing files"
+    request_handler.agent_manager = SimpleNamespace(
+        get_all_statuses=AsyncMock(return_value=[{
+            "agent_id": "subagent-1",
+            "profile_id": "eliot",
+            "status": "running",
+        }])
+    )
+
+    statuses = await request_handler._get_subagent_status()
+
+    assert statuses == [{
+        "agent_id": "subagent-1",
+        "profile_id": "eliot",
+        "status": "running",
+        "progress": 43,
+        "current_action": "Reviewing files",
+    }]
+
+
+def test_safe_desktop_request_error_explains_temporary_model_outage():
+    provider_error = AgentError(
+        code="MODEL_TEMPORARILY_UNAVAILABLE",
+        message="provider returned private raw details",
+        provider="google",
+        model="model-id",
+        retryable=True,
+    )
+    request_error = RuntimeError("ProviderExhaustedError")
+    request_error.__cause__ = provider_error
+
+    message = safe_desktop_request_error(request_error)
+
+    assert "temporarily overloaded" in message
+    assert "AI settings" in message
+    assert "private raw details" not in message
+    assert "model-id" not in message
+
+
+def test_safe_desktop_request_error_keeps_unknown_errors_generic():
+    assert safe_desktop_request_error(RuntimeError("private exception details")) == (
+        "Internal agent request failed"
+    )
+
+
+def test_safe_task_failure_message_explains_provider_failure_without_raw_error():
+    message = _safe_task_failure_message(
+        "provider returned private raw details",
+        "openai",
+    )
+
+    assert "openai" in message
+    assert "private raw details" not in message
 
 
 @pytest.mark.asyncio
@@ -297,6 +362,11 @@ async def test_browser_page_update_is_available_to_agent_tools(request_handler):
     })
 
     assert get_current_page() == page
+    await request_handler.dispatch({
+        "type": "BROWSER_PAGE_CLEAR",
+        "payload": {},
+    })
+    assert get_current_page() is None
     clear_current_page()
 
 
@@ -313,6 +383,32 @@ async def test_browser_page_update_rejects_invalid_urls(request_handler):
                 "links": [],
                 "forms": [],
             },
+        })
+
+
+@pytest.mark.asyncio
+async def test_browser_session_update_sets_active_extension_session(request_handler, monkeypatch):
+    monkeypatch.setattr(browser_control_module, "_active_extension_session_id", None)
+    monkeypatch.setattr(browser_control_module, "_active_extension_session_url", None)
+
+    await request_handler.dispatch({
+        "type": "BROWSER_SESSION_UPDATE",
+        "payload": {
+            "session_id": "42",
+            "url": "https://mail.example.org/inbox",
+        },
+    })
+
+    assert browser_control_module._active_extension_session_id == "42"
+    assert browser_control_module._active_extension_session_url == "https://mail.example.org/inbox"
+
+
+@pytest.mark.asyncio
+async def test_browser_session_update_rejects_invalid_url(request_handler):
+    with pytest.raises(ValueError, match="safe HTTP or HTTPS URL"):
+        await request_handler.dispatch({
+            "type": "BROWSER_SESSION_UPDATE",
+            "payload": {"session_id": "42", "url": "javascript:alert(1)"},
         })
 
 

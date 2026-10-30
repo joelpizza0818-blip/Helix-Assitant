@@ -35,7 +35,7 @@ class RoleConfig:
                         requirements=reqs
                     )
         
-        for default_role in ['main', 'coding', 'research', 'vision', 'planning']:
+        for default_role in ['main', 'coding', 'research', 'vision', 'planning', 'automation']:
             if default_role not in self._assignments:
                 reqs = TaskRequirements()
                 if default_role == 'coding':
@@ -44,6 +44,8 @@ class RoleConfig:
                     reqs.vision = True
                 elif default_role == 'planning':
                     reqs.reasoning = True
+                elif default_role == 'automation':
+                    reqs.tool_calling = True
                     
                 self._assignments[default_role] = RoleAssignment(
                     role=default_role,

@@ -1,6 +1,6 @@
 [package]
 name = "helix-desktop-tauri"
-version = "0.4.1"
+version = "0.5.0"
 description = "HELIX Lite desktop shell"
 authors = ["HELIX Team"]
 edition = "2021"

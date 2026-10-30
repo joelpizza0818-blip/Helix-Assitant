@@ -18,6 +18,18 @@ logger = logging.getLogger(__name__)
 # Singleton or managed browser session
 _active_browser_session = None
 _active_extension_session_id: str | None = None
+_active_extension_session_url: str | None = None
+
+
+def set_active_extension_session(session_id: str, url: str) -> None:
+    global _active_extension_session_id, _active_extension_session_url
+    if not session_id.isdecimal() or len(session_id) > 20:
+        raise ValueError("The active browser session ID is invalid.")
+    parsed_url = urlparse(url)
+    if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
+        raise ValueError("The active browser session URL is invalid.")
+    _active_extension_session_id = session_id
+    _active_extension_session_url = url
 
 
 class BrowserControlTool(BaseTool):
@@ -34,9 +46,10 @@ class BrowserControlTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Control a dedicated HELIX tab in the paired Chrome/Edge browser. Other browser tabs are not controlled. "
-            "Navigate, inspect the page and its numbered controls, click/fill elements, or use the virtual page mouse "
-            "with viewport coordinates from a screenshot when using HELIX's isolated browser mode. "
+            "Control the selected HELIX-managed page in the paired Chrome/Edge browser using trusted browser input. "
+            "Other tabs are not inspected or controlled. Navigate, inspect the page controls, "
+            "click/fill using the exact CSS selector shown in the latest snapshot, drag, scroll, or use fresh screenshot coordinates. "
+            "Opening a site reuses a matching tab; HELIX keeps its current path only when the full origin (scheme, hostname, and port) matches. "
             "Typing does not submit by default; submit only when the user requested it. Ask before sending, "
             "publishing, purchasing, deleting, or other irreversible actions."
         )
@@ -67,8 +80,6 @@ class BrowserControlTool(BaseTool):
             "refresh",
             "close",
         ]
-        if os.environ.get("HELIX_BROWSER_CONTROL_MODE") == "extension":
-            actions.remove("drag")
         return {
             "type": "object",
             "properties": {
@@ -83,7 +94,10 @@ class BrowserControlTool(BaseTool):
                 },
                 "selector": {
                     "type": "string",
-                    "description": "CSS selector or text content of the element to click or type into.",
+                    "description": (
+                        "Copy the exact selector provided by the latest page snapshot, "
+                        "or use text=Visible label. Do not use a list position."
+                    ),
                 },
                 "x": {
                     "type": "integer",
@@ -104,7 +118,7 @@ class BrowserControlTool(BaseTool):
                 "button": {
                     "type": "string",
                     "enum": ["left", "right", "middle"],
-                    "description": "Mouse button for click_at (default: left).",
+                    "description": "Mouse button for click_at or drag (default: left).",
                 },
                 "text": {
                     "type": "string",
@@ -156,7 +170,7 @@ class BrowserControlTool(BaseTool):
                 for key in coordinate_keys
             ):
                 return False
-            if action == "click_at" and params.get("button", "left") not in {
+            if action in {"click_at", "double_click_at", "drag"} and params.get("button", "left") not in {
                 "left", "right", "middle",
             }:
                 return False
@@ -244,7 +258,7 @@ class BrowserControlTool(BaseTool):
             method=method,
         )
         try:
-            with urlopen(request, timeout=80) as response:
+            with urlopen(request, timeout=360 if path == "/control" else 80) as response:
                 result = json.loads(response.read().decode("utf-8"))
         except HTTPError as error:
             detail = error.read().decode("utf-8", errors="replace")
@@ -262,7 +276,7 @@ class BrowserControlTool(BaseTool):
             raise RuntimeError("The browser companion returned an invalid response.")
         return result
 
-    async def _extension_command(self, command: dict) -> Any:
+    async def _extension_command_raw(self, command: dict) -> Any:
         result = await asyncio.to_thread(
             self._extension_request,
             "POST",
@@ -273,6 +287,33 @@ class BrowserControlTool(BaseTool):
             raise RuntimeError(str(result.get("error", "Browser command failed.")))
         return result.get("result")
 
+    async def _extension_command(self, command: dict) -> Any:
+        global _active_extension_session_id, _active_extension_session_url
+        try:
+            return await self._extension_command_raw(command)
+        except RuntimeError as error:
+            if (
+                command.get("session_id") is None
+                or not str(error).endswith("This tab is not managed by HELIX.")
+                or not _active_extension_session_url
+            ):
+                raise
+
+            opened = await self._extension_command_raw({
+                "action": "open_session",
+                "url": _active_extension_session_url,
+            })
+            if (
+                not isinstance(opened, dict)
+                or not isinstance(opened.get("session_id"), str)
+                or not isinstance(opened.get("url"), str)
+            ):
+                raise RuntimeError("The browser companion could not restore the selected HELIX tab.")
+            _active_extension_session_id = opened["session_id"]
+            _active_extension_session_url = opened["url"]
+            retry_command = {**command, "session_id": _active_extension_session_id}
+            return await self._extension_command_raw(retry_command)
+
     async def _extension_result(
         self,
         action: str,
@@ -281,6 +322,7 @@ class BrowserControlTool(BaseTool):
         include_page: bool = True,
         **details: Any,
     ) -> ToolResult:
+        global _active_extension_session_url
         output = {"action": action, **details}
         if include_page:
             page = await self._extension_command({
@@ -289,10 +331,19 @@ class BrowserControlTool(BaseTool):
             })
             if not isinstance(page, dict):
                 raise RuntimeError("The browser companion returned an invalid page snapshot.")
+            if isinstance(page.get("url"), str):
+                _active_extension_session_url = page["url"]
+            raw_text = page.get("text", "")
+            truncated = len(raw_text) > 12000
             output["page"] = {
                 "title": page.get("title", ""),
                 "url": page.get("url", ""),
-                "text": page.get("text", "")[:12000],
+                "text": (
+                    raw_text[:12000]
+                    + "\n[...Page text truncated at 12 000 chars. Use scroll or get_content to read more.]"
+                    if truncated
+                    else raw_text
+                ),
                 "links": page.get("links", [])[:50],
                 "forms": page.get("forms", [])[:50],
                 "controls": page.get("controls", [])[:80],
@@ -300,10 +351,10 @@ class BrowserControlTool(BaseTool):
         return ToolResult(success=True, output=output)
 
     async def _execute_with_extension(self, params: Dict[str, Any]) -> ToolResult:
-        global _active_extension_session_id
+        global _active_extension_session_id, _active_extension_session_url
         action = params["action"]
         supported = {
-            "navigate", "click", "click_at", "double_click_at", "move_mouse",
+            "navigate", "click", "click_at", "double_click_at", "drag", "move_mouse",
             "type", "scroll", "scroll_at", "press_key", "go_back", "refresh",
             "get_content", "screenshot", "close",
         }
@@ -336,30 +387,41 @@ class BrowserControlTool(BaseTool):
                     "session_id": session_id,
                 })
                 _active_extension_session_id = None
+                _active_extension_session_url = None
             return ToolResult(success=True, output={"action": action, "status": "closed"})
 
         if action == "navigate":
             url = params["url"].strip()
             if not url.startswith(("http://", "https://")):
                 url = f"https://{url}"
+            actual_url = url
             if _active_extension_session_id is None:
                 opened = await self._extension_command({
                     "action": "open_session",
                     "url": url,
                 })
-                if not isinstance(opened, dict) or not isinstance(opened.get("session_id"), str):
+                if (
+                    not isinstance(opened, dict)
+                    or not isinstance(opened.get("session_id"), str)
+                    or not isinstance(opened.get("url"), str)
+                ):
                     raise RuntimeError("The browser companion could not open a HELIX tab.")
                 _active_extension_session_id = opened["session_id"]
+                _active_extension_session_url = opened["url"]
+                actual_url = opened["url"]
             else:
-                await self._extension_command({
+                navigated = await self._extension_command({
                     "action": "navigate",
                     "session_id": _active_extension_session_id,
                     "url": url,
                 })
+                if isinstance(navigated, dict) and isinstance(navigated.get("url"), str):
+                    actual_url = navigated["url"]
+                    _active_extension_session_url = navigated["url"]
             return await self._extension_result(
                 action,
                 session_id=_active_extension_session_id,
-                url=url,
+                url=actual_url,
             )
 
         session_id = _active_extension_session_id
@@ -369,7 +431,9 @@ class BrowserControlTool(BaseTool):
         if action in {"click", "type"}:
             selector = params["selector"].strip()
             if selector.isdecimal():
-                selector = f'[data-helix-control="{selector}"]'
+                raise RuntimeError(
+                    "Numbered browser controls can become stale. Refresh page content and use the exact selector shown for that control."
+                )
             command = {
                 "action": action,
                 "session_id": session_id,
@@ -397,7 +461,7 @@ class BrowserControlTool(BaseTool):
                 amount=amount,
             )
 
-        if action in {"move_mouse", "click_at", "double_click_at", "scroll_at"}:
+        if action in {"move_mouse", "click_at", "double_click_at", "drag", "scroll_at"}:
             command = {
                 "action": action,
                 "session_id": session_id,
@@ -406,6 +470,14 @@ class BrowserControlTool(BaseTool):
             }
             if action == "click_at":
                 command["button"] = params.get("button", "left")
+            if action == "double_click_at":
+                command["button"] = params.get("button", "left")
+            if action == "drag":
+                command.update({
+                    "end_x": params["end_x"],
+                    "end_y": params["end_y"],
+                    "button": params.get("button", "left"),
+                })
             if action == "scroll_at":
                 command["direction"] = params.get("direction", "down")
                 command["amount"] = params.get("amount", 500)
@@ -456,10 +528,19 @@ class BrowserControlTool(BaseTool):
         output["screenshot_bytes"] = await session.screenshot()
         return ToolResult(success=True, output=output)
 
+    _control_mode: str = "playwright"
+
+    def configure(self, settings: dict) -> None:
+        mode = settings.get("browser_control_mode")
+        if mode in {"extension", "playwright"}:
+            self._control_mode = mode
+            os.environ["HELIX_BROWSER_CONTROL_MODE"] = mode
+
     async def execute(self, params: Dict[str, Any]) -> ToolResult:
         if not self.validate_params(params):
             return ToolResult(success=False, output=None, error="Invalid browser action or parameters.")
-        if os.environ.get("HELIX_BROWSER_CONTROL_MODE") == "extension":
+        active_mode = os.environ.get("HELIX_BROWSER_CONTROL_MODE", self._control_mode)
+        if active_mode == "extension":
             try:
                 return await self._execute_with_extension(params)
             except Exception as error:

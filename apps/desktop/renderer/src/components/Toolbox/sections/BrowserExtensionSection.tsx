@@ -56,21 +56,32 @@ export default function BrowserExtensionSection() {
     <section className="toolbox-section browser-extension">
       <h2 className="toolbox-section__title">Browser DOM Companion</h2>
       <p className="toolbox-section__desc">
-        HELIX opens and controls its own dedicated tab in your paired Chrome or Edge browser.
+        HELIX reuses an open tab from the same website when possible; otherwise, it opens a new tab in your paired Chrome or Edge browser.
       </p>
       {error && <p className="toolbox-error" role="alert">{error}</p>}
       <div className="toolbox-card">
         <div className="toolbox-card__header">
           <span className="toolbox-card__title">Local bridge</span>
           <span className={`browser-extension__status${info?.extensionConnected ? ' browser-extension__status--ready' : ''}`}>
-            {info?.extensionConnected ? 'Extension connected' : 'Waiting for extension'}
+            {info?.extensionConnected
+              ? 'Extension connected'
+              : info?.connectionIssue === 'invalid_token'
+                ? 'Pairing token rejected'
+                : 'Waiting for extension'}
           </span>
         </div>
         {!info?.listening && info?.error && (
           <p className="toolbox-error" role="alert">{info.error}</p>
         )}
+        {info?.listening && !info.extensionConnected && (
+          <p className="toolbox-error" role="status">
+            {info.connectionIssue === 'invalid_token'
+              ? 'The installed extension reached HELIX, but its pairing token was rejected. Copy the current token below, open the extension options, save it, and use Test connection.'
+              : 'No extension connection has reached HELIX yet. Open Chrome or Edge, check that HELIX Desktop Companion is enabled, then save the current token in its options and use Test connection.'}
+          </p>
+        )}
         <p className="text-xs text-muted browser-extension__privacy">
-          Only tabs opened by HELIX are shared with the agent; other tabs are not controlled. The dedicated tab uses your regular browser profile and cookies. Snapshots omit form values, but page content may be sent to your configured AI provider as part of a request.
+          Only the selected tab is shared with the agent; other tabs are not inspected or controlled. Reusing an existing tab gives HELIX access to its page and regular browser session. Snapshots omit form values, but page content may be sent to your configured AI provider as part of a request.
         </p>
         <label className="form-label browser-extension__token-label" htmlFor="browser-pairing-token">
           Extension pairing token
@@ -97,7 +108,7 @@ export default function BrowserExtensionSection() {
           <ol>
             <li>Show the extension folder, then open <code>chrome://extensions</code> or <code>edge://extensions</code>.</li>
             <li>Enable Developer mode and choose <em>Load unpacked</em>; select that folder.</li>
-            <li>Open the HELIX Desktop Companion extension options and paste the pairing token.</li>
+            <li>Open HELIX Desktop Companion options, paste the token shown above, save it, then use <em>Test connection</em>.</li>
           </ol>
         </div>
         <p className="text-xs text-muted browser-extension__permission">

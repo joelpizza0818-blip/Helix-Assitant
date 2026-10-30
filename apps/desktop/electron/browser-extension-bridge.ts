@@ -2,11 +2,13 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { randomBytes, timingSafeEqual } from 'crypto'
 import * as fs from 'fs'
 import * as path from 'path'
+import { getDomain } from 'tldts'
 
 export const BROWSER_EXTENSION_PORT = 47831
 const MAX_BODY_BYTES = 500_000
 const MAX_PAGE_TEXT_LENGTH = 80_000
 const CONTROL_TIMEOUT_MS = 75_000
+const COMMAND_QUEUE_TIMEOUT_MS = 300_000
 const EXTENSION_STALE_MS = 90_000
 
 export interface BrowserPageSnapshot {
@@ -18,6 +20,7 @@ export interface BrowserPageSnapshot {
   controls?: Array<{ label: string; tag: string; selector: string }>
   captured_at: string
 }
+export type BrowserPageUpdate = BrowserPageSnapshot | null
 
 export interface BrowserExtensionInfo {
   token: string
@@ -25,6 +28,7 @@ export interface BrowserExtensionInfo {
   extensionPath: string
   listening: boolean
   extensionConnected: boolean
+  connectionIssue: 'invalid_token' | 'not_detected' | null
   lastPage: { title: string; url: string; captured_at: string } | null
   error: string | null
 }
@@ -36,6 +40,7 @@ export interface BrowserControlRequest {
     | 'click'
     | 'click_at'
     | 'double_click_at'
+    | 'drag'
     | 'move_mouse'
     | 'type'
     | 'scroll'
@@ -48,10 +53,13 @@ export interface BrowserControlRequest {
     | 'close'
   session_id?: string
   url?: string
+  site_key?: string
   selector?: string
   text?: string
   x?: number
   y?: number
+  end_x?: number
+  end_y?: number
   button?: 'left' | 'right' | 'middle'
   key?: string
   direction?: 'up' | 'down' | 'left' | 'right'
@@ -72,6 +80,10 @@ function isLocalAgentRequest(origin: string | undefined): boolean {
   return !origin || origin === 'null'
 }
 
+function isAuthenticatedExtensionRequest(origin: string | undefined): boolean {
+  return isExtensionOrigin(origin) || isLocalAgentRequest(origin)
+}
+
 function validPageSnapshot(value: unknown): value is BrowserPageSnapshot {
   if (!value || typeof value !== 'object') return false
   const page = value as Record<string, unknown>
@@ -88,7 +100,7 @@ function validPageSnapshot(value: unknown): value is BrowserPageSnapshot {
     || (page.controls !== undefined && !Array.isArray(page.controls))
     || page.links.length > 120
     || page.forms.length > 80
-    || (Array.isArray(page.controls) && page.controls.length > 100)
+    || (Array.isArray(page.controls) && page.controls.length > 180)
   ) return false
 
   try {
@@ -138,12 +150,22 @@ function validPageSnapshot(value: unknown): value is BrowserPageSnapshot {
     && (page.controls === undefined || page.controls.every(validControl))
 }
 
+function isManagedTabResult(value: unknown): value is { session_id: string; url: string } {
+  if (!value || typeof value !== 'object') return false
+  const result = value as Record<string, unknown>
+  return typeof result.session_id === 'string'
+    && /^\d{1,20}$/.test(result.session_id)
+    && typeof result.url === 'string'
+    && result.url.length <= 4096
+}
+
 export class BrowserExtensionBridge {
   private server: Server | null = null
   private token = ''
   private startupError: string | null = null
   private lastPage: BrowserExtensionInfo['lastPage'] = null
   private lastExtensionPollAt = 0
+  private lastExtensionAuthFailureAt = 0
   private readonly pendingCommands = new Map<string, {
     request: BrowserControlRequest
     resolve: (value: unknown) => void
@@ -155,7 +177,8 @@ export class BrowserExtensionBridge {
   constructor(
     private readonly tokenPath: string,
     private readonly extensionPath: string,
-    private readonly onPageSnapshot: (snapshot: BrowserPageSnapshot) => boolean,
+    private readonly onPageSnapshot: (snapshot: BrowserPageUpdate) => boolean,
+    private readonly port = BROWSER_EXTENSION_PORT,
   ) {}
 
   async start(): Promise<void> {
@@ -187,27 +210,38 @@ export class BrowserExtensionBridge {
         console.error('[BrowserExtensionBridge] Local browser bridge failed to start:', error)
         resolve()
       })
-      server.listen(BROWSER_EXTENSION_PORT, '127.0.0.1', () => {
+      server.listen(this.port, '127.0.0.1', () => {
         this.startupError = null
-        console.log(`[BrowserExtensionBridge] Listening on 127.0.0.1:${BROWSER_EXTENSION_PORT}`)
+        const address = server.address()
+        const listeningPort = address && typeof address === 'object'
+          ? address.port
+          : this.port
+        console.log(`[BrowserExtensionBridge] Listening on 127.0.0.1:${listeningPort}`)
         resolve()
       })
     })
   }
 
   getInfo(): BrowserExtensionInfo {
+    const extensionConnected = Date.now() - this.lastExtensionPollAt <= EXTENSION_STALE_MS
+    const address = this.server?.address()
     return {
       token: this.token,
-      port: BROWSER_EXTENSION_PORT,
+      port: address && typeof address === 'object' ? address.port : this.port,
       extensionPath: this.extensionPath,
       listening: Boolean(this.server?.listening),
-      extensionConnected: Date.now() - this.lastExtensionPollAt <= EXTENSION_STALE_MS,
+      extensionConnected,
+      connectionIssue: extensionConnected
+        ? null
+        : this.lastExtensionAuthFailureAt > this.lastExtensionPollAt
+          ? 'invalid_token'
+          : 'not_detected',
       lastPage: this.lastPage,
       error: this.startupError,
     }
   }
 
-  async openManagedTab(input: string): Promise<void> {
+  async openManagedTab(input: string): Promise<{ session_id: string; url: string }> {
     if (typeof input !== 'string' || input.length > 2048) {
       throw new TypeError('The plugin URL is invalid.')
     }
@@ -233,10 +267,15 @@ export class BrowserExtensionBridge {
     if (!info.extensionConnected) {
       throw new Error('Connect the HELIX browser companion before opening a plugin.')
     }
-    await this.enqueueControl({
+    const opened = await this.enqueueControl({
       action: 'open_session',
       url: url.toString(),
+      site_key: `${url.protocol}//${getDomain(url.hostname, { allowPrivateDomains: true }) ?? url.hostname}`,
     })
+    if (!isManagedTabResult(opened)) {
+      throw new Error('The browser companion opened a plugin without returning its active tab.')
+    }
+    return opened
   }
 
   async close(): Promise<void> {
@@ -278,17 +317,61 @@ export class BrowserExtensionBridge {
     const expected = Buffer.from(this.token)
     const supplied = Buffer.from(suppliedToken)
     if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) {
+      if (
+        isAuthenticatedExtensionRequest(origin)
+        && (request.url === '/commands' || request.url === '/heartbeat')
+      ) {
+        this.lastExtensionAuthFailureAt = Date.now()
+      }
       sendJson(response, 401, { error: 'Invalid extension pairing token.' })
       return
     }
 
+    if (request.method === 'GET' && request.url === '/heartbeat') {
+      this.lastExtensionPollAt = Date.now()
+      this.lastExtensionAuthFailureAt = 0
+      sendJson(response, 200, { connected: true })
+      return
+    }
+
+    if (request.method === 'POST' && request.url === '/page/clear') {
+      if (!isAuthenticatedExtensionRequest(origin)) {
+        sendJson(response, 403, { error: 'Only the paired browser extension can clear a page snapshot.' })
+        return
+      }
+      if (!this.onPageSnapshot(null)) {
+        sendJson(response, 503, { error: 'HELIX agent is not connected yet.' })
+        return
+      }
+      this.lastPage = null
+      sendJson(response, 200, { accepted: true })
+      return
+    }
+
     if (request.method === 'GET' && request.url === '/commands') {
-      if (!isExtensionOrigin(origin)) {
+      if (!isAuthenticatedExtensionRequest(origin)) {
         sendJson(response, 403, { error: 'Only the paired browser extension can poll commands.' })
         return
       }
       this.lastExtensionPollAt = Date.now()
-      sendJson(response, 200, { commands: this.commandQueue.splice(0, 20) })
+      this.lastExtensionAuthFailureAt = 0
+      let command: { id: string; request: BrowserControlRequest } | undefined
+      while (this.commandQueue.length > 0 && !command) {
+        const next = this.commandQueue.shift()
+        if (!next || !this.pendingCommands.has(next.id)) continue
+        command = next
+        const pending = this.pendingCommands.get(next.id)
+        if (pending) {
+          clearTimeout(pending.timeout)
+          pending.timeout = setTimeout(() => {
+            this.expirePendingCommand(
+              next.id,
+              'Timed out waiting for the browser extension to complete the command.',
+            )
+          }, CONTROL_TIMEOUT_MS)
+        }
+      }
+      sendJson(response, 200, { commands: command ? [command] : [] })
       return
     }
 
@@ -305,7 +388,7 @@ export class BrowserExtensionBridge {
 
     const commandResultMatch = request.url?.match(/^\/commands\/([a-zA-Z0-9_-]+)$/)
     if (request.method === 'POST' && commandResultMatch) {
-      if (!isExtensionOrigin(origin)) {
+      if (!isAuthenticatedExtensionRequest(origin)) {
         sendJson(response, 403, { error: 'Only the paired browser extension can submit command results.' })
         return
       }
@@ -394,7 +477,7 @@ export class BrowserExtensionBridge {
     if (!value || typeof value !== 'object') return false
     const request = value as Record<string, unknown>
     const actions = [
-      'open_session', 'navigate', 'click', 'click_at', 'double_click_at',
+      'open_session', 'navigate', 'click', 'click_at', 'double_click_at', 'drag',
       'move_mouse', 'type', 'scroll', 'scroll_at', 'press_key', 'go_back',
       'refresh', 'snapshot', 'screenshot', 'close',
     ]
@@ -404,11 +487,23 @@ export class BrowserExtensionBridge {
       if (typeof request.url !== 'string' || request.url.length > 4096) return false
       try { if (!['http:', 'https:'].includes(new URL(request.url).protocol)) return false } catch { return false }
     }
+    if (request.site_key !== undefined) {
+      if (typeof request.site_key !== 'string' || request.site_key.length > 256) return false
+      if (typeof request.url !== 'string') return false
+      try {
+        const target = new URL(request.url)
+        const site = new URL(request.site_key)
+        const targetSiteDomain = getDomain(target.hostname, { allowPrivateDomains: true }) ?? target.hostname
+        if (site.origin !== `${target.protocol}//${targetSiteDomain}`) return false
+      } catch {
+        return false
+      }
+    }
     for (const key of ['selector', 'text']) {
       if (request[key] !== undefined && (typeof request[key] !== 'string' || request[key].length > 2000)) return false
     }
     if (request.key !== undefined && (typeof request.key !== 'string' || request.key.length > 64)) return false
-    for (const key of ['x', 'y']) {
+    for (const key of ['x', 'y', 'end_x', 'end_y']) {
       if (request[key] !== undefined && (
         typeof request[key] !== 'number'
         || !Number.isInteger(request[key])
@@ -419,6 +514,11 @@ export class BrowserExtensionBridge {
     if (
       ['click_at', 'double_click_at', 'move_mouse', 'scroll_at'].includes(String(request.action))
       && (request.x === undefined || request.y === undefined)
+    ) return false
+    if (
+      request.action === 'drag'
+      && (request.x === undefined || request.y === undefined
+        || request.end_x === undefined || request.end_y === undefined)
     ) return false
     if (request.button !== undefined && !['left', 'right', 'middle'].includes(String(request.button))) return false
     if (request.direction !== undefined && !['up', 'down', 'left', 'right'].includes(String(request.direction))) return false
@@ -435,11 +535,20 @@ export class BrowserExtensionBridge {
     const id = `cmd_${Date.now()}_${randomBytes(6).toString('hex')}`
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
-        this.pendingCommands.delete(id)
-        reject(new Error('Timed out waiting for the browser extension.'))
-      }, CONTROL_TIMEOUT_MS)
+        this.expirePendingCommand(id, 'Timed out waiting for the browser extension to pick up the command.')
+      }, COMMAND_QUEUE_TIMEOUT_MS)
       this.pendingCommands.set(id, { request, resolve, reject, timeout })
       this.commandQueue.push({ id, request })
     })
+  }
+
+  private expirePendingCommand(id: string, message: string): void {
+    const pending = this.pendingCommands.get(id)
+    if (!pending) return
+    clearTimeout(pending.timeout)
+    this.pendingCommands.delete(id)
+    const queueIndex = this.commandQueue.findIndex((command) => command.id === id)
+    if (queueIndex >= 0) this.commandQueue.splice(queueIndex, 1)
+    pending.reject(new Error(message))
   }
 }

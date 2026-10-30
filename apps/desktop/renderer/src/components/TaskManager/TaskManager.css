@@ -208,6 +208,12 @@
   color: var(--color-fog);
 }
 
+.task-item__failure {
+  margin-bottom: 10px;
+  color: var(--color-coral-red);
+  overflow-wrap: anywhere;
+}
+
 .task-logs-header {
   font-size: 10px;
   color: var(--color-ash);

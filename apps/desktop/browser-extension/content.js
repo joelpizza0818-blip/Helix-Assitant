@@ -4,6 +4,13 @@ let lastPublishedAt = 0
 let helixOverlay = null
 let helixCursor = null
 let helixPulse = null
+let nextControlId = 0
+const controlDocumentId = Array.from(
+  crypto.getRandomValues(new Uint8Array(16)),
+  (value) => value.toString(16).padStart(2, '0'),
+).join('')
+const controlIdsByElement = new WeakMap()
+const controlElementsById = new Map()
 
 function setHelixControlOverlay(active) {
   if (!active) {
@@ -77,36 +84,22 @@ function showHelixCursorAt(x, y, clicked = false) {
   }
 }
 
-function dispatchMouseAt(element, type, x, y, button = 'left') {
-  const buttonCode = { left: 0, middle: 1, right: 2 }[button] ?? 0
-  element.dispatchEvent(new MouseEvent(type, {
-    bubbles: true,
-    cancelable: true,
-    view: window,
-    clientX: x,
-    clientY: y,
-    button: buttonCode,
-    buttons: type === 'mousedown' ? 1 << buttonCode : 0,
-  }))
-}
+function isVisibleControl(element) {
+  if (!(element instanceof HTMLElement) || !element.isConnected) return false
+  const rect = element.getBoundingClientRect()
+  if (rect.width <= 0 || rect.height <= 0) return false
+  if (
+    rect.right <= 0 || rect.bottom <= 0
+    || rect.left >= window.innerWidth || rect.top >= window.innerHeight
+  ) return false
 
-function findScrollableElement(target, deltaX, deltaY) {
-  let element = target instanceof HTMLElement ? target : target?.parentElement
-  while (element instanceof HTMLElement) {
-    const style = getComputedStyle(element)
-    if (
-      deltaY !== 0
-      && ['auto', 'scroll'].includes(style.overflowY)
-      && element.scrollHeight > element.clientHeight
-    ) return element
-    if (
-      deltaX !== 0
-      && ['auto', 'scroll'].includes(style.overflowX)
-      && element.scrollWidth > element.clientWidth
-    ) return element
-    element = element.parentElement
+  let current = element
+  while (current instanceof HTMLElement) {
+    const style = getComputedStyle(current)
+    if (style.display === 'none' || style.visibility === 'hidden') return false
+    current = current.parentElement
   }
-  return null
+  return true
 }
 
 function visiblePageSnapshot() {
@@ -119,8 +112,10 @@ function visiblePageSnapshot() {
       url: link.href,
     }))
     .filter((link) => link.url.startsWith('http://') || link.url.startsWith('https://'))
-  const forms = Array.from(document.querySelectorAll('input, textarea, select, button'))
-    .filter((field) => field.getClientRects().length > 0)
+  const formControls = Array.from(document.querySelectorAll(
+    'input, textarea, select, button, [contenteditable="true"], [role="textbox"], [role="combobox"], [role="searchbox"]',
+  ))
+    .filter(isVisibleControl)
     .slice(0, 80)
     .map((field) => ({
       label: (
@@ -132,37 +127,194 @@ function visiblePageSnapshot() {
         || ''
       ).trim().slice(0, 300),
       type: (field.getAttribute('type') || field.tagName.toLowerCase()).slice(0, 40),
+      role: field.getAttribute('role') || '',
+      placeholder: (field.getAttribute('placeholder') || '').slice(0, 300),
+      required: field.required === true || field.getAttribute('aria-required') === 'true',
+      disabled: field.disabled === true || field.getAttribute('aria-disabled') === 'true',
     }))
-  const controls = helixOverlay?.isConnected
-    ? Array.from(document.querySelectorAll('a[href], button, input, textarea, select, [role="button"]'))
-      .filter((element) => element.getClientRects().length > 0)
-      .slice(0, 100)
-      .map((element, index) => {
-        element.setAttribute('data-helix-control', String(index))
-        return {
-          label: (
-            element.getAttribute('aria-label')
-            || element.innerText
-            || element.getAttribute('placeholder')
-            || element.getAttribute('title')
-            || element.getAttribute('name')
-            || ''
-          ).trim().slice(0, 300),
-          tag: element.tagName.toLowerCase(),
-          selector: `[data-helix-control="${index}"]`,
-        }
-      })
-    : []
+  const controls = Array.from(document.querySelectorAll(
+    'a[href], button, input, textarea, select, [role="button"], [role="link"], [role="textbox"], [role="combobox"], [role="searchbox"], [contenteditable="true"]',
+  ))
+    .filter(isVisibleControl)
+    .slice(0, 180)
+    .map((element, index) => {
+      let controlId = controlIdsByElement.get(element)
+      if (!controlId) {
+        controlId = `helix-${controlDocumentId}-${++nextControlId}`
+        controlIdsByElement.set(element, controlId)
+      }
+      element.setAttribute('data-helix-control', controlId)
+      controlElementsById.set(controlId, element)
+      return {
+        index: index + 1,
+        label: (
+          element.getAttribute('aria-label')
+          || element.innerText
+          || element.getAttribute('placeholder')
+          || element.getAttribute('title')
+          || element.getAttribute('name')
+          || ''
+        ).trim().slice(0, 300),
+        tag: element.tagName.toLowerCase(),
+        role: element.getAttribute('role') || '',
+        type: (element.getAttribute('type') || '').slice(0, 40),
+        selector: `[data-helix-control="${controlId}"]`,
+        enabled: !element.disabled && element.getAttribute('aria-disabled') !== 'true',
+      }
+    })
+  for (const [controlId, element] of controlElementsById) {
+    if (!element.isConnected) controlElementsById.delete(controlId)
+  }
 
   return {
     title: document.title.slice(0, 500),
     url: location.href.slice(0, 4096),
     text: visibleText.slice(0, MAX_TEXT_LENGTH),
     links,
-    forms,
+    forms: formControls,
     controls,
     captured_at: new Date().toISOString(),
   }
+}
+
+function findControlElement(selector) {
+  if (typeof selector !== 'string' || !selector.trim()) {
+    throw new Error('A CSS selector or control label is required.')
+  }
+  const query = selector.trim()
+  const generatedControl = query.match(/^\[data-helix-control="(helix-[a-f0-9]{32}-\d+)"\]$/)
+  if (generatedControl) {
+    const element = controlElementsById.get(generatedControl[1])
+    if (!(element instanceof HTMLElement) || !element.isConnected) {
+      throw new Error('This page control reference is stale. Refresh page content and use its current selector.')
+    }
+    return element
+  }
+  if (query.startsWith('text=')) {
+    const text = query.slice(5).replace(/^["']|["']$/g, '').trim().toLowerCase()
+    if (!text) throw new Error('A visible text label is required after "text=".')
+    const candidates = Array.from(document.querySelectorAll(
+      'a[href], button, input, textarea, select, [role="button"], [role="link"], [role="textbox"], [role="combobox"], [role="searchbox"], [role="checkbox"], [role="radio"], [role="menuitem"], [contenteditable="true"]',
+    )).filter((candidate) => {
+      if (!isVisibleControl(candidate)) return false
+      const label = (
+        candidate.getAttribute('aria-label')
+        || candidate.getAttribute('placeholder')
+        || candidate.innerText
+        || candidate.textContent
+        || ''
+      ).trim().toLowerCase()
+      return label === text || label.includes(text)
+    })
+    const exact = candidates.filter((candidate) => {
+      const label = (
+        candidate.getAttribute('aria-label')
+        || candidate.getAttribute('placeholder')
+        || candidate.innerText
+        || candidate.textContent
+        || ''
+      ).trim().toLowerCase()
+      return label === text
+    })
+    const matches = exact.length > 0 ? exact : candidates
+    if (matches.length === 0) throw new Error(`No visible page control matches "${text}".`)
+    if (matches.length > 1) {
+      throw new Error(`The text "${text}" matches ${matches.length} controls; use a unique label or CSS selector.`)
+    }
+    return matches[0]
+  }
+
+  let element
+  try {
+    element = document.querySelector(query)
+  } catch {
+    throw new Error('The control selector is not valid CSS. Use text=Visible label for visible text.')
+  }
+  if (element) return element
+
+  const visibleTextMatch = Array.from(document.querySelectorAll(
+    'a[href], button, input, textarea, select, [role="button"], [role="link"], [role="textbox"], [role="combobox"], [role="searchbox"], [role="checkbox"], [role="radio"], [role="menuitem"], [contenteditable="true"]',
+  )).filter(isVisibleControl)
+    .filter((candidate) => (
+      candidate.getAttribute('aria-label')
+      || candidate.getAttribute('placeholder')
+      || candidate.innerText
+      || candidate.textContent
+      || ''
+    ).trim().toLowerCase() === query.toLowerCase())
+  if (visibleTextMatch.length === 1) return visibleTextMatch[0]
+  if (visibleTextMatch.length > 1) {
+    throw new Error(`The text "${query}" matches ${visibleTextMatch.length} controls; use a unique label or CSS selector.`)
+  }
+  throw new Error(`No page control matches "${query}". Refresh the page and inspect its controls again.`)
+}
+
+function findControl(selector, purpose) {
+  const element = findControlElement(selector)
+  if (!(element instanceof HTMLElement)) {
+    throw new Error('The selected page element cannot receive browser input.')
+  }
+  if (
+    element.getAttribute('aria-disabled') === 'true'
+    || ('disabled' in element && element.disabled)
+  ) {
+    throw new Error('The requested page control is disabled.')
+  }
+
+  if (purpose === 'type') {
+    if (element instanceof HTMLInputElement) {
+      const inputType = (element.type || 'text').toLowerCase()
+      if (['password', 'file', 'hidden', 'checkbox', 'radio', 'button', 'submit', 'reset'].includes(inputType)) {
+        throw new Error(`Typing into input type "${inputType}" is not supported.`)
+      }
+      if (element.readOnly) throw new Error('The selected input is read-only.')
+    } else if (element instanceof HTMLTextAreaElement) {
+      if (element.readOnly) throw new Error('The selected text area is read-only.')
+    } else if (
+      !(element instanceof HTMLSelectElement)
+      && !element.isContentEditable
+      && !['textbox', 'searchbox', 'combobox'].includes(element.getAttribute('role') || '')
+    ) {
+      throw new Error('The selected control is not an editable text field.')
+    }
+  }
+
+  const rect = element.getBoundingClientRect()
+  if (!isVisibleControl(element)) {
+    throw new Error('The requested page control is not visible.')
+  }
+  element.scrollIntoView({ block: 'center', inline: 'center', behavior: 'auto' })
+  element.focus({ preventScroll: true })
+  const updatedRect = element.getBoundingClientRect()
+  const x = Math.max(0, Math.min(window.innerWidth - 1, updatedRect.left + updatedRect.width / 2))
+  const y = Math.max(0, Math.min(window.innerHeight - 1, updatedRect.top + updatedRect.height / 2))
+  const hitTarget = document.elementFromPoint(x, y)
+  if (!hitTarget || (hitTarget !== element && !element.contains(hitTarget))) {
+    throw new Error('Another page element covers the selected control; the action was not sent.')
+  }
+  showHelixCursor(element)
+  return {
+    element,
+    position: { x, y },
+  }
+}
+
+function getSelectOption(selector, value) {
+  const { element } = findControl(selector, 'type')
+  if (!(element instanceof HTMLSelectElement)) {
+    throw new Error('The selected control is not a dropdown.')
+  }
+  if (element.multiple) {
+    throw new Error('Multi-select dropdowns are not supported.')
+  }
+  const options = Array.from(element.options).filter((option) => (
+    !option.disabled && !option.parentElement?.hasAttribute('disabled')
+  ))
+  const optionIndex = options.findIndex(
+    (item) => item.value === value || item.label === value || item.textContent?.trim() === value,
+  )
+  if (optionIndex < 0) throw new Error(`No enabled dropdown option matches "${value}".`)
+  return { optionIndex, value: options[optionIndex].value }
 }
 
 function publishSnapshot(force = false) {
@@ -183,89 +335,85 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         sendResponse({ ok: true })
         return true
       }
-      const element = message.selector ? document.querySelector(message.selector) : null
-      if (message.action === 'click' && element instanceof HTMLElement) {
-        showHelixCursor(element, true)
-        element.click()
-      } else if (message.action === 'move_mouse') {
-        const target = document.elementFromPoint(message.x, message.y)
-        showHelixCursorAt(message.x, message.y)
-        target?.dispatchEvent(new MouseEvent('mousemove', {
-          bubbles: true,
-          view: window,
-          clientX: message.x,
-          clientY: message.y,
-        }))
-      } else if (message.action === 'click_at' || message.action === 'double_click_at') {
-        const target = document.elementFromPoint(message.x, message.y)
-        if (!target) throw new Error('No page element exists at those coordinates.')
-        const button = message.button || 'left'
-        showHelixCursorAt(message.x, message.y, true)
-        dispatchMouseAt(target, 'mousedown', message.x, message.y, button)
-        dispatchMouseAt(target, 'mouseup', message.x, message.y, button)
-        dispatchMouseAt(target, button === 'right' ? 'contextmenu' : button === 'middle' ? 'auxclick' : 'click', message.x, message.y, button)
-        if (message.action === 'double_click_at' && button === 'left') {
-          dispatchMouseAt(target, 'mousedown', message.x, message.y)
-          dispatchMouseAt(target, 'mouseup', message.x, message.y)
-          dispatchMouseAt(target, 'click', message.x, message.y)
-          dispatchMouseAt(target, 'dblclick', message.x, message.y)
+      if (message.action === 'show_cursor_at') {
+        showHelixCursorAt(message.x, message.y, message.clicked === true)
+        sendResponse({ ok: true })
+        return true
+      }
+      if (message.action === 'prepare_control') {
+        const { element, position } = findControl(message.selector, message.purpose)
+        const selection = element instanceof HTMLSelectElement
+          ? getSelectOption(message.selector, String(message.text ?? ''))
+          : null
+        sendResponse({
+          ok: true,
+          position,
+          kind: element instanceof HTMLSelectElement ? 'select' : 'text',
+          ...(selection || {}),
+        })
+        return true
+      }
+      if (message.action === 'verify_select_value') {
+        const { element } = findControl(message.selector, 'type')
+        if (!(element instanceof HTMLSelectElement)) {
+          throw new Error('The selected control is not a dropdown.')
         }
-      } else if (message.action === 'type' && (
-        element instanceof HTMLInputElement
-        || element instanceof HTMLTextAreaElement
-        || element instanceof HTMLSelectElement
-      )) {
-        element.focus()
-        const value = String(message.text ?? '')
-        if (element instanceof HTMLSelectElement) {
-          const option = Array.from(element.options).find(
-            (item) => item.value === value || item.label === value,
-          )
-          if (!option) throw new Error('No matching option was found for this select control.')
-          element.value = option.value
-        } else {
-          const prototype = element instanceof HTMLInputElement
-            ? HTMLInputElement.prototype
-            : HTMLTextAreaElement.prototype
-          Object.getOwnPropertyDescriptor(prototype, 'value')?.set?.call(element, value)
+        sendResponse({ ok: true, value: element.value })
+        return true
+      }
+      if (message.action === 'verify_type') {
+        const { element } = findControl(message.selector, 'type')
+        const actual = 'value' in element && typeof element.value === 'string'
+          ? element.value
+          : element.isContentEditable
+            ? element.innerText
+            : element.textContent ?? ''
+        if (actual !== message.text) {
+          throw new Error('The selected control did not retain the requested text.')
         }
-        element.dispatchEvent(new Event('input', { bubbles: true }))
-        element.dispatchEvent(new Event('change', { bubbles: true }))
-        showHelixCursor(element)
-        if (message.submit === true) element.form?.requestSubmit()
-      } else if (message.action === 'scroll') {
-        const amount = Math.abs(message.amount || 600)
-        const deltaX = message.direction === 'right' ? amount : message.direction === 'left' ? -amount : 0
-        const deltaY = message.direction === 'up' ? -amount : message.direction === 'down' ? amount : 0
-        window.scrollBy({ left: deltaX, top: deltaY, behavior: 'smooth' })
-      } else if (message.action === 'scroll_at') {
-        const target = document.elementFromPoint(message.x, message.y)
-        const amount = Math.abs(message.amount || 600)
-        const deltaX = message.direction === 'right' ? amount : message.direction === 'left' ? -amount : 0
-        const deltaY = message.direction === 'up' ? -amount : message.direction === 'down' ? amount : 0
-        const scrollable = findScrollableElement(target, deltaX, deltaY)
-        if (scrollable) scrollable.scrollBy({ left: deltaX, top: deltaY, behavior: 'smooth' })
-        else window.scrollBy({ left: deltaX, top: deltaY, behavior: 'smooth' })
-      } else if (message.action === 'press_key') {
-        const target = document.activeElement || document.body
-        target?.dispatchEvent(new KeyboardEvent('keydown', {
-          key: message.key,
-          bubbles: true,
-          cancelable: true,
-        }))
-        target?.dispatchEvent(new KeyboardEvent('keyup', {
-          key: message.key,
-          bubbles: true,
-          cancelable: true,
-        }))
-      } else if (message.action === 'snapshot') {
+        sendResponse({ ok: true })
+        return true
+      }
+      if (message.action === 'snapshot') {
         sendResponse(visiblePageSnapshot())
         return true
       }
-      sendResponse({ ok: true })
+      throw new Error(`Unsupported page control action: ${message.action}`)
     } catch (error) {
       sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) })
     }
+    return true
+  }
+  if (message?.type === 'HELIX_GET_VIEWPORT') {
+    sendResponse({ width: window.innerWidth, height: window.innerHeight })
+    return true
+  }
+  if (message?.type === 'HELIX_WAIT_FOR_STABLE_PAGE') {
+    let stableTimer
+    let timeoutTimer
+    let observer
+    const finish = () => {
+      if (stableTimer) clearTimeout(stableTimer)
+      if (timeoutTimer) clearTimeout(timeoutTimer)
+      observer?.disconnect()
+      sendResponse(visiblePageSnapshot())
+    }
+    const restartStableTimer = () => {
+      if (stableTimer) clearTimeout(stableTimer)
+      stableTimer = setTimeout(finish, 350)
+    }
+    if (document.body) {
+      observer = new MutationObserver(restartStableTimer)
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+        attributes: true,
+        attributeFilter: ['aria-expanded', 'aria-hidden', 'aria-selected', 'disabled', 'class', 'role'],
+      })
+    }
+    restartStableTimer()
+    timeoutTimer = setTimeout(finish, 2500)
     return true
   }
   if (message?.type !== 'HELIX_REFRESH_PAGE') return

@@ -18,6 +18,24 @@ export default function WebSection({ settings, onSave }: Props) {
       {/* ── Browser Execution Mode ─────────────────────────────── */}
       <div className="toolbox-card" style={{ marginBottom: 16 }}>
         <div className="toolbox-card__header">
+          <span className="toolbox-card__title">Browser Control Mode</span>
+        </div>
+
+        <div className="form-row">
+          <label className="form-label">Active Automation Provider</label>
+          <select
+            className="form-input"
+            value={settings.browser_control_mode || 'playwright'}
+            onChange={(e) => void onSave({ browser_control_mode: e.target.value as HelixSettings['browser_control_mode'] })}
+          >
+            <option value="playwright">Playwright Isolated Browser (Recomendado - Automático y Rápido)</option>
+            <option value="extension">Extensión Chrome / Edge (Navegador real del usuario)</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="toolbox-card" style={{ marginBottom: 16 }}>
+        <div className="toolbox-card__header">
           <span className="toolbox-card__title">Playwright Engine Configuration</span>
         </div>
 

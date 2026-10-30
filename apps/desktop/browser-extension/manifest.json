@@ -1,10 +1,11 @@
 {
   "manifest_version": 3,
   "name": "HELIX Desktop Companion",
-  "version": "1.0.0",
-  "description": "Control dedicated HELIX browser tabs with the local desktop agent.",
+  "version": "1.2.0",
+  "description": "Control selected HELIX browser tabs with the local desktop agent.",
   "permissions": [
     "alarms",
+    "debugger",
     "storage",
     "tabs"
   ],
@@ -32,6 +33,6 @@
     "open_in_tab": true
   },
   "action": {
-    "default_title": "HELIX DOM Companion"
+    "default_title": "HELIX Browser Companion"
   }
 }
