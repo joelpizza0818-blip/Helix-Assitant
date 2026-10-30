@@ -220,3 +220,131 @@ def test_adaptive_harness_integration(temp_dir):
     # Verify maintenance runs cleanly
     report = harness.run_maintenance()
     assert "pruned_rules_count" in report
+
+
+def test_one_off_fix_vs_permanent_preference(temp_dir):
+    harness = AdaptiveLearningHarness(base_dir=temp_dir)
+
+    # 1. One-off fix: should be detected as correction, but NOT persisted to permanent rules
+    corr_one_off, _ = harness.process_incoming_user_message(
+        "No, en esta línea corrige el error de sintaxis",
+        session_id="s1",
+        recent_task_id="t10",
+    )
+    assert corr_one_off.is_correction is True
+    assert corr_one_off.should_persist_rule is False
+    # Verify no rules created
+    rules = harness.procedural_memory.load_profile()["learned_rules"]
+    assert len(rules) == 0
+
+    # 2. Permanent preference: SHOULD be persisted
+    corr_perm, _ = harness.process_incoming_user_message(
+        "A partir de ahora siempre usa pnpm en lugar de npm",
+        session_id="s1",
+        recent_task_id="t10",
+    )
+    assert corr_perm.is_correction is True
+    assert corr_perm.should_persist_rule is True
+    rules_after = harness.procedural_memory.load_profile()["learned_rules"]
+    assert len(rules_after) == 1
+    assert "pnpm" in rules_after[0]["rule"]
+
+
+def test_rule_outcome_tracking_and_invalidation(temp_dir):
+    profile_path = temp_dir / "profile.json"
+    proc = ProceduralSemanticMemory(storage_path=profile_path)
+
+    rule = proc.add_learned_rule(
+        category="preference",
+        rule_text="Use concise markdown tables",
+        confidence=1.0,
+    )
+    rule_id = rule["id"]
+
+    # Success rewards the rule
+    proc.record_rule_outcome(rule_id=rule_id, success=True)
+    p1 = proc.load_profile()
+    r1 = next(r for r in p1["learned_rules"] if r["id"] == rule_id)
+    assert r1["success_count"] == 1
+    assert r1["confidence"] > 1.0
+
+    # Repeated failure penalizes and deactivates the rule
+    proc.record_rule_outcome(rule_id=rule_id, success=False)
+    proc.record_rule_outcome(rule_id=rule_id, success=False)
+    proc.record_rule_outcome(rule_id=rule_id, success=False)
+
+    p2 = proc.load_profile()
+    r2 = next(r for r in p2["learned_rules"] if r["id"] == rule_id)
+    assert r2["failure_count"] == 3
+    assert r2["confidence"] < 0.35
+    assert r2["is_active"] is False
+
+
+def test_contradiction_superseding(temp_dir):
+    profile_path = temp_dir / "profile.json"
+    proc = ProceduralSemanticMemory(storage_path=profile_path)
+
+    # User initially preferred bash
+    r1 = proc.add_learned_rule(
+        category="preference",
+        rule_text="Always use bash scripts for automation",
+        confidence=1.0,
+    )
+    assert r1["is_active"] is True
+
+    # User subsequently declares opposing rule: powershell
+    r2 = proc.add_learned_rule(
+        category="preference",
+        rule_text="Always use powershell scripts for automation",
+        confidence=1.0,
+    )
+
+    profile = proc.load_profile()
+    old = next(r for r in profile["learned_rules"] if r["id"] == r1["id"])
+    new = next(r for r in profile["learned_rules"] if r["id"] == r2["id"])
+
+    assert old["is_active"] is False
+    assert old["superseded_by"] == new["id"]
+    assert new["is_active"] is True
+
+
+def test_skill_coherence_validation(temp_dir):
+    skills_dir = temp_dir / "learned_skills"
+    mem = EpisodicMemory(db_path=temp_dir / "episodes.db")
+    mgr = SelfLearningSkillManager(skills_dir=skills_dir, episodic_memory=mem)
+
+    # 1. Coherent queries: pass validation
+    coherent_queries = [
+        "check git status on main branch",
+        "show git branch status",
+        "inspect current git repository status",
+    ]
+    assert mgr.validate_semantic_coherence(coherent_queries) is True
+
+    # 2. Incoherent queries (same tools used for completely random things): reject
+    incoherent_queries = [
+        "order fresh pizza for lunch",
+        "calculate fibonacci of 42",
+        "kill background processes",
+    ]
+    assert mgr.validate_semantic_coherence(incoherent_queries) is False
+
+
+def test_profile_isolation(temp_dir):
+    # Two independent profiles
+    harness_work = AdaptiveLearningHarness(base_dir=temp_dir / "work", profile_id="work")
+    harness_personal = AdaptiveLearningHarness(base_dir=temp_dir / "personal", profile_id="personal")
+
+    # Add rule to work profile
+    harness_work.procedural_memory.add_learned_rule(
+        category="preference",
+        rule_text="Work rule: Use Jira ticket convention",
+    )
+
+    work_rules = harness_work.procedural_memory.load_profile()["learned_rules"]
+    personal_rules = harness_personal.procedural_memory.load_profile()["learned_rules"]
+
+    assert len(work_rules) == 1
+    assert "Jira" in work_rules[0]["rule"]
+    assert len(personal_rules) == 0
+

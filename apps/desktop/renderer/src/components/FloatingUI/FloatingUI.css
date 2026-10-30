@@ -16,6 +16,7 @@
 .floating-ui__header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--spacing-12);
   padding: 0 var(--spacing-16);
   height: 48px;
@@ -58,12 +59,51 @@
   white-space: nowrap;
 }
 
-.floating-ui__header-center {
-  flex: 1;
+/* ── Model Selector & Status Sub-strip ─────────────────────────── */
+.floating-ui__model-strip {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 14px;
+  background: rgba(20, 20, 20, 0.85);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  flex-shrink: 0;
+  position: relative;
+  z-index: 50;
+}
+
+.floating-ui__model-strip-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
+}
+
+.floating-ui__model-strip-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.floating-ui__status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.floating-ui__status-text {
+  font-size: 10.5px;
+  font-family: var(--font-mono);
+  color: #a1a1aa;
+  text-transform: capitalize;
+  letter-spacing: -0.01em;
 }
 
 .floating-ui__header-actions {

@@ -326,13 +326,6 @@ export default function FloatingUI() {
       <div className="floating-ui__header" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
         <div className="floating-ui__brand">
           <HelixLogo size="sm" showText={true} />
-          <span className={`status-dot ${statusDotClass}`} title={agentStatus} />
-        </div>
-        <div className="floating-ui__header-center" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          <ModelSelectorDropdown
-            settings={voiceSettings}
-            onSave={saveSettings}
-          />
         </div>
         <div className="floating-ui__header-actions" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
           <button
@@ -382,6 +375,22 @@ export default function FloatingUI() {
             <QuitIcon />
             <span>Salir</span>
           </button>
+        </div>
+      </div>
+
+      {/* ── Subheader / Model Selector Strip ──── */}
+      <div className="floating-ui__model-strip" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+        <div className="floating-ui__model-strip-left">
+          <ModelSelectorDropdown
+            settings={voiceSettings}
+            onSave={saveSettings}
+          />
+        </div>
+        <div className="floating-ui__model-strip-right">
+          <span className="floating-ui__status-pill" title={`Estado de HELIX: ${agentStatus}`}>
+            <span className={`status-dot ${statusDotClass}`} />
+            <span className="floating-ui__status-text">{agentStatus}</span>
+          </span>
         </div>
       </div>
 

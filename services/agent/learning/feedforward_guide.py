@@ -62,7 +62,9 @@ class FeedforwardGuide:
         ]
 
         for k, v in preferences.items():
-            lines.append(f"- **{k}**: {v}")
+            val = v.get("value") if isinstance(v, dict) else v
+            src = f" *[{v.get('source')}]*" if isinstance(v, dict) and v.get("source") else ""
+            lines.append(f"- **{k}**: {val}{src}")
 
         lines.extend(["", "## Reglas de Procedimiento Aprendidas"])
         if rules:

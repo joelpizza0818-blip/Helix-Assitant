@@ -13,7 +13,7 @@
   gap: 6px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 20px;
+  border-radius: 6px;
   padding: 3px 10px;
   height: 28px;
   color: #eeeeee;
@@ -22,7 +22,7 @@
   cursor: pointer;
   transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
   user-select: none;
-  max-width: 200px;
+  max-width: 260px;
 }
 
 .model-selector-btn:hover {
@@ -46,7 +46,7 @@
 }
 
 .model-selector-btn__label {
-  max-width: 105px;
+  max-width: 150px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -76,9 +76,9 @@
 
 .model-dropdown-menu {
   position: absolute;
-  top: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%);
+  top: calc(100% + 6px);
+  left: 0;
+  transform: none;
   width: 330px;
   max-height: 460px;
   background: #161514;
