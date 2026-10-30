@@ -581,6 +581,37 @@ async function startPythonAgent(): Promise<void> {
   console.log('[Main] Python agent started')
 }
 
+
+function showToolboxWindow(): void {
+  if (!toolboxWindow || toolboxWindow.isDestroyed()) {
+    toolboxWindow = createToolboxWindow()
+    ipcBridge?.setToolboxWindow(toolboxWindow)
+  }
+  if (toolboxWindow.isMinimized()) toolboxWindow.restore()
+  toolboxWindow.show()
+  toolboxWindow.focus()
+}
+
+function showAgentsWindow(): void {
+  if (!agentsWindow || agentsWindow.isDestroyed()) {
+    agentsWindow = createAgentsWindow()
+    ipcBridge?.setAgentsWindow(agentsWindow)
+  }
+  if (agentsWindow.isMinimized()) agentsWindow.restore()
+  agentsWindow.show()
+  agentsWindow.focus()
+}
+
+function showFloatingWindow(): void {
+  if (!floatingWindow || floatingWindow.isDestroyed()) {
+    floatingWindow = createFloatingWindow()
+    ipcBridge?.setMainWindow(floatingWindow)
+  }
+  if (floatingWindow.isMinimized()) floatingWindow.restore()
+  floatingWindow.show()
+  floatingWindow.focus()
+}
+
 function setupIPC(): void {
   if (!floatingWindow || !toolboxWindow || !confirmationWindow || !agentsWindow) return
 
@@ -901,6 +932,94 @@ function setupIPC(): void {
     if (typeof id !== 'string') throw new TypeError('Clipboard history item ID must be a string.')
     clipboardHistory?.restore(id)
   })
+
+  ipcMain.handle('helix:ensure-ollama', async () => {
+    // 1. Check if Ollama REST API is already reachable
+    try {
+      const res = await fetch('http://127.0.0.1:11434/api/version', { signal: AbortSignal.timeout(1000) })
+      if (res.ok) return { ok: true, status: 'running' }
+    } catch {
+      // not running yet
+    }
+
+    // 2. Look for installed ollama executable
+    const candidates = [
+      path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Ollama', 'ollama.exe'),
+      path.join(process.env.ProgramFiles || '', 'Ollama', 'ollama.exe'),
+      'ollama'
+    ]
+    let ollamaBin: string | null = null
+    for (const cand of candidates) {
+      if (cand === 'ollama') {
+        try {
+          const { execSync } = await import('child_process')
+          execSync('where ollama', { stdio: 'ignore' })
+          ollamaBin = 'ollama'
+          break
+        } catch {
+          continue
+        }
+      } else if (fs.existsSync(cand)) {
+        ollamaBin = cand
+        break
+      }
+    }
+
+    if (ollamaBin) {
+      const { spawn } = await import('child_process')
+      const child = spawn(ollamaBin, ['serve'], {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+      })
+      child.unref()
+
+      for (let i = 0; i < 14; i++) {
+        await new Promise((r) => setTimeout(r, 500))
+        try {
+          const res = await fetch('http://127.0.0.1:11434/api/version', { signal: AbortSignal.timeout(600) })
+          if (res.ok) return { ok: true, status: 'started' }
+        } catch {
+          // retry
+        }
+      }
+      return { ok: false, status: 'could_not_start' }
+    }
+
+    // 3. Try silent winget install
+    try {
+      const { execSync } = await import('child_process')
+      execSync('winget install Ollama.Ollama --accept-source-agreements --accept-package-agreements --silent', {
+        timeout: 120000,
+        stdio: 'ignore',
+        windowsHide: true,
+      })
+      const defaultBin = path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Ollama', 'ollama.exe')
+      const binToRun = fs.existsSync(defaultBin) ? defaultBin : 'ollama'
+      const { spawn } = await import('child_process')
+      const child = spawn(binToRun, ['serve'], {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+      })
+      child.unref()
+
+      for (let i = 0; i < 14; i++) {
+        await new Promise((r) => setTimeout(r, 500))
+        try {
+          const res = await fetch('http://127.0.0.1:11434/api/version', { signal: AbortSignal.timeout(600) })
+          if (res.ok) return { ok: true, status: 'installed_and_started' }
+        } catch {
+          // retry
+        }
+      }
+    } catch (err: any) {
+      console.warn('[Main] Silent Ollama install skipped:', err?.message)
+    }
+
+    return { ok: false, status: 'not_installed' }
+  })
+
 }
 
 function sendToDesktopWindows(channel: string, payload: unknown): void {
@@ -1220,7 +1339,7 @@ app.whenReady().then(async () => {
       },
       {
         label: 'Toolbox',
-        click: () => { toolboxWindow?.show(); toolboxWindow?.focus() }
+        click: () => { showToolboxWindow() }
       },
       {
         label: 'Task Manager',
@@ -1231,7 +1350,7 @@ app.whenReady().then(async () => {
       },
       {
         label: 'Subagents',
-        click: () => { agentsWindow?.show(); agentsWindow?.focus() }
+        click: () => { showAgentsWindow() }
       },
       { type: 'separator' },
       {
@@ -1283,10 +1402,10 @@ app.on('before-quit', (event) => {
     toolboxWindow?.removeAllListeners('close')
     confirmationWindow?.removeAllListeners('close')
     agentsWindow?.removeAllListeners('close')
-    floatingWindow?.destroy()
-    toolboxWindow?.destroy()
-    confirmationWindow?.destroy()
-    agentsWindow?.destroy()
+    if (floatingWindow && !floatingWindow.isDestroyed()) floatingWindow.destroy()
+    if (toolboxWindow && !toolboxWindow.isDestroyed()) toolboxWindow.destroy()
+    if (confirmationWindow && !confirmationWindow.isDestroyed()) confirmationWindow.destroy()
+    if (agentsWindow && !agentsWindow.isDestroyed()) agentsWindow.destroy()
     trayManager?.destroy()
     mobileRelayClient?.close()
     ipcBridge?.close()
@@ -1309,13 +1428,11 @@ app.on('window-all-closed', () => {
 
 // Handle IPC for opening toolbox
 ipcMain.on('helix:open-toolbox', () => {
-  toolboxWindow?.show()
-  toolboxWindow?.focus()
+  showToolboxWindow()
 })
 
 ipcMain.on('helix:open-agent-panel', () => {
-  agentsWindow?.show()
-  agentsWindow?.focus()
+  showAgentsWindow()
 })
 
 ipcMain.on('helix:quit', () => {
@@ -1330,3 +1447,12 @@ ipcMain.on('helix:open-external', (_event, url: string) => {
 })
 
 export { floatingWindow, toolboxWindow, agentsWindow, ipcBridge }
+
+
+process.on('uncaughtException', (error: any) => {
+  if (error?.message?.includes('Object has been destroyed')) {
+    console.warn('[Main] Suppressed destroyed window access:', error.message)
+    return
+  }
+  console.error('[Main] Uncaught Exception:', error)
+})

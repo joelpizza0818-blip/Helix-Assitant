@@ -58,6 +58,14 @@
   white-space: nowrap;
 }
 
+.floating-ui__header-center {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+}
+
 .floating-ui__header-actions {
   display: flex;
   align-items: center;

@@ -53,6 +53,18 @@ export class IPCBridge {
     { deviceId: string; expiresAt: number }
   >()
 
+  setToolboxWindow(window: BrowserWindow | null): void {
+    this.toolboxWindow = window
+  }
+
+  setAgentsWindow(window: BrowserWindow | null): void {
+    this.agentsWindow = window
+  }
+
+  setMainWindow(window: BrowserWindow | null): void {
+    this.mainWindow = window
+  }
+
   setupHandlers(
     mainWindow: BrowserWindow,
     toolboxWindow: BrowserWindow,
@@ -821,7 +833,9 @@ export class IPCBridge {
 
     // Agent messages are sent once to each window.
     if (channel === 'helix:agent-message') {
-      this.mainWindow?.webContents.send(channel, message.payload)
+      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+        this.mainWindow.webContents.send(channel, message.payload)
+      }
       if (this.toolboxWindow && !this.toolboxWindow.isDestroyed()) {
         this.toolboxWindow.webContents.send(channel, message.payload)
       }
@@ -894,7 +908,9 @@ export class IPCBridge {
   }
 
   private _sendToAll(channel: string, data: unknown): void {
-    this.mainWindow?.webContents.send(channel, data)
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send(channel, data)
+    }
     if (this.toolboxWindow && !this.toolboxWindow.isDestroyed()) {
       this.toolboxWindow.webContents.send(channel, data)
     }

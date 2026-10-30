@@ -25,6 +25,7 @@ export interface HelixAPI {
   quit: () => void
   openToolbox: () => void
   openAgentPanel: () => void
+  ensureOllama?: () => Promise<{ ok: boolean; status?: string }>
   setFloatingWindowMode: (mode: 'full' | 'suppressed') => Promise<void>
   openExternal: (url: string) => void
   openManagedBrowserTab: (url: string) => Promise<{ session_id: string; url: string }>

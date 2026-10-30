@@ -23,6 +23,10 @@ class CapabilityRegistry:
         for model in models:
             if isinstance(model, ModelDefinition) and model.id and model.provider:
                 self.models[f"{model.provider}:{model.id}"] = model
+                self.models[model.id] = model
+
+    def register_model(self, model: ModelDefinition) -> None:
+        self.register_models([model])
 
     def remove_provider_models(self, provider_id: str) -> None:
         self.models = {
@@ -33,7 +37,7 @@ class CapabilityRegistry:
 
     def filter_by_capabilities(self, required: dict, provider_filter: Optional[List[str]] = None) -> List[ModelDefinition]:
         results = []
-        for m in self.models.values():
+        for m in self.get_all_models():
             if not m.enabled:
                 continue
             if provider_filter and m.provider not in provider_filter:
@@ -51,7 +55,13 @@ class CapabilityRegistry:
         return self.models.get(model_id)
 
     def get_models_for_provider(self, provider_id: str) -> List[ModelDefinition]:
-        return [m for m in self.models.values() if m.provider == provider_id]
+        return [m for m in self.get_all_models() if m.provider == provider_id]
 
     def get_all_models(self) -> List[ModelDefinition]:
-        return list(self.models.values())
+        seen = set()
+        result = []
+        for m in self.models.values():
+            if m.id not in seen:
+                seen.add(m.id)
+                result.append(m)
+        return result

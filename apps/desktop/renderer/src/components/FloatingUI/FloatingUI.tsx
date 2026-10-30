@@ -328,12 +328,11 @@ export default function FloatingUI() {
           <HelixLogo size="sm" showText={true} />
           <span className={`status-dot ${statusDotClass}`} title={agentStatus} />
         </div>
-        <div className="floating-ui__model-info">
-          {currentProvider && currentModel && (
-            <span className="floating-ui__model-label">
-              {currentProvider.charAt(0).toUpperCase() + currentProvider.slice(1)} · {currentModel}
-            </span>
-          )}
+        <div className="floating-ui__header-center" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+          <ModelSelectorDropdown
+            settings={voiceSettings}
+            onSave={saveSettings}
+          />
         </div>
         <div className="floating-ui__header-actions" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
           <button
@@ -607,11 +606,7 @@ export default function FloatingUI() {
         {/* Camera status indicator */}
         <span className="camera-indicator" title="Camera status" />
 
-        {/* Model Selector Pill & Dropdown (0-cost free cloud, local Ollama 1-click, and cloud BYOK) */}
-        <ModelSelectorDropdown
-          settings={voiceSettings}
-          onSave={saveSettings}
-        />
+
 
         {/* Send button */}
         <button

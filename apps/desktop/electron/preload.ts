@@ -56,6 +56,9 @@ contextBridge.exposeInMainWorld('helix', {
     ipcRenderer.send('helix:open-agent-panel')
   },
 
+  ensureOllama: (): Promise<{ ok: boolean; status?: string }> =>
+    ipcRenderer.invoke('helix:ensure-ollama'),
+
   setFloatingWindowMode: (mode: 'full' | 'suppressed'): Promise<void> =>
     ipcRenderer.invoke('helix:set-floating-window-mode', mode),
 
