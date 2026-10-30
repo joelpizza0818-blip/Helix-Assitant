@@ -8,6 +8,8 @@ import {
 const GITHUB_API = 'https://api.github.com'
 const LITE_RELEASE_OWNER = 'joelpizza0818-blip'
 const LITE_RELEASE_REPOSITORY = 'Helix-Assitant'
+const MOBILE_RELEASE_OWNER = 'joelpizza0818-blip'
+const MOBILE_RELEASE_REPOSITORY = 'Helix-Assitant'
 const INSTALLER_RELEASE_OWNER = 'joelpizza0818-blip'
 const INSTALLER_RELEASE_REPOSITORY = 'helix-installer-downloads'
 
@@ -581,8 +583,8 @@ async function verifyMobileRelease(
   checksumUrl: string,
   releaseUrl: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const owner = Deno.env.get('GITHUB_INSTALLER_OWNER') ?? 'joelpizza0818-blip'
-  const repository = Deno.env.get('GITHUB_INSTALLER_REPO') ?? 'Helix-Assitant'
+  const owner = MOBILE_RELEASE_OWNER
+  const repository = MOBILE_RELEASE_REPOSITORY
   const token = Deno.env.get('GITHUB_INSTALLER_TOKEN')
   const tag = `mobile-v${version}`
   const installerNames = platform === 'android'
