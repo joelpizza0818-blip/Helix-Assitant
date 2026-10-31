@@ -20,6 +20,7 @@ import '../../core/security/secure_pairing_store.dart';
 import '../../core/transport/helix_transport.dart';
 import 'mobile_subagents_panel.dart';
 import 'mobile_skill_mentions.dart';
+import 'mobile_model_selector.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key});
@@ -47,6 +48,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   bool _notificationsEnabled = false;
   bool _showingConfirmation = false;
   ActiveSkillMention? _activeSkillMention;
+  String _selectedModel = 'meta-llama/llama-3.2-3b-instruct:free';
+  String _selectedModelName = 'Llama 3.2 3B';
+  final List<Map<String, dynamic>> _attachedFiles = [];
 
   _MobileLink? get _activeLink => _links[_selectedSessionId];
   List<_Message> get _messages => _activeLink?.messages ?? _emptyMessages;
@@ -133,7 +137,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       final link = _activeLink;
       if (link != null) {
         await _connectDraft(_ConnectionDraft(
-          link.config,
+          MobileConfig(
+            mode: link.config.mode,
+            desktop: link.config.desktop,
+            relayWssUrl: link.config.relayWssUrl,
+            requiresDeviceApproval: false,
+            invitationExpiresAt: null,
+          ),
           link.token,
           sessionId: link.sessionId,
           name: link.name,
@@ -256,6 +266,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         return;
       }
       link.token = link.connection.authenticatedToken ?? draft.token;
+      link.config = MobileConfig(
+        mode: draft.config.mode,
+        desktop: draft.config.desktop,
+        relayWssUrl: draft.config.relayWssUrl,
+        requiresDeviceApproval: false,
+        invitationExpiresAt: null,
+      );
+      link.deviceId = session.sourceDeviceId;
       final pairing = SavedMobilePairing(
         sessionId: draft.sessionId,
         name: draft.name,
@@ -882,17 +900,28 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   void _send() {
     final text = _controller.text.trim();
-    if (text.isEmpty || !_connected) return;
+    if ((text.isEmpty && _attachedFiles.isEmpty) || !_connected) return;
+    final displayText = text.isNotEmpty
+        ? text
+        : '📎 ${_attachedFiles.map((a) => a['name']).join(', ')}';
+    final attachmentsToSend = _attachedFiles.isNotEmpty
+        ? List<Map<String, dynamic>>.from(_attachedFiles)
+        : null;
     setState(() {
-      _messages.add(_Message(text, true));
+      _messages.add(_Message(displayText, true));
       _controller.clear();
+      _attachedFiles.clear();
       _hasInputText = false;
       _activeProgress = 'Pensando…';
       if (_activeLink != null) _activeLink!.activeTaskId = null;
     });
     _scrollToBottom();
-    _activeLink?.connection.session
-        ?.sendUserText(text: text, conversationId: 'mobile-session');
+    _activeLink?.connection.session?.sendUserText(
+      text: text,
+      conversationId: 'mobile-session',
+      attachments: attachmentsToSend,
+      model: _selectedModel,
+    );
   }
 
   Future<void> _toggleBrowserLive() async {
@@ -1554,9 +1583,252 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     ]);
   }
 
+  Future<void> _openModelSelector() async {
+    final selected = await showMobileModelSelector(
+      context,
+      currentModelId: _selectedModel,
+    );
+    if (selected != null && mounted) {
+      setState(() {
+        _selectedModel = selected.id;
+        _selectedModelName = selected.name;
+      });
+      unawaited(_activeLink?.connection.session?.request('SAVE_SETTINGS', {
+        'settings': {
+          'default_model': selected.id,
+          'preferred_provider': selected.provider,
+        }
+      }));
+    }
+  }
+
+  Future<void> _openAttachmentDialog() async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: const Color(0xFF141416),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF38383C),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              ListTile(
+                leading: const Icon(Icons.note_add_outlined, color: Color(0xFFEE6018)),
+                title: const Text('Adjuntar nota o snippet de texto',
+                    style: TextStyle(color: Colors.white, fontSize: 14)),
+                subtitle: const Text('Crea un archivo de texto para enviar al modelo',
+                    style: TextStyle(color: Color(0xFF8E8E93), fontSize: 12)),
+                onTap: () => Navigator.pop(ctx, 'text_note'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.paste_rounded, color: Color(0xFF64B4F6)),
+                title: const Text('Pegar portapapeles como archivo adjunto',
+                    style: TextStyle(color: Colors.white, fontSize: 14)),
+                subtitle: const Text('Usa el texto copiado recientemente',
+                    style: TextStyle(color: Color(0xFF8E8E93), fontSize: 12)),
+                onTap: () => Navigator.pop(ctx, 'clipboard'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.screenshot_monitor_rounded, color: Color(0xFF77D89A)),
+                title: const Text('Solicitar captura al Desktop',
+                    style: TextStyle(color: Colors.white, fontSize: 14)),
+                subtitle: const Text('Pide a HELIX inspeccionar la pantalla del PC',
+                    style: TextStyle(color: Color(0xFF8E8E93), fontSize: 12)),
+                onTap: () => Navigator.pop(ctx, 'desktop_screen'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (action == null || !mounted) return;
+    if (action == 'text_note') {
+      _showAddTextAttachmentDialog();
+    } else if (action == 'clipboard') {
+      await _attachClipboard();
+    } else if (action == 'desktop_screen') {
+      _sendPreset('Por favor toma una captura de pantalla del escritorio y descríbeme qué ves.');
+    }
+  }
+
+  void _showAddTextAttachmentDialog() {
+    final nameCtrl = TextEditingController(text: 'nota_${DateTime.now().millisecondsSinceEpoch % 10000}.txt');
+    final contentCtrl = TextEditingController();
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1C1C1E),
+        title: const Text('Adjuntar nota', style: TextStyle(color: Colors.white, fontSize: 16)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameCtrl,
+              style: const TextStyle(color: Colors.white, fontSize: 14),
+              decoration: const InputDecoration(
+                labelText: 'Nombre de archivo',
+                labelStyle: TextStyle(color: Color(0xFF8E8E93)),
+                enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF38383C))),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: contentCtrl,
+              maxLines: 4,
+              style: const TextStyle(color: Colors.white, fontSize: 13),
+              decoration: const InputDecoration(
+                labelText: 'Contenido del archivo',
+                labelStyle: TextStyle(color: Color(0xFF8E8E93)),
+                enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF38383C))),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar', style: TextStyle(color: Color(0xFF8E8E93))),
+          ),
+          FilledButton(
+            onPressed: () {
+              final name = nameCtrl.text.trim();
+              final text = contentCtrl.text;
+              if (name.isNotEmpty && text.isNotEmpty) {
+                final encoded = base64.encode(utf8.encode(text));
+                setState(() {
+                  _attachedFiles.add({
+                    'name': name,
+                    'mime_type': 'text/plain',
+                    'data_base64': encoded,
+                  });
+                });
+              }
+              Navigator.pop(ctx);
+            },
+            child: const Text('Adjuntar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _attachClipboard() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = data?.text?.trim();
+    if (text == null || text.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('El portapapeles está vacío.')),
+        );
+      }
+      return;
+    }
+    final encoded = base64.encode(utf8.encode(text));
+    setState(() {
+      _attachedFiles.add({
+        'name': 'clipboard_${DateTime.now().millisecondsSinceEpoch % 10000}.txt',
+        'mime_type': 'text/plain',
+        'data_base64': encoded,
+      });
+    });
+  }
+
+  Widget _buildAttachmentPreview() {
+    if (_attachedFiles.isEmpty) return const SizedBox.shrink();
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+      height: 32,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: _attachedFiles.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 6),
+        itemBuilder: (ctx, i) {
+          final file = _attachedFiles[i];
+          final name = file['name'] as String? ?? 'archivo';
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: const Color(0xFF2C2C2E),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFF38383C)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.attach_file_rounded, size: 13, color: Color(0xFFEE6018)),
+                const SizedBox(width: 4),
+                Text(
+                  name,
+                  style: const TextStyle(color: Colors.white, fontSize: 11.5),
+                ),
+                const SizedBox(width: 4),
+                GestureDetector(
+                  onTap: () => setState(() => _attachedFiles.removeAt(i)),
+                  child: const Icon(Icons.close_rounded, size: 14, color: Color(0xFF8E8E93)),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildModelSelectorStrip() => Container(
+        margin: const EdgeInsets.fromLTRB(14, 0, 14, 4),
+        child: Row(
+          children: [
+            GestureDetector(
+              onTap: _openModelSelector,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1C1C1E),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFF2C2C2E)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.tune_rounded, size: 12, color: Color(0xFFEE6018)),
+                    const SizedBox(width: 5),
+                    Text(
+                      _selectedModelName,
+                      style: const TextStyle(
+                        color: Color(0xFFE5E5EA),
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    const Icon(Icons.keyboard_arrow_down_rounded, size: 14, color: Color(0xFF8E8E93)),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+
   Widget _buildComposer(ThemeData theme) => Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (_attachedFiles.isNotEmpty) _buildAttachmentPreview(),
+          _buildModelSelectorStrip(),
           if (_hasSavedPairing && !_connected && !_connecting)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
@@ -1611,18 +1883,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 IconButton(
-                  tooltip: _connected ? 'Adjuntar' : null,
-                  onPressed: _connected
-                      ? () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              duration: Duration(seconds: 2),
-                              content: Text(
-                                  'Atajo rápido: puedes pedir capturas o comandos al Desktop.'),
-                            ),
-                          );
-                        }
-                      : null,
+                  tooltip: _connected ? 'Adjuntar archivo o nota' : null,
+                  onPressed: _connected ? _openAttachmentDialog : null,
                   icon: Icon(
                     Icons.add_rounded,
                     color: _connected
@@ -1793,8 +2055,9 @@ class _MobileLink {
 
   final String sessionId;
   final String name;
-  final MobileConfig config;
+  MobileConfig config;
   String token;
+  String? deviceId;
   final MobileConnection connection;
   final messages = <_Message>[];
   List<MobileSkill> skills = const [];

@@ -264,7 +264,7 @@ export default function AgentPanel() {
         selectedProfile.profile_id,
         provider || null,
         provider ? model || null : null,
-        provider ? keySlot : null,
+        provider ? (selectedProvider?.no_key_required ? 0 : keySlot) : null,
       )
       setProfiles((current) => current.map((profile) => (
         profile.profile_id === saved.profile_id ? saved : profile
@@ -439,6 +439,8 @@ export default function AgentPanel() {
                 <h3>API keys</h3>
                 {!provider ? (
                   <p>Choose a provider to see its configured keys.</p>
+                ) : selectedProvider?.no_key_required ? (
+                  <p style={{ color: '#a0ca92' }}>✓ Este proveedor no requiere API key (0-cost cloud o inferencia local Ollama).</p>
                 ) : selectedProvider?.key_slots.length ? (
                   selectedProvider.key_slots.map((slot) => {
                     const assignedProfiles = profiles.filter((profile) => (
@@ -472,7 +474,7 @@ export default function AgentPanel() {
               </div>
             </div>
             <svg
-              className={`agent-routing__connector ${provider && keySlot !== null ? 'is-paired' : ''}`}
+              className={`agent-routing__connector ${provider && (keySlot !== null || selectedProvider?.no_key_required) ? 'is-paired' : ''}`}
               viewBox="0 0 120 60"
               aria-hidden="true"
             >

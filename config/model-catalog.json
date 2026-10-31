@@ -25,10 +25,54 @@
         "text": true,
         "vision": true,
         "tool_calling": true,
+        "function_calling": true,
+        "structured_output": true,
         "streaming": true,
         "coding": true,
         "context_window": 128000,
         "cost_tier": "low"
+      }
+    },
+    {
+      "id": "o1",
+      "provider": "openai",
+      "display_name": "o1 (Full Reasoning)",
+      "capabilities": {
+        "text": true,
+        "vision": true,
+        "reasoning": true,
+        "coding": true,
+        "streaming": true,
+        "context_window": 200000,
+        "cost_tier": "premium"
+      }
+    },
+    {
+      "id": "o1-mini",
+      "provider": "openai",
+      "display_name": "o1 Mini",
+      "capabilities": {
+        "text": true,
+        "reasoning": true,
+        "coding": true,
+        "streaming": true,
+        "context_window": 128000,
+        "cost_tier": "medium"
+      }
+    },
+    {
+      "id": "o3-mini",
+      "provider": "openai",
+      "display_name": "o3 Mini (STEM & Code)",
+      "capabilities": {
+        "text": true,
+        "reasoning": true,
+        "coding": true,
+        "tool_calling": true,
+        "structured_output": true,
+        "streaming": true,
+        "context_window": 200000,
+        "cost_tier": "medium"
       }
     },
     {
@@ -46,51 +90,17 @@
       }
     },
     {
-      "id": "o1-preview",
+      "id": "chatgpt-4o-latest",
       "provider": "openai",
-      "display_name": "o1 Preview",
+      "display_name": "ChatGPT-4o Latest",
       "capabilities": {
         "text": true,
-        "reasoning": true,
-        "context_window": 128000,
-        "cost_tier": "premium"
-      }
-    },
-    {
-      "id": "o1-mini",
-      "provider": "openai",
-      "display_name": "o1 Mini",
-      "capabilities": {
-        "text": true,
-        "reasoning": true,
+        "vision": true,
+        "tool_calling": true,
         "coding": true,
-        "context_window": 128000,
-        "cost_tier": "medium"
-      }
-    },
-    {
-      "id": "o3-mini",
-      "provider": "openai",
-      "display_name": "o3 Mini",
-      "capabilities": {
-        "text": true,
-        "reasoning": true,
-        "coding": true,
-        "context_window": 200000,
-        "cost_tier": "medium"
-      }
-    },
-    {
-      "id": "gpt-4o-realtime-preview",
-      "provider": "openai",
-      "display_name": "GPT-4o Realtime",
-      "capabilities": {
-        "text": true,
-        "audio": true,
-        "realtime": true,
-        "low_latency": true,
         "streaming": true,
-        "cost_tier": "premium"
+        "context_window": 128000,
+        "cost_tier": "high"
       }
     },
     {
@@ -119,6 +129,149 @@
       "capabilities": {
         "text_to_speech": true,
         "cost_tier": "medium"
+      }
+    },
+    {
+      "id": "claude-3-7-sonnet-20250219",
+      "provider": "anthropic",
+      "display_name": "Claude 3.7 Sonnet (Hybrid)",
+      "capabilities": {
+        "text": true,
+        "vision": true,
+        "tool_calling": true,
+        "computer_use": true,
+        "coding": true,
+        "reasoning": true,
+        "streaming": true,
+        "context_window": 200000,
+        "cost_tier": "high"
+      }
+    },
+    {
+      "id": "claude-3-5-sonnet-20241022",
+      "provider": "anthropic",
+      "display_name": "Claude 3.5 Sonnet",
+      "capabilities": {
+        "text": true,
+        "vision": true,
+        "tool_calling": true,
+        "computer_use": true,
+        "coding": true,
+        "reasoning": true,
+        "streaming": true,
+        "context_window": 200000,
+        "cost_tier": "high"
+      }
+    },
+    {
+      "id": "claude-3-5-haiku-20241022",
+      "provider": "anthropic",
+      "display_name": "Claude 3.5 Haiku",
+      "capabilities": {
+        "text": true,
+        "vision": true,
+        "tool_calling": true,
+        "coding": true,
+        "streaming": true,
+        "context_window": 200000,
+        "cost_tier": "low"
+      }
+    },
+    {
+      "id": "claude-3-opus-20240229",
+      "provider": "anthropic",
+      "display_name": "Claude 3 Opus",
+      "capabilities": {
+        "text": true,
+        "vision": true,
+        "tool_calling": true,
+        "coding": true,
+        "reasoning": true,
+        "streaming": true,
+        "context_window": 200000,
+        "cost_tier": "premium"
+      }
+    },
+    {
+      "id": "gemini-2.0-flash",
+      "provider": "google",
+      "display_name": "Gemini 2.0 Flash",
+      "capabilities": {
+        "text": true,
+        "vision": true,
+        "audio": true,
+        "tool_calling": true,
+        "coding": true,
+        "streaming": true,
+        "low_latency": true,
+        "long_context": true,
+        "context_window": 1048576,
+        "cost_tier": "low"
+      }
+    },
+    {
+      "id": "gemini-2.0-flash-thinking-exp",
+      "provider": "google",
+      "display_name": "Gemini 2.0 Flash Thinking",
+      "capabilities": {
+        "text": true,
+        "vision": true,
+        "tool_calling": true,
+        "coding": true,
+        "reasoning": true,
+        "streaming": true,
+        "long_context": true,
+        "context_window": 1048576,
+        "cost_tier": "low"
+      }
+    },
+    {
+      "id": "gemini-2.0-pro-exp-02-05",
+      "provider": "google",
+      "display_name": "Gemini 2.0 Pro Exp",
+      "capabilities": {
+        "text": true,
+        "vision": true,
+        "tool_calling": true,
+        "coding": true,
+        "reasoning": true,
+        "streaming": true,
+        "long_context": true,
+        "context_window": 2097152,
+        "cost_tier": "medium"
+      }
+    },
+    {
+      "id": "gemini-1.5-pro",
+      "provider": "google",
+      "display_name": "Gemini 1.5 Pro",
+      "capabilities": {
+        "text": true,
+        "vision": true,
+        "audio": true,
+        "tool_calling": true,
+        "coding": true,
+        "reasoning": true,
+        "streaming": true,
+        "long_context": true,
+        "context_window": 2097152,
+        "cost_tier": "high"
+      }
+    },
+    {
+      "id": "gemini-1.5-flash",
+      "provider": "google",
+      "display_name": "Gemini 1.5 Flash",
+      "capabilities": {
+        "text": true,
+        "vision": true,
+        "audio": true,
+        "tool_calling": true,
+        "coding": true,
+        "streaming": true,
+        "long_context": true,
+        "context_window": 1048576,
+        "cost_tier": "low"
       }
     },
     {
@@ -228,6 +381,508 @@
         "context_window": 1048576,
         "cost_tier": "high"
       }
+    },
+    {
+      "id": "llama-3.3-70b-versatile",
+      "provider": "groq",
+      "display_name": "Llama 3.3 70B (Groq 300 T/s)",
+      "model_type": "open_weight",
+      "access_type": "byok",
+      "weight_source": "Meta",
+      "note": "Ultra-rápido ~300 T/s en hardware LPU. Soporta tool calling.",
+      "capabilities": {
+        "text": true,
+        "tool_calling": true,
+        "coding": true,
+        "reasoning": true,
+        "streaming": true,
+        "context_window": 128000,
+        "cost_tier": "low"
+      },
+      "priority": 95
+    },
+    {
+      "id": "llama-3.1-8b-instant",
+      "provider": "groq",
+      "display_name": "Llama 3.1 8B Instant (Groq 800 T/s)",
+      "model_type": "open_weight",
+      "access_type": "byok",
+      "weight_source": "Meta",
+      "note": "Latencia instantánea ~800 T/s. Ideal para comandos rápidos.",
+      "capabilities": {
+        "text": true,
+        "tool_calling": true,
+        "coding": true,
+        "streaming": true,
+        "low_latency": true,
+        "context_window": 128000,
+        "cost_tier": "low"
+      },
+      "priority": 92
+    },
+    {
+      "id": "deepseek-r1-distill-llama-70b",
+      "provider": "groq",
+      "display_name": "DeepSeek R1 70B Distill (Groq)",
+      "model_type": "open_weight",
+      "access_type": "byok",
+      "weight_source": "DeepSeek",
+      "note": "Razonamiento matemático y de código acelerado por Groq LPU.",
+      "capabilities": {
+        "text": true,
+        "reasoning": true,
+        "coding": true,
+        "streaming": true,
+        "context_window": 128000,
+        "cost_tier": "low"
+      },
+      "priority": 90
+    },
+    {
+      "id": "qwen-2.5-32b",
+      "provider": "groq",
+      "display_name": "Qwen 2.5 32B (Groq)",
+      "model_type": "open_weight",
+      "access_type": "byok",
+      "weight_source": "Alibaba",
+      "capabilities": {
+        "text": true,
+        "tool_calling": true,
+        "coding": true,
+        "streaming": true,
+        "context_window": 128000,
+        "cost_tier": "low"
+      },
+      "priority": 88
+    },
+    {
+      "id": "mixtral-8x7b-32768",
+      "provider": "groq",
+      "display_name": "Mixtral 8x7B (Groq)",
+      "model_type": "open_weight",
+      "access_type": "byok",
+      "weight_source": "Mistral AI",
+      "capabilities": {
+        "text": true,
+        "tool_calling": true,
+        "coding": true,
+        "streaming": true,
+        "context_window": 32768,
+        "cost_tier": "low"
+      },
+      "priority": 84
+    },
+    {
+      "id": "openrouter/auto",
+      "provider": "openrouter",
+      "display_name": "OpenRouter Auto",
+      "model_type": "cloud",
+      "access_type": "byok",
+      "note": "Enrutamiento dinámico al proveedor más rápido y disponible.",
+      "capabilities": {
+        "text": true,
+        "tool_calling": true,
+        "streaming": true,
+        "context_window": 128000,
+        "cost_tier": "medium"
+      },
+      "priority": 89
+    },
+    {
+      "id": "anthropic/claude-3.7-sonnet",
+      "provider": "openrouter",
+      "display_name": "Claude 3.7 Sonnet (OpenRouter)",
+      "model_type": "cloud",
+      "access_type": "byok",
+      "capabilities": {
+        "text": true,
+        "vision": true,
+        "tool_calling": true,
+        "coding": true,
+        "reasoning": true,
+        "streaming": true,
+        "context_window": 200000,
+        "cost_tier": "high"
+      },
+      "priority": 94
+    },
+    {
+      "id": "anthropic/claude-3.5-sonnet",
+      "provider": "openrouter",
+      "display_name": "Claude 3.5 Sonnet (OpenRouter)",
+      "model_type": "cloud",
+      "access_type": "byok",
+      "capabilities": {
+        "text": true,
+        "vision": true,
+        "tool_calling": true,
+        "coding": true,
+        "reasoning": true,
+        "streaming": true,
+        "context_window": 200000,
+        "cost_tier": "high"
+      },
+      "priority": 93
+    },
+    {
+      "id": "deepseek/deepseek-r1",
+      "provider": "openrouter",
+      "display_name": "DeepSeek R1 671B (OpenRouter)",
+      "model_type": "open_weight",
+      "access_type": "byok",
+      "weight_source": "DeepSeek",
+      "capabilities": {
+        "text": true,
+        "reasoning": true,
+        "coding": true,
+        "streaming": true,
+        "context_window": 128000,
+        "cost_tier": "low"
+      },
+      "priority": 91
+    },
+    {
+      "id": "deepseek/deepseek-chat",
+      "provider": "openrouter",
+      "display_name": "DeepSeek V3 671B (OpenRouter)",
+      "model_type": "open_weight",
+      "access_type": "byok",
+      "weight_source": "DeepSeek",
+      "capabilities": {
+        "text": true,
+        "tool_calling": true,
+        "coding": true,
+        "reasoning": true,
+        "streaming": true,
+        "context_window": 128000,
+        "cost_tier": "low"
+      },
+      "priority": 90
+    },
+    {
+      "id": "meta-llama/llama-3.3-70b-instruct",
+      "provider": "openrouter",
+      "display_name": "Llama 3.3 70B (OpenRouter)",
+      "model_type": "open_weight",
+      "access_type": "byok",
+      "weight_source": "Meta",
+      "capabilities": {
+        "text": true,
+        "tool_calling": true,
+        "coding": true,
+        "reasoning": true,
+        "streaming": true,
+        "context_window": 131072,
+        "cost_tier": "low"
+      },
+      "priority": 88
+    },
+    {
+      "id": "google/gemini-2.0-flash-001",
+      "provider": "openrouter",
+      "display_name": "Gemini 2.0 Flash (OpenRouter)",
+      "model_type": "cloud",
+      "access_type": "byok",
+      "capabilities": {
+        "text": true,
+        "vision": true,
+        "tool_calling": true,
+        "streaming": true,
+        "low_latency": true,
+        "context_window": 1048576,
+        "cost_tier": "low"
+      },
+      "priority": 87
+    },
+    {
+      "id": "openai/gpt-4o-mini",
+      "provider": "openrouter",
+      "display_name": "GPT-4o Mini (OpenRouter)",
+      "model_type": "cloud",
+      "access_type": "byok",
+      "capabilities": {
+        "text": true,
+        "vision": true,
+        "tool_calling": true,
+        "coding": true,
+        "streaming": true,
+        "context_window": 128000,
+        "cost_tier": "low"
+      },
+      "priority": 86
+    },
+    {
+      "id": "meta-llama/llama-3.3-70b-instruct:free",
+      "provider": "free",
+      "display_name": "Llama 3.3 70B Free",
+      "model_type": "open_weight",
+      "access_type": "free_tier",
+      "weight_source": "Meta",
+      "note": "Requiere OPENROUTER_API_KEY. Endpoint 0-cost con límites de tasa.",
+      "capabilities": {
+        "text": true,
+        "tool_calling": true,
+        "coding": true,
+        "reasoning": true,
+        "streaming": true,
+        "context_window": 131072,
+        "cost_tier": "low"
+      },
+      "priority": 95
+    },
+    {
+      "id": "deepseek/deepseek-r1:free",
+      "provider": "free",
+      "display_name": "DeepSeek R1 Free",
+      "model_type": "open_weight",
+      "access_type": "free_tier",
+      "weight_source": "DeepSeek",
+      "note": "Requiere OPENROUTER_API_KEY. Razonamiento profundo a 0 coste.",
+      "capabilities": {
+        "text": true,
+        "tool_calling": false,
+        "streaming": true,
+        "reasoning": true,
+        "coding": true,
+        "context_window": 65536,
+        "cost_tier": "low"
+      },
+      "priority": 90
+    },
+    {
+      "id": "deepseek/deepseek-chat:free",
+      "provider": "free",
+      "display_name": "DeepSeek V3 Free",
+      "model_type": "open_weight",
+      "access_type": "free_tier",
+      "weight_source": "DeepSeek",
+      "note": "Requiere OPENROUTER_API_KEY. Capacidad general 671B a 0 coste.",
+      "capabilities": {
+        "text": true,
+        "tool_calling": true,
+        "streaming": true,
+        "coding": true,
+        "context_window": 65536,
+        "cost_tier": "low"
+      },
+      "priority": 89
+    },
+    {
+      "id": "qwen/qwen-2.5-coder-32b-instruct:free",
+      "provider": "free",
+      "display_name": "Qwen 2.5 Coder 32B Free",
+      "model_type": "open_weight",
+      "access_type": "free_tier",
+      "weight_source": "Alibaba",
+      "note": "Requiere OPENROUTER_API_KEY. Programación avanzada a 0 coste.",
+      "capabilities": {
+        "text": true,
+        "tool_calling": true,
+        "streaming": true,
+        "coding": true,
+        "context_window": 32768,
+        "cost_tier": "low"
+      },
+      "priority": 88
+    },
+    {
+      "id": "meta-llama/llama-3.2-3b-instruct:free",
+      "provider": "free",
+      "display_name": "Llama 3.2 3B Free",
+      "model_type": "open_weight",
+      "access_type": "free_tier",
+      "weight_source": "Meta",
+      "note": "Requiere OPENROUTER_API_KEY. Rápido y económico para tareas sencillas.",
+      "capabilities": {
+        "text": true,
+        "tool_calling": true,
+        "streaming": true,
+        "low_latency": true,
+        "context_window": 131072,
+        "cost_tier": "low"
+      },
+      "priority": 82
+    },
+    {
+      "id": "google/gemini-2.0-flash-exp:free",
+      "provider": "free",
+      "display_name": "Gemini 2.0 Flash Exp Free",
+      "model_type": "open_weight",
+      "access_type": "free_tier",
+      "weight_source": "Google",
+      "note": "Requiere OPENROUTER_API_KEY. 1M contexto multimodal.",
+      "capabilities": {
+        "text": true,
+        "vision": true,
+        "tool_calling": true,
+        "streaming": true,
+        "low_latency": true,
+        "context_window": 1048576,
+        "cost_tier": "low"
+      },
+      "priority": 87
+    },
+    {
+      "id": "llama3.3:70b",
+      "provider": "ollama",
+      "display_name": "Llama 3.3 70B (Local)",
+      "model_type": "open_weight",
+      "access_type": "local",
+      "weight_source": "Meta",
+      "size_gb": 40.0,
+      "capabilities": {
+        "text": true,
+        "tool_calling": true,
+        "coding": true,
+        "reasoning": true,
+        "streaming": true,
+        "context_window": 131072,
+        "cost_tier": "low"
+      },
+      "priority": 85
+    },
+    {
+      "id": "llama3.2:3b",
+      "provider": "ollama",
+      "display_name": "Llama 3.2 3B (Local)",
+      "model_type": "open_weight",
+      "access_type": "local",
+      "weight_source": "Meta",
+      "size_gb": 2.0,
+      "capabilities": {
+        "text": true,
+        "tool_calling": true,
+        "streaming": true,
+        "low_latency": true,
+        "context_window": 131072,
+        "cost_tier": "low"
+      },
+      "priority": 80
+    },
+    {
+      "id": "qwen2.5-coder:7b",
+      "provider": "ollama",
+      "display_name": "Qwen 2.5 Coder 7B (Local)",
+      "model_type": "open_weight",
+      "access_type": "local",
+      "weight_source": "Alibaba",
+      "size_gb": 4.7,
+      "capabilities": {
+        "text": true,
+        "tool_calling": true,
+        "streaming": true,
+        "coding": true,
+        "context_window": 32768,
+        "cost_tier": "low"
+      },
+      "priority": 82
+    },
+    {
+      "id": "qwen2.5-coder:1.5b",
+      "provider": "ollama",
+      "display_name": "Qwen 2.5 Coder 1.5B (Local)",
+      "model_type": "open_weight",
+      "access_type": "local",
+      "weight_source": "Alibaba",
+      "size_gb": 1.0,
+      "capabilities": {
+        "text": true,
+        "tool_calling": true,
+        "streaming": true,
+        "coding": true,
+        "low_latency": true,
+        "context_window": 32768,
+        "cost_tier": "low"
+      },
+      "priority": 75
+    },
+    {
+      "id": "deepseek-r1:7b",
+      "provider": "ollama",
+      "display_name": "DeepSeek R1 7B (Local)",
+      "model_type": "open_weight",
+      "access_type": "local",
+      "weight_source": "DeepSeek",
+      "size_gb": 4.7,
+      "capabilities": {
+        "text": true,
+        "reasoning": true,
+        "coding": true,
+        "streaming": true,
+        "context_window": 65536,
+        "cost_tier": "low"
+      },
+      "priority": 78
+    },
+    {
+      "id": "deepseek-r1:1.5b",
+      "provider": "ollama",
+      "display_name": "DeepSeek R1 1.5B (Local)",
+      "model_type": "open_weight",
+      "access_type": "local",
+      "weight_source": "DeepSeek",
+      "size_gb": 1.1,
+      "capabilities": {
+        "text": true,
+        "tool_calling": false,
+        "streaming": true,
+        "reasoning": true,
+        "low_latency": true,
+        "context_window": 65536,
+        "cost_tier": "low"
+      },
+      "priority": 70
+    },
+    {
+      "id": "mistral:7b",
+      "provider": "ollama",
+      "display_name": "Mistral 7B (Local)",
+      "model_type": "open_weight",
+      "access_type": "local",
+      "weight_source": "Mistral AI",
+      "size_gb": 4.1,
+      "capabilities": {
+        "text": true,
+        "tool_calling": true,
+        "streaming": true,
+        "context_window": 32768,
+        "cost_tier": "low"
+      },
+      "priority": 65
+    },
+    {
+      "id": "gemma2:9b",
+      "provider": "ollama",
+      "display_name": "Gemma 2 9B (Local)",
+      "model_type": "open_weight",
+      "access_type": "local",
+      "weight_source": "Google",
+      "size_gb": 5.4,
+      "capabilities": {
+        "text": true,
+        "tool_calling": true,
+        "streaming": true,
+        "context_window": 8192,
+        "cost_tier": "low"
+      },
+      "priority": 68
+    },
+    {
+      "id": "llama-server/active-model",
+      "provider": "llama_server",
+      "display_name": "Llama Server (GGUF Local)",
+      "model_type": "open_weight",
+      "access_type": "local",
+      "note": "Inferencia local portable sin servicios de fondo (llama.cpp en :8080).",
+      "capabilities": {
+        "text": true,
+        "tool_calling": true,
+        "streaming": true,
+        "low_latency": true,
+        "context_window": 4096,
+        "cost_tier": "low"
+      },
+      "priority": 78
     }
   ]
 }

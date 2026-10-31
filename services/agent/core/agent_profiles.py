@@ -145,12 +145,18 @@ class AgentProfileStore:
             provider = model_route.get("provider")
             model = model_route.get("model")
             key_slot = model_route.get("key_slot")
+            _no_key_providers = {"free", "ollama"}
             if (
                 not isinstance(provider, str)
                 or not provider.strip()
                 or not isinstance(model, str)
                 or not model.strip()
-                or not isinstance(key_slot, int)
+            ):
+                raise ValueError("Subagent model route must specify provider and model.")
+            if provider in _no_key_providers:
+                key_slot = 0  # Keyless providers use slot 0 by convention
+            elif (
+                not isinstance(key_slot, int)
                 or isinstance(key_slot, bool)
                 or key_slot < 0
             ):

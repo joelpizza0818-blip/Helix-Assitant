@@ -190,20 +190,34 @@ export function sanitizeMobileMessage(
     }
   }
   if (message.type !== 'USER_TEXT') return null
-  const text = (payload as Record<string, unknown>).text
+  const rawText = (payload as Record<string, unknown>).text
   if (
-    typeof text !== 'string'
-    || text.trim().length === 0
-    || text.length > MAX_MOBILE_TEXT_LENGTH
+    typeof rawText !== 'string'
+    || rawText.trim().length === 0
+    || rawText.length > MAX_MOBILE_TEXT_LENGTH
   ) {
     return null
   }
+  const rawAttachments = (payload as Record<string, unknown>).attachments
+  const rawModel = (payload as Record<string, unknown>).model
+  const safeAttachments: Array<Record<string, unknown>> = []
+  if (Array.isArray(rawAttachments) && rawAttachments.length <= 10) {
+    for (const att of rawAttachments) {
+      if (att && typeof att === 'object' && !Array.isArray(att)) {
+        safeAttachments.push(att as Record<string, unknown>)
+      }
+    }
+  }
+  const safeModel = typeof rawModel === 'string' && rawModel.length < 120 ? rawModel : undefined
+
   return {
     type: 'USER_TEXT',
     payload: {
-      text,
+      text: rawText,
       conversation_id: `mobile_${deviceId}`,
       conversation_history: [],
+      ...(safeAttachments.length > 0 ? { attachments: safeAttachments } : {}),
+      ...(safeModel ? { model: safeModel } : {}),
     },
     source_device_id: deviceId,
     source_device_name: deviceName,

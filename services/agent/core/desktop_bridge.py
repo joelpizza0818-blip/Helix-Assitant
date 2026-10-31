@@ -33,9 +33,15 @@ except ImportError:
 try:
     from ..ai.base_provider import ModelDefinition, ModelCapabilities
     from ..ai.custom_provider import OpenAICompatibleProvider
+    from ..ai.ollama_manager import get_ollama_manager
+    from ..ai.llama_server_manager import get_llama_server_manager
+    from ..ai.model_catalog_generated import MODEL_CATALOG
 except ImportError:
     from ai.base_provider import ModelDefinition, ModelCapabilities
     from ai.custom_provider import OpenAICompatibleProvider
+    from ai.ollama_manager import get_ollama_manager
+    from ai.llama_server_manager import get_llama_server_manager
+    from ai.model_catalog_generated import MODEL_CATALOG
 
 
 DEFAULT_SETTINGS = {
@@ -109,7 +115,7 @@ DEFAULT_SETTINGS = {
     "memory_context_limit": 20,
     "memory_compact_threshold": 10,
     "memory_auto_compaction": True,
-    "model_request_timeout_seconds": 90,
+    "model_request_timeout_seconds": 45,
     "embedding_model": "text-embedding-3-small",
     "memory_similarity_threshold": 0.75,
     "tool_verification_enabled": True,
@@ -266,6 +272,10 @@ class DesktopRequestHandler:
             "GET_MEMORY_STATUS": self._get_memory_status,
             "CLEAR_MEMORY": self._clear_memory,
             "GET_USER_MEMORIES": self._get_user_memories,
+            "GET_USER_MEMORY_PROFILE": self._get_user_memory_profile,
+            "UPDATE_USER_MEMORY_SUMMARY": lambda: self._update_user_memory_summary(payload),
+            "UPDATE_USER_NOTES": lambda: self._update_user_notes(payload),
+            "CLEAR_USER_MEMORY": self._clear_user_memory,
             "SAVE_USER_MEMORY": lambda: self._save_user_memory(payload),
             "UPDATE_USER_MEMORY": lambda: self._update_user_memory(payload),
             "DELETE_USER_MEMORY": lambda: self._delete_user_memory(payload),
@@ -278,6 +288,14 @@ class DesktopRequestHandler:
             "GET_LEARNING_STATS": self._get_learning_stats,
             "RUN_LEARNING_MAINTENANCE": self._run_learning_maintenance,
             "LIST_FREE_MODELS": self._list_free_models,
+            "GET_MODEL_CATALOG": self._get_model_catalog,
+            "GET_OLLAMA_STATUS": self._get_ollama_status,
+            "PULL_OLLAMA_MODEL": lambda: self._pull_ollama_model(payload),
+            "GET_LLAMA_SERVER_STATUS": self._get_llama_server_status,
+            "START_LLAMA_SERVER": lambda: self._start_llama_server(payload),
+            "STOP_LLAMA_SERVER": self._stop_llama_server,
+            "DOWNLOAD_LLAMA_SERVER": self._download_llama_server,
+            "DOWNLOAD_GGUF_MODEL": lambda: self._download_gguf_model(payload),
         }
 
         if request_id is None:
@@ -366,7 +384,6 @@ class DesktopRequestHandler:
                     or not isinstance(source_device_id, str)
                     or re.fullmatch(r"[A-Za-z0-9_-]{20,64}", source_device_id) is None
                     or payload.get("conversation_id") != f"mobile_{source_device_id}"
-                    or payload.get("attachments")
                 ):
                     raise ValueError("Mobile USER_TEXT metadata is invalid")
                 if len(text) > 50_000:
@@ -612,7 +629,7 @@ class DesktopRequestHandler:
 
     async def _get_providers(self) -> list[dict]:
         result = []
-        provider_ids = ["openai", "anthropic", "google"] + [
+        provider_ids = ["openai", "anthropic", "google", "groq", "openrouter"] + [
             provider_id
             for provider_id in self.provider_registry._providers
             if provider_id.startswith("custom_")
@@ -641,9 +658,11 @@ class DesktopRequestHandler:
         return result
 
     async def _get_models(self, requirements: dict) -> list[dict]:
+        """Return all available models: BYOK-configured + free/ollama (always available)."""
         configured = set(self.key_manager.get_configured_providers())
-        if not configured:
-            return []
+        # Free and ollama providers are available regardless of key configuration
+        always_available = {"free", "ollama", "llama_server"}
+        all_provider_filter = list(configured | always_available)
         required = {
             name: True
             for name, value in requirements.items()
@@ -651,9 +670,101 @@ class DesktopRequestHandler:
         }
         models = self.capability_registry.filter_by_capabilities(
             required,
-            provider_filter=list(configured),
+            provider_filter=all_provider_filter,
         )
         return [_serialize(model) for model in models]
+
+    async def _get_model_catalog(self) -> dict:
+        """Return the full model catalog with access metadata for the UI."""
+        configured = set(self.key_manager.get_configured_providers())
+        ollama_mgr = get_ollama_manager()
+        ollama_running = await ollama_mgr.is_running()
+        ollama_installed_names: set = set()
+        if ollama_running:
+            installed = await ollama_mgr.list_installed()
+            ollama_installed_names = {m.name for m in installed}
+
+        categories: dict = {"byok": [], "free_tier": [], "local": []}
+        for entry in MODEL_CATALOG:
+            provider = entry.get("provider", "")
+            item = {
+                "id": entry.get("id"),
+                "display_name": entry.get("display_name"),
+                "provider": provider,
+                "model_type": entry.get("model_type", ""),
+                "access_type": entry.get("access_type", ""),
+                "weight_source": entry.get("weight_source"),
+                "size_gb": entry.get("size_gb"),
+                "note": entry.get("note"),
+                "capabilities": entry.get("capabilities", {}),
+                "status": "AVAILABLE",
+            }
+            if provider == "ollama":
+                model_id = entry.get("id", "")
+                item["ollama_running"] = ollama_running
+                item["installed"] = model_id in ollama_installed_names
+                item["status"] = (
+                    "READY" if item["installed"]
+                    else ("AVAILABLE" if ollama_running else "UNAVAILABLE")
+                )
+                categories["local"].append(item)
+            elif provider == "free":
+                has_key = "free" in configured or bool(os.environ.get("OPENROUTER_API_KEY"))
+                item["status"] = "AVAILABLE" if has_key else "AUTH_REQUIRED"
+                item["auth_note"] = "Requiere tu propia OPENROUTER_API_KEY"
+                categories["free_tier"].append(item)
+            else:
+                item["configured"] = provider in configured
+                item["status"] = "AVAILABLE" if provider in configured else "AUTH_REQUIRED"
+                categories["byok"].append(item)
+
+        return {
+            "categories": categories,
+            "ollama_status": {
+                "installed": ollama_mgr.is_installed(),
+                "running": ollama_running,
+                "install_hint": ollama_mgr.get_install_command() if not ollama_mgr.is_installed() else None,
+            },
+        }
+
+    async def _get_ollama_status(self) -> dict:
+        """Return Ollama runtime status for the UI."""
+        return await get_ollama_manager().get_status()
+
+    async def _pull_ollama_model(self, payload: dict) -> dict:
+        """Start or cancel an Ollama model pull."""
+        model_name = payload.get("model")
+        action = payload.get("action", "start")
+        if not isinstance(model_name, str) or not model_name.strip():
+            raise ValueError("model name is required")
+        model_name = model_name.strip()
+        mgr = get_ollama_manager()
+
+        if action == "cancel":
+            cancelled = mgr.cancel_pull(model_name)
+            return {"model": model_name, "action": "cancel", "cancelled": cancelled}
+
+        if mgr.is_pulling(model_name):
+            return {"model": model_name, "status": "INSTALLING", "message": "Ya hay una descarga en curso."}
+
+        size_gb = 0.0
+        for entry in MODEL_CATALOG:
+            if entry.get("id") == model_name and entry.get("provider") == "ollama":
+                size_gb = float(entry.get("size_gb") or 0)
+                break
+        if size_gb > 0:
+            hw = mgr.check_hardware(size_gb)
+            if not hw.ok:
+                return {
+                    "model": model_name,
+                    "status": "INCOMPATIBLE",
+                    "issues": hw.issues,
+                    "free_disk_gb": hw.free_disk_gb,
+                    "free_ram_gb": hw.free_ram_gb,
+                }
+
+        mgr.start_pull_task(model_name)
+        return {"model": model_name, "status": "INSTALLING", "size_gb": size_gb}
 
     async def _get_subagent_profiles(self) -> list[dict]:
         if self.agent_manager is None:
@@ -698,23 +809,36 @@ class DesktopRequestHandler:
         providers = []
         models = []
         configured = set(self.key_manager.get_configured_providers())
-        for provider_id in sorted(configured):
-            provider = self.provider_registry.get_registered_provider(provider_id)
-            slots = [
-                slot
-                for slot, _secret in self.key_manager.get_available_keys(provider_id)
-            ]
-            providers.append({
-                "id": provider_id,
-                "name": provider.provider_name if provider else provider_id,
-                "key_slots": slots,
-            })
+        # Include free and ollama providers alongside BYOK providers
+        no_key_providers = {"free", "ollama", "llama_server"}
+        all_providers = sorted(configured | no_key_providers)
+        for provider_id in all_providers:
+            provider_obj = self.provider_registry.get_registered_provider(provider_id)
+            if provider_id in no_key_providers:
+                # No key slots for keyless providers
+                providers.append({
+                    "id": provider_id,
+                    "name": provider_obj.provider_name if provider_obj else provider_id,
+                    "key_slots": [],
+                    "no_key_required": True,
+                })
+            else:
+                slots = [
+                    slot
+                    for slot, _secret in self.key_manager.get_available_keys(provider_id)
+                ]
+                providers.append({
+                    "id": provider_id,
+                    "name": provider_obj.provider_name if provider_obj else provider_id,
+                    "key_slots": slots,
+                })
             if self.provider_registry.is_provider_available(provider_id):
                 models.extend(
                     {
                         "id": model.id,
                         "name": model.display_name,
                         "provider": model.provider,
+                        "access_type": getattr(model, "access_type", None),
                     }
                     for model in self.capability_registry.get_models_for_provider(provider_id)
                     if model.enabled
@@ -735,20 +859,25 @@ class DesktopRequestHandler:
                 profile_id, None, None, None
             )
             return profile.public_dict()
-        if (
-            not isinstance(provider, str)
-            or not isinstance(model_id, str)
-            or not isinstance(key_slot, int)
-            or isinstance(key_slot, bool)
-            or key_slot < 0
-        ):
-            raise ValueError("A model route requires provider, model, and key slot.")
+        no_key_providers = {"free", "ollama", "llama_server"}
+        if not isinstance(provider, str) or not isinstance(model_id, str):
+            raise ValueError("A model route requires provider and model.")
+        if provider in no_key_providers:
+            # Keyless providers use slot 0 by convention
+            key_slot = 0
+        else:
+            if (
+                not isinstance(key_slot, int)
+                or isinstance(key_slot, bool)
+                or key_slot < 0
+            ):
+                raise ValueError("A model route requires provider, model, and key slot.")
         if not any(
             model.id == model_id and model.provider == provider and model.enabled
             for model in self.capability_registry.get_models_for_provider(provider)
         ):
             raise ValueError("The selected model is not available for that provider.")
-        if not any(
+        if provider not in no_key_providers and not any(
             slot == key_slot
             for slot, _secret in self.key_manager.get_available_keys(provider)
         ):
@@ -1267,6 +1396,28 @@ class DesktopRequestHandler:
             raise ValueError(f"Memory {memory_id} was not found.")
         return {"deleted": True, "memory_id": memory_id}
 
+    async def _get_user_memory_profile(self) -> dict:
+        """Return the unified user memory profile {summary, user_notes, updated_at}."""
+        return UserMemoryManager.get_instance().get_profile()
+
+    async def _update_user_memory_summary(self, payload: dict) -> dict:
+        """Update the auto-generated Helix summary about the user."""
+        summary = payload.get("summary", "")
+        if not isinstance(summary, str):
+            raise ValueError("summary must be a string.")
+        return UserMemoryManager.get_instance().update_summary(summary)
+
+    async def _update_user_notes(self, payload: dict) -> dict:
+        """Update the user-written notes field."""
+        notes = payload.get("notes", "")
+        if not isinstance(notes, str):
+            raise ValueError("notes must be a string.")
+        return UserMemoryManager.get_instance().update_user_notes(notes)
+
+    async def _clear_user_memory(self) -> dict:
+        """Wipe all user memory (summary + notes)."""
+        return UserMemoryManager.get_instance().clear_all()
+
     def _custom_skills_dir(self) -> Path:
         return self.settings_path.parent / "skills"
 
@@ -1477,11 +1628,46 @@ class DesktopRequestHandler:
             redacted.append(safe_endpoint)
         return redacted
 
+    async def _get_llama_server_status(self) -> dict:
+        """Return llama-server runtime status, binary detection and local GGUF models."""
+        return await get_llama_server_manager().get_status()
+
+    async def _start_llama_server(self, payload: dict) -> dict:
+        """Launch llama-server with the specified GGUF model."""
+        model = payload.get("model")
+        if not isinstance(model, str) or not model.strip():
+            raise ValueError("Model path or name is required")
+        context_size = int(payload.get("context_size", 4096))
+        mgr = get_llama_server_manager()
+        success = await mgr.start_server(model.strip(), context_size=context_size)
+        return {"success": success, "status": await mgr.get_status()}
+
+    async def _stop_llama_server(self) -> dict:
+        """Stop the background llama-server process."""
+        mgr = get_llama_server_manager()
+        success = await mgr.stop_server()
+        return {"success": success, "status": await mgr.get_status()}
+
+    async def _download_llama_server(self) -> dict:
+        """Download official llama-server portable binary."""
+        mgr = get_llama_server_manager()
+        progress = await mgr.download_binary()
+        return {"status": progress.status, "done": progress.done, "error": progress.error, "server_status": await mgr.get_status()}
+
+    async def _download_gguf_model(self, payload: dict) -> dict:
+        """Download curated GGUF model directly from Hugging Face."""
+        model_id = payload.get("model_id")
+        if not isinstance(model_id, str) or not model_id.strip():
+            raise ValueError("model_id is required")
+        mgr = get_llama_server_manager()
+        progress = await mgr.download_gguf_model(model_id.strip())
+        return {"model_id": model_id, "status": progress.status, "done": progress.done, "error": progress.error, "server_status": await mgr.get_status()}
+
     async def _validate_key(self, payload: dict) -> str:
         provider_id = payload.get("provider")
         slot = payload.get("slot")
         api_key = payload.get("key")
-        if provider_id not in {"openai", "anthropic", "google"}:
+        if provider_id not in {"openai", "anthropic", "google", "groq", "openrouter"}:
             raise ValueError("Unsupported API key provider")
         # The first three slots are the UI minimum, not a storage limit.  The
         # key manager supports an unbounded pool and the desktop UI can add

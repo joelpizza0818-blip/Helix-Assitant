@@ -85,6 +85,14 @@ contextBridge.exposeInMainWorld('helix', {
     ipcRenderer.invoke('helix:clear-memory'),
   getUserMemories: (): Promise<unknown[]> =>
     ipcRenderer.invoke('helix:get-user-memories'),
+  getUserMemoryProfile: (): Promise<{ summary: string; user_notes: string; updated_at: string }> =>
+    ipcRenderer.invoke('helix:get-user-memory-profile'),
+  updateUserMemorySummary: (summary: string): Promise<unknown> =>
+    ipcRenderer.invoke('helix:update-user-memory-summary', summary),
+  updateUserNotes: (notes: string): Promise<unknown> =>
+    ipcRenderer.invoke('helix:update-user-notes', notes),
+  clearUserMemory: (): Promise<unknown> =>
+    ipcRenderer.invoke('helix:clear-user-memory'),
   saveUserMemory: (text: string, category: string): Promise<unknown> =>
     ipcRenderer.invoke('helix:save-user-memory', text, category),
   updateUserMemory: (memoryId: string, text: string, category: string): Promise<unknown> =>
@@ -166,6 +174,21 @@ contextBridge.exposeInMainWorld('helix', {
 
   deleteSubagentMemory: (profileId: string, memoryId: string): Promise<unknown> =>
     ipcRenderer.invoke('helix:delete-subagent-memory', profileId, memoryId),
+
+  getLlamaServerStatus: (): Promise<unknown> =>
+    ipcRenderer.invoke('helix:get-llama-status'),
+
+  startLlamaServer: (model?: string): Promise<unknown> =>
+    ipcRenderer.invoke('helix:start-llama-server', model),
+
+  stopLlamaServer: (): Promise<unknown> =>
+    ipcRenderer.invoke('helix:stop-llama-server'),
+
+  downloadLlamaServer: (): Promise<unknown> =>
+    ipcRenderer.invoke('helix:download-llama-server'),
+
+  downloadGgufModel: (modelId: string): Promise<unknown> =>
+    ipcRenderer.invoke('helix:download-gguf-model', modelId),
 
   getProviders: (): Promise<unknown[]> =>
     ipcRenderer.invoke('helix:get-providers'),

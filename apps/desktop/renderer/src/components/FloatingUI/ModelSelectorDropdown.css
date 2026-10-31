@@ -303,3 +303,51 @@
   color: #ff914d;
   font-weight: 600;
 }
+
+
+/* ── Status badges & notices ────────────────────────────────────────── */
+
+.model-dropdown__key-notice {
+  margin: 4px 10px 8px;
+  padding: 6px 8px;
+  background: rgba(238, 96, 24, 0.08);
+  border: 1px solid rgba(238, 96, 24, 0.2);
+  border-radius: 6px;
+  font-size: 10px;
+  color: #d1b8ab;
+  line-height: 1.4;
+}
+
+.model-dropdown__key-notice code {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-family: monospace;
+  color: #ff914d;
+}
+
+.model-dropdown__item--auth-required {
+  opacity: 0.65;
+}
+
+.model-dropdown__item--unavailable {
+  opacity: 0.45;
+}
+
+.model-dropdown__badge--auth {
+  background: rgba(212, 84, 74, 0.15);
+  color: #e57373;
+  border: 1px solid rgba(212, 84, 74, 0.3);
+}
+
+.model-dropdown__badge--byok-ready {
+  background: rgba(160, 202, 146, 0.15);
+  color: #a0ca92;
+  border: 1px solid rgba(160, 202, 146, 0.3);
+}
+
+.model-dropdown__badge--local-pending {
+  background: rgba(255, 255, 255, 0.06);
+  color: #9e9e9e;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}

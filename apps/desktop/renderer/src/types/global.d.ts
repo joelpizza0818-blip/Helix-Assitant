@@ -52,6 +52,10 @@ export interface HelixAPI {
   getMemoryStatus: () => Promise<MemoryStatus>
   clearMemory: () => Promise<{ cleared: boolean }>
   getUserMemories: () => Promise<UserMemory[]>
+  getUserMemoryProfile: () => Promise<UserMemoryProfile>
+  updateUserMemorySummary: (summary: string) => Promise<UserMemoryProfile>
+  updateUserNotes: (notes: string) => Promise<UserMemoryProfile>
+  clearUserMemory: () => Promise<UserMemoryProfile>
   saveUserMemory: (text: string, category: UserMemory['category']) => Promise<UserMemory>
   updateUserMemory: (memoryId: string, text: string, category: UserMemory['category']) => Promise<UserMemory>
   deleteUserMemory: (memoryId: string) => Promise<{ deleted: boolean; memory_id: string }>
@@ -87,6 +91,11 @@ export interface HelixAPI {
     profileId: string,
     memoryId: string,
   ) => Promise<{ deleted: boolean; memory_id: string }>
+  getLlamaServerStatus?: () => Promise<any>
+  startLlamaServer?: (model?: string) => Promise<any>
+  stopLlamaServer?: () => Promise<any>
+  downloadLlamaServer?: () => Promise<any>
+  downloadGgufModel?: (modelId: string) => Promise<any>
   getProviders: () => Promise<ProviderStatus[]>
   getModels: (requirements?: Partial<ModelRequirements>) => Promise<ModelDefinition[]>
   getCapabilities: () => Promise<CapabilitySnapshot>
@@ -176,11 +185,13 @@ export interface AgentRoutingOptions {
     id: string
     name: string
     key_slots: number[]
+    no_key_required?: boolean
   }>
   models: Array<{
     id: string
     name: string
     provider: string
+    access_type?: string
   }>
 }
 
@@ -296,6 +307,14 @@ export interface UserMemory {
   updated_at: string
 }
 
+export interface UserMemoryProfile {
+  /** Auto-generated summary of what Helix knows about the user. */
+  summary: string
+  /** Free-form notes written directly by the user. */
+  user_notes: string
+  updated_at: string
+}
+
 // ── Shared types ──────────────────────────────────────────────────────────────
 
 export type UpdaterStatus =
@@ -307,7 +326,7 @@ export type UpdaterStatus =
   | { status: 'error'; message: string }
   | { status: 'unsupported' }
 
-export type ProviderID = 'openai' | 'anthropic' | 'google' | 'custom' | string
+export type ProviderID = 'openai' | 'anthropic' | 'google' | 'groq' | 'openrouter' | 'custom' | string
 // API key pools are expandable; the first three slots are always shown.
 export type KeySlot = number
 export type KeyHealth = 'healthy' | 'rate_limited' | 'quota_exceeded' | 'billing_exhausted' | 'auth_error' | 'unavailable' | 'unconfigured'

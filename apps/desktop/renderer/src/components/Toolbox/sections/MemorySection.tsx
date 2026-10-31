@@ -1,6 +1,12 @@
-import React, { useEffect, useState } from 'react'
-import type { HelixSettings, MemoryStatus, UserMemory } from '../../../types/global'
+import React, { useEffect, useState, useRef } from 'react'
+import type { HelixSettings, MemoryStatus } from '../../../types/global'
 import '../Toolbox.css'
+
+interface UserMemoryProfile {
+  summary: string
+  user_notes: string
+  updated_at: string
+}
 
 interface Props {
   settings: HelixSettings
@@ -10,14 +16,110 @@ interface Props {
 export default function MemorySection({ settings, onSave }: Props) {
   const [clearedNotice, setClearedNotice] = useState(false)
   const [memoryStatus, setMemoryStatus] = useState<MemoryStatus | null>(null)
+  const [profile, setProfile] = useState<UserMemoryProfile>({ summary: '', user_notes: '', updated_at: '' })
   const [maintenanceError, setMaintenanceError] = useState<string | null>(null)
-  const [userMemories, setUserMemories] = useState<UserMemory[]>([])
-  const [memoryText, setMemoryText] = useState('')
-  const [memoryCategory, setMemoryCategory] = useState<UserMemory['category']>('preference')
-  const [editingMemoryId, setEditingMemoryId] = useState<string | null>(null)
-  const [savingMemory, setSavingMemory] = useState(false)
 
-  const handleClearMemory = async () => {
+  // Summary editing
+  const [editingSummary, setEditingSummary] = useState(false)
+  const [summaryDraft, setSummaryDraft] = useState('')
+  const [savingSummary, setSavingSummary] = useState(false)
+
+  // User notes editing
+  const [userNotesDraft, setUserNotesDraft] = useState('')
+  const [savingNotes, setSavingNotes] = useState(false)
+  const [notesSaved, setNotesSaved] = useState(false)
+  const saveNotesTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const refreshProfile = async () => {
+    try {
+      const p = await (window.helix as any).getUserMemoryProfile() as UserMemoryProfile
+      setProfile(p)
+      // Keep draft in sync only if user isn't actively editing
+      setUserNotesDraft(prev => prev === profile.user_notes ? p.user_notes : prev)
+    } catch {
+      // fallback: silent
+    }
+  }
+
+  useEffect(() => {
+    let active = true
+    const refresh = async () => {
+      try {
+        const status = await window.helix.getMemoryStatus()
+        if (active) setMemoryStatus(status as MemoryStatus)
+        const p = await (window.helix as any).getUserMemoryProfile() as UserMemoryProfile
+        if (active) {
+          setProfile(p)
+          setUserNotesDraft(p.user_notes)
+        }
+      } catch (error) {
+        if (active) {
+          setMaintenanceError(error instanceof Error ? error.message : 'Could not load memory.')
+        }
+      }
+    }
+    void refresh()
+    const interval = window.setInterval(() => void refresh(), 8000)
+    return () => {
+      active = false
+      window.clearInterval(interval)
+    }
+  }, [])
+
+  // --- Summary handlers ---
+  const startEditSummary = () => {
+    setSummaryDraft(profile.summary)
+    setEditingSummary(true)
+  }
+
+  const saveSummary = async () => {
+    setSavingSummary(true)
+    setMaintenanceError(null)
+    try {
+      await (window.helix as any).updateUserMemorySummary(summaryDraft)
+      setEditingSummary(false)
+      await refreshProfile()
+    } catch (error) {
+      setMaintenanceError(error instanceof Error ? error.message : 'Could not save summary.')
+    } finally {
+      setSavingSummary(false)
+    }
+  }
+
+  // --- User notes handlers (auto-save with debounce) ---
+  const handleNotesChange = (value: string) => {
+    setUserNotesDraft(value)
+    if (saveNotesTimeout.current) clearTimeout(saveNotesTimeout.current)
+    saveNotesTimeout.current = setTimeout(() => void autoSaveNotes(value), 1200)
+  }
+
+  const autoSaveNotes = async (notes: string) => {
+    setSavingNotes(true)
+    try {
+      await (window.helix as any).updateUserNotes(notes)
+      setNotesSaved(true)
+      setTimeout(() => setNotesSaved(false), 2000)
+    } catch {
+      // silent
+    } finally {
+      setSavingNotes(false)
+    }
+  }
+
+  // --- Clear all memory ---
+  const handleClearAll = async () => {
+    if (!window.confirm('¿Borrar todo lo que Helix recuerda sobre ti? Esta acción no se puede deshacer.')) return
+    setMaintenanceError(null)
+    try {
+      await (window.helix as any).clearUserMemory()
+      setProfile({ summary: '', user_notes: '', updated_at: '' })
+      setUserNotesDraft('')
+    } catch (error) {
+      setMaintenanceError(error instanceof Error ? error.message : 'Could not clear memory.')
+    }
+  }
+
+  const handleClearConversation = async () => {
     setMaintenanceError(null)
     try {
       await window.helix.clearMemory()
@@ -28,148 +130,105 @@ export default function MemorySection({ settings, onSave }: Props) {
     }
   }
 
-  const refreshUserMemories = async () => {
-    try {
-      setUserMemories(await window.helix.getUserMemories())
-    } catch (error) {
-      setMaintenanceError(error instanceof Error ? error.message : 'Could not load saved memories.')
-    }
-  }
-
-  const saveUserMemory = async () => {
-    setSavingMemory(true)
-    setMaintenanceError(null)
-    try {
-      if (editingMemoryId) {
-        await window.helix.updateUserMemory(editingMemoryId, memoryText, memoryCategory)
-      } else {
-        await window.helix.saveUserMemory(memoryText, memoryCategory)
-      }
-      setMemoryText('')
-      setEditingMemoryId(null)
-      await refreshUserMemories()
-    } catch (error) {
-      setMaintenanceError(error instanceof Error ? error.message : 'Could not save this memory.')
-    } finally {
-      setSavingMemory(false)
-    }
-  }
-
-  const deleteUserMemory = async (memoryId: string) => {
-    if (!window.confirm('Delete this saved memory?')) return
-    setMaintenanceError(null)
-    try {
-      await window.helix.deleteUserMemory(memoryId)
-      await refreshUserMemories()
-    } catch (error) {
-      setMaintenanceError(error instanceof Error ? error.message : 'Could not delete this memory.')
-    }
-  }
-
-  useEffect(() => {
-    let active = true
-    const refresh = async () => {
-      try {
-        const status = await window.helix.getMemoryStatus()
-        if (active) setMemoryStatus(status)
-        const memories = await window.helix.getUserMemories()
-        if (active) setUserMemories(memories)
-      } catch (error) {
-        if (active) {
-          setMaintenanceError(error instanceof Error ? error.message : 'Could not load memory settings.')
-        }
-      }
-    }
-    void refresh()
-    const interval = window.setInterval(() => void refresh(), 5000)
-    return () => {
-      active = false
-      window.clearInterval(interval)
-    }
-  }, [])
+  const formattedDate = profile.updated_at
+    ? new Date(profile.updated_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+    : null
 
   return (
     <div className="toolbox-section">
       <h2 className="toolbox-section__title">Memory</h2>
       <p className="toolbox-section__desc">
-        Review what HELIX remembers and control automatic context compression.
+        Review what Helix remembers about you and add your own notes.
       </p>
 
+      {/* ── Helix's knowledge summary ─────────────────────────── */}
       <div className="toolbox-card" style={{ marginBottom: 16 }}>
         <div className="toolbox-card__header">
-          <span className="toolbox-card__title">Saved user memories</span>
-          <span className="status-badge">{userMemories.length} saved</span>
-        </div>
-        <p className="text-xs text-muted">
-          HELIX saves only durable, useful details. Memories stay on this device; edit or remove them anytime.
-        </p>
-        <div className="form-row">
-          <label className="form-label" htmlFor="user-memory-text">Memory</label>
-          <input
-            id="user-memory-text"
-            className="form-input"
-            maxLength={500}
-            value={memoryText}
-            placeholder="A preference, ongoing project, or instruction"
-            onChange={(event) => setMemoryText(event.target.value)}
-          />
-        </div>
-        <div className="form-row">
-          <label className="form-label" htmlFor="user-memory-category">Category</label>
-          <select
-            id="user-memory-category"
-            className="form-input"
-            value={memoryCategory}
-            onChange={(event) => setMemoryCategory(event.target.value as UserMemory['category'])}
-          >
-            <option value="preference">Preference</option>
-            <option value="fact">Fact</option>
-            <option value="project">Project</option>
-            <option value="instruction">Instruction</option>
-            <option value="general">General</option>
-          </select>
-        </div>
-        <div className="toolbox-skill-actions">
-          <button
-            type="button"
-            className="validate-btn"
-            disabled={savingMemory || !memoryText.trim()}
-            onClick={() => void saveUserMemory()}
-          >
-            {savingMemory ? 'Saving…' : editingMemoryId ? 'Save changes' : 'Add memory'}
-          </button>
-          {editingMemoryId && (
-            <button type="button" className="validate-btn" onClick={() => {
-              setEditingMemoryId(null)
-              setMemoryText('')
-            }}>
-              Cancel
-            </button>
+          <span className="toolbox-card__title">What Helix knows about you</span>
+          {formattedDate && (
+            <span className="status-badge">Updated {formattedDate}</span>
           )}
         </div>
-        {userMemories.map((memory) => (
-          <article className="toolbox-card" key={memory.id}>
-            <div className="toolbox-card__header">
-              <span className="toolbox-card__title">{memory.category}</span>
-              <div className="toolbox-skill-actions">
-                <button type="button" className="validate-btn" onClick={() => {
-                  setEditingMemoryId(memory.id)
-                  setMemoryText(memory.text)
-                  setMemoryCategory(memory.category)
-                }}>
-                  Edit
-                </button>
-                <button type="button" className="validate-btn toolbox-danger-button" onClick={() => void deleteUserMemory(memory.id)}>
-                  Delete
-                </button>
-              </div>
+        <p className="text-xs text-muted" style={{ marginBottom: 10 }}>
+          Helix builds this summary automatically from your conversations. Edit it anytime.
+        </p>
+
+        {editingSummary ? (
+          <>
+            <textarea
+              className="form-input"
+              rows={8}
+              maxLength={4000}
+              value={summaryDraft}
+              onChange={(e) => setSummaryDraft(e.target.value)}
+              style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit', fontSize: 13 }}
+              autoFocus
+            />
+            <div className="toolbox-skill-actions" style={{ marginTop: 8 }}>
+              <button
+                type="button"
+                className="validate-btn"
+                disabled={savingSummary}
+                onClick={() => void saveSummary()}
+              >
+                {savingSummary ? 'Saving…' : 'Save changes'}
+              </button>
+              <button
+                type="button"
+                className="validate-btn"
+                onClick={() => setEditingSummary(false)}
+              >
+                Cancel
+              </button>
             </div>
-            <p className="text-sm text-bone">{memory.text}</p>
-          </article>
-        ))}
-        {userMemories.length === 0 && <p className="text-xs text-muted">No saved memories.</p>}
+          </>
+        ) : (
+          <>
+            {profile.summary ? (
+              <p className="text-sm text-bone" style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, marginBottom: 10 }}>
+                {profile.summary}
+              </p>
+            ) : (
+              <p className="text-xs text-muted" style={{ marginBottom: 10 }}>
+                No memory yet. Helix will build this summary as you chat.
+              </p>
+            )}
+            <button
+              type="button"
+              className="validate-btn"
+              onClick={startEditSummary}
+            >
+              Edit
+            </button>
+          </>
+        )}
       </div>
 
+      {/* ── User notes (manual input) ─────────────────────────── */}
+      <div className="toolbox-card" style={{ marginBottom: 16 }}>
+        <div className="toolbox-card__header">
+          <span className="toolbox-card__title">Your notes</span>
+          {savingNotes && <span className="status-badge">Saving…</span>}
+          {notesSaved && !savingNotes && <span className="status-badge status-badge--healthy">Saved ✓</span>}
+        </div>
+        <p className="text-xs text-muted" style={{ marginBottom: 10 }}>
+          Add anything you always want Helix to know — preferences, instructions, context. These are never auto-overwritten.
+        </p>
+        <textarea
+          className="form-input"
+          rows={5}
+          maxLength={2000}
+          value={userNotesDraft}
+          placeholder="e.g. I prefer concise answers. My main project is called Atlas. Always respond in Spanish."
+          onChange={(e) => handleNotesChange(e.target.value)}
+          style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit', fontSize: 13 }}
+        />
+        <p className="text-xs text-muted" style={{ marginTop: 4 }}>
+          {userNotesDraft.length}/2000 characters · Auto-saves as you type
+        </p>
+      </div>
+
+      {/* ── Conversation context ──────────────────────────────── */}
       <div className="toolbox-card" style={{ marginBottom: 16 }}>
         <div className="toolbox-card__header">
           <span className="toolbox-card__title">Conversation context</span>
@@ -200,7 +259,7 @@ export default function MemorySection({ settings, onSave }: Props) {
           </select>
         </div>
         <p className="text-xs text-muted">
-          A turn is a user message and reply. HELIX keeps this recent window and summarizes older messages when the limit is exceeded.
+          A turn is a user message and reply. Helix keeps this recent window and summarizes older messages when the limit is exceeded.
         </p>
 
         <div className="form-row">
@@ -212,6 +271,7 @@ export default function MemorySection({ settings, onSave }: Props) {
         </div>
       </div>
 
+      {/* ── Semantic search ───────────────────────────────────── */}
       <div className="toolbox-card" style={{ marginBottom: 16 }}>
         <div className="toolbox-card__header">
           <span className="toolbox-card__title">Semantic search</span>
@@ -228,9 +288,9 @@ export default function MemorySection({ settings, onSave }: Props) {
             <option value="text-embedding-004">Google text-embedding-004 (768 dim)</option>
           </select>
         </div>
-          <p className="text-xs text-muted">
-            Semantic storage requires an explicit HELIX_MEMORY_DATABASE_URL and the selected provider's API key. Conversation text is sent to OpenAI or Google for embeddings and stored in that separate database. The backend database connection is never reused.
-          </p>
+        <p className="text-xs text-muted">
+          Semantic storage requires an explicit HELIX_MEMORY_DATABASE_URL and the selected provider's API key. Conversation text is sent to OpenAI or Google for embeddings and stored in that separate database.
+        </p>
 
         <div className="form-row">
           <label className="form-label">Vector Similarity Threshold (Cosine)</label>
@@ -238,6 +298,7 @@ export default function MemorySection({ settings, onSave }: Props) {
         </div>
       </div>
 
+      {/* ── Maintenance ───────────────────────────────────────── */}
       <div className="toolbox-card">
         <div className="toolbox-card__header">
           <span className="toolbox-card__title">Memory Maintenance</span>
@@ -252,15 +313,30 @@ export default function MemorySection({ settings, onSave }: Props) {
         <div className="form-row">
           <div>
             <span className="text-sm weight-medium text-bone">Clear conversation buffer</span>
-            <p className="text-xs text-muted" style={{ margin: '2px 0 0' }}>Does not delete saved user memories.</p>
+            <p className="text-xs text-muted" style={{ margin: '2px 0 0' }}>Does not delete the user memory profile.</p>
           </div>
           <button
             type="button"
             className="validate-btn"
             style={{ background: 'rgba(212, 84, 74, 0.15)', borderColor: 'var(--red)', color: 'var(--chalk)' }}
-            onClick={() => void handleClearMemory()}
+            onClick={() => void handleClearConversation()}
           >
             Clear conversation
+          </button>
+        </div>
+
+        <div className="form-row" style={{ marginTop: 8 }}>
+          <div>
+            <span className="text-sm weight-medium text-bone">Clear all memory</span>
+            <p className="text-xs text-muted" style={{ margin: '2px 0 0' }}>Deletes both the Helix summary and your notes. Cannot be undone.</p>
+          </div>
+          <button
+            type="button"
+            className="validate-btn"
+            style={{ background: 'rgba(212, 84, 74, 0.15)', borderColor: 'var(--red)', color: 'var(--chalk)' }}
+            onClick={() => void handleClearAll()}
+          >
+            Clear all
           </button>
         </div>
       </div>

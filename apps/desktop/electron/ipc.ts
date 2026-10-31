@@ -206,6 +206,26 @@ export class IPCBridge {
       payload: { profile_id: profileId, memory_id: memoryId },
     }))
 
+    ipcMain.handle('helix:get-llama-status', async () => {
+      return this._request({ type: 'GET_LLAMA_SERVER_STATUS', payload: {} })
+    })
+
+    ipcMain.handle('helix:start-llama-server', async (_event, model?: string) => {
+      return this._request({ type: 'START_LLAMA_SERVER', payload: { model } })
+    })
+
+    ipcMain.handle('helix:stop-llama-server', async () => {
+      return this._request({ type: 'STOP_LLAMA_SERVER', payload: {} })
+    })
+
+    ipcMain.handle('helix:download-llama-server', async () => {
+      return this._request({ type: 'DOWNLOAD_LLAMA_SERVER', payload: {} }, 180_000)
+    })
+
+    ipcMain.handle('helix:download-gguf-model', async (_event, modelId: string) => {
+      return this._request({ type: 'DOWNLOAD_GGUF_MODEL', payload: { model_id: modelId } }, 600_000)
+    })
+
     ipcMain.handle('helix:get-providers', async () => {
       return this._request({ type: 'GET_PROVIDERS', payload: {} })
     })
@@ -248,6 +268,22 @@ export class IPCBridge {
 
     ipcMain.handle('helix:get-user-memories', async () => {
       return this._request({ type: 'GET_USER_MEMORIES', payload: {} })
+    })
+
+    ipcMain.handle('helix:get-user-memory-profile', async () => {
+      return this._request({ type: 'GET_USER_MEMORY_PROFILE', payload: {} })
+    })
+
+    ipcMain.handle('helix:update-user-memory-summary', async (_event, summary: string) => {
+      return this._request({ type: 'UPDATE_USER_MEMORY_SUMMARY', payload: { summary } })
+    })
+
+    ipcMain.handle('helix:update-user-notes', async (_event, notes: string) => {
+      return this._request({ type: 'UPDATE_USER_NOTES', payload: { notes } })
+    })
+
+    ipcMain.handle('helix:clear-user-memory', async () => {
+      return this._request({ type: 'CLEAR_USER_MEMORY', payload: {} })
     })
 
     ipcMain.handle('helix:save-user-memory', async (_event, text: string, category: string) => {

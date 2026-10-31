@@ -61,6 +61,8 @@ class MobileConnection {
         ).pair();
         sessionToken = credentials.deviceToken;
         _sourceDeviceId = credentials.deviceId;
+        // Wait a brief moment to allow the pairing WebSocket close handshake to finalize on the relay
+        await Future<void>.delayed(const Duration(milliseconds: 200));
       }
     }
     final transport = WebSocketHelixTransport(uri: uri, token: sessionToken);

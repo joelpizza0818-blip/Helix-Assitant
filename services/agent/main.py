@@ -60,6 +60,9 @@ from ai.openai_provider import OpenAIProvider
 from ai.anthropic_provider import AnthropicProvider
 from ai.google_provider import GoogleProvider
 from ai.free_provider import FreeModelProvider, OllamaProvider
+from ai.groq_provider import GroqProvider
+from ai.openrouter_provider import OpenRouterProvider
+from ai.llama_server_provider import LlamaServerProvider
 
 from skills.skill_loader import SkillLoader
 from skills.skill_registry import SkillRegistry
@@ -267,11 +270,15 @@ async def main():
     provider_registry.register_provider(OpenAIProvider())
     provider_registry.register_provider(AnthropicProvider())
     provider_registry.register_provider(GoogleProvider())
+    provider_registry.register_provider(GroqProvider())
+    provider_registry.register_provider(OpenRouterProvider())
 
     free_provider = FreeModelProvider()
     ollama_provider = OllamaProvider()
+    llama_server_provider = LlamaServerProvider()
     provider_registry.register_provider(free_provider)
     provider_registry.register_provider(ollama_provider)
+    provider_registry.register_provider(llama_server_provider)
     for model in free_provider.get_available_models():
         capability_registry.register_model(model)
     for model in ollama_provider.get_available_models():

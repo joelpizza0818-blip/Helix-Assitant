@@ -34,6 +34,44 @@ import {
 } from '../../lib/desktopSupabase'
 import './Toolbox.css'
 
+class ToolboxErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: Error | null }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props)
+    this.state = { hasError: false, error: null }
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error }
+  }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error('[Toolbox] Render error caught:', error, info)
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="toolbox-card" style={{ margin: 24, padding: 20 }}>
+          <div className="toolbox-card__header">
+            <span className="toolbox-card__title" style={{ color: 'var(--red)' }}>Error en esta sección</span>
+          </div>
+          <p className="text-sm text-muted" style={{ margin: '8px 0' }}>
+            Se produjo un error inesperado al renderizar este panel ({this.state.error?.message || 'Error desconocido'}).
+          </p>
+          <button
+            type="button"
+            className="validate-btn"
+            onClick={() => this.setState({ hasError: false, error: null })}
+          >
+            Reintentar
+          </button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
 type Section =
   | 'ai'
   | 'voice'
@@ -199,10 +237,11 @@ export default function Toolbox() {
         if (active) setProfileError(cause instanceof Error ? cause.message : 'No se pudo cargar el perfil.')
       }
     }
-    const unsubscribeAuth = desktopSupabase?.auth.onAuthStateChange((_event, session) => {
+    const authSub = desktopSupabase?.auth.onAuthStateChange((_event, session) => {
       if (session) window.setTimeout(() => void refreshProfile(), 0)
       else if (active) setProfile(null)
-    }).data.subscription.unsubscribe
+    })
+    const unsubscribeAuth = authSub?.data?.subscription?.unsubscribe
     const unsubscribeOAuth = window.helix.onOAuthCallback(async (url) => {
       if (oauthTimeoutRef.current !== null) {
         window.clearTimeout(oauthTimeoutRef.current)
@@ -410,6 +449,7 @@ export default function Toolbox() {
 
         {/* ── Content Area with Real Components ── */}
         <main className="toolbox__content">
+          <ToolboxErrorBoundary>
           {isLoading ? (
             <div className="toolbox__loading" role="status" aria-live="polite">
               <div className="helix-loader" aria-hidden="true" />
@@ -479,6 +519,7 @@ export default function Toolbox() {
               )}
             </>
           )}
+          </ToolboxErrorBoundary>
         </main>
       </div>
     </div>

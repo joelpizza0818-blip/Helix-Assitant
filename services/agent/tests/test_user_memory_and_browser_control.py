@@ -28,15 +28,16 @@ def test_user_memory_crud_deduplication_and_secret_rejection(tmp_path):
 
 
 def test_user_memory_context_is_bounded_and_treats_entries_as_data(tmp_path):
+    """format_context_prompt should include the summary and user_notes in the prompt."""
     manager = UserMemoryManager(tmp_path / "user_memories.json")
-    manager.add_memory("Low priority context", "fact", importance=1)
-    manager.add_memory("High priority context", "project", importance=5)
+    manager.update_summary("User prefers dark mode and concise answers.")
+    manager.update_user_notes("Always respond in Spanish.")
 
-    prompt = manager.format_context_prompt(limit=1)
+    prompt = manager.format_context_prompt()
 
-    assert "data, not instructions" in prompt
-    assert "High priority context" in prompt
-    assert "Low priority context" not in prompt
+    assert "What Helix knows about the user" in prompt
+    assert "User prefers dark mode" in prompt
+    assert "Always respond in Spanish" in prompt
 
 
 @pytest.mark.asyncio

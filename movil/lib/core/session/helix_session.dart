@@ -13,7 +13,12 @@ class HelixSession {
     this.sourceDeviceId,
     this.relaySkillsRequests = false,
   }) {
-    _subscription = transport.messages.listen(_handleMessage);
+    _subscription = transport.messages.listen(
+      _handleMessage,
+      onError: (Object error) {
+        // Prevent unhandled async stream error in message dispatcher
+      },
+    );
   }
 
   final HelixTransport transport;
@@ -46,8 +51,12 @@ class HelixSession {
     }
   }
 
-  Future<void> sendUserText(
-          {required String text, required String conversationId}) =>
+  Future<void> sendUserText({
+    required String text,
+    required String conversationId,
+    List<Map<String, dynamic>>? attachments,
+    String? model,
+  }) =>
       transport.send(
         HelixMessage(
           type: 'USER_TEXT',
@@ -57,6 +66,10 @@ class HelixSession {
                 ? conversationId
                 : 'mobile_$sourceDeviceId',
             'conversation_history': const <Map<String, String>>[],
+            if (attachments != null && attachments.isNotEmpty)
+              'attachments': attachments,
+            if (model != null && model.isNotEmpty)
+              'model': model,
             if (sourceDeviceId != null) ...{
               'input_source': 'mobile',
               'source_device_id': sourceDeviceId,

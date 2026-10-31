@@ -13,7 +13,7 @@ class KeyManager:
     CUSTOM_ENDPOINT_PREFIX = "custom_endpoint_api_key_"
 
     def __init__(self):
-        self.keys = {"openai": [], "anthropic": [], "google": []}
+        self.keys = {"openai": [], "anthropic": [], "google": [], "groq": [], "openrouter": []}
         self._load_keys()
         self.key_states = {p: {i: {"health": KeyHealth.HEALTHY if k else KeyHealth.UNCONFIGURED, "failures": 0, "cooldown_until": 0} for i, k in enumerate(slots)} for p, slots in self.keys.items()}
 

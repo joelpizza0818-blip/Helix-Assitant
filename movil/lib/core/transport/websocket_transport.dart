@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:async';
 
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -59,7 +60,8 @@ class WebSocketHelixTransport implements HelixTransport {
     channel.stream.listen(
       (value) {
         try {
-          _messages.add(HelixMessage.fromJson(value as String));
+          final text = value is String ? value : (value is List<int> ? utf8.decode(value) : value.toString());
+          _messages.add(HelixMessage.fromJson(text));
         } on Object catch (error, stackTrace) {
           _messages.addError(error, stackTrace);
         }
