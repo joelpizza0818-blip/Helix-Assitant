@@ -321,10 +321,21 @@ function publishSnapshot(force = false) {
   const now = Date.now()
   if (!force && now - lastPublishedAt < 1500) return
   lastPublishedAt = now
-  chrome.runtime.sendMessage({
-    type: 'HELIX_PAGE_SNAPSHOT',
-    snapshot: visiblePageSnapshot(),
-  })
+  try {
+    if (!chrome?.runtime?.id) return
+    const maybePromise = chrome.runtime.sendMessage({
+      type: 'HELIX_PAGE_SNAPSHOT',
+      snapshot: visiblePageSnapshot(),
+    }, () => {
+      // Consume lastError to prevent uncaught runtime error when background service worker is idle/disconnected
+      void chrome.runtime?.lastError
+    })
+    if (maybePromise && typeof maybePromise.catch === 'function') {
+      maybePromise.catch(() => {})
+    }
+  } catch (_err) {
+    // Extension context invalidated or service worker unreachable
+  }
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
