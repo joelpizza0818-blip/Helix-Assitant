@@ -1,21 +1,32 @@
+<div align="center">
+
 # HELIX
+
+### The Persistent, Local-First AI Desktop Assistant for Windows
 
 HELIX is a local-first desktop agent that works with your operating system, terminal, and the context you choose to share; it asks for confirmation before system-level or critical actions.
 
-[Website](https://helix-assistant.vercel.app) | [Downloads](https://helix-assistant.vercel.app/download) | [Features](https://helix-assistant.vercel.app/features) | [Docs](https://helix-assistant.vercel.app/docs) | [Releases](https://github.com/joelpizza0818-blip/Helix-Assitant/releases)
+[Website](https://helix-assistant.vercel.app) | [Downloads](https://helix-assistant.vercel.app/download) | [Features](https://helix-assistant.vercel.app/features) | [Docs](https://helix-assistant.vercel.app/docs) | [Releases](https://github.com/joelpizza0818-blip/Helix-Assitant/releases) | [FAQ](FAQ.md) | [Support](SUPPORT.md) | [Security](SECURITY.md)
 
-[![Desktop and landing checks](https://github.com/joelpizza0818-blip/Helix-Assitant/actions/workflows/test-quality.yml/badge.svg?branch=main)](https://github.com/joelpizza0818-blip/Helix-Assitant/actions/workflows/test-quality.yml) [![Agent and relay matrix](https://github.com/joelpizza0818-blip/Helix-Assitant/actions/workflows/test-multiplatform.yml/badge.svg?branch=main)](https://github.com/joelpizza0818-blip/Helix-Assitant/actions/workflows/test-multiplatform.yml) [![CLI on npm](https://img.shields.io/npm/v/helix-assistant-cli)](https://www.npmjs.com/package/helix-assistant-cli)
+[![Windows Support](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D6?logo=windows&logoColor=white)](https://helix-assistant.vercel.app/download)
+[![Release](https://img.shields.io/github/v/release/joelpizza0818-blip/Helix-Assitant?color=orange&label=Release)](https://github.com/joelpizza0818-blip/Helix-Assitant/releases)
+[![Desktop and landing checks](https://github.com/joelpizza0818-blip/Helix-Assitant/actions/workflows/test-quality.yml/badge.svg?branch=main)](https://github.com/joelpizza0818-blip/Helix-Assitant/actions/workflows/test-quality.yml)
+[![Agent and relay matrix](https://github.com/joelpizza0818-blip/Helix-Assitant/actions/workflows/test-multiplatform.yml/badge.svg?branch=main)](https://github.com/joelpizza0818-blip/Helix-Assitant/actions/workflows/test-multiplatform.yml)
+[![CLI on npm](https://img.shields.io/npm/v/helix-assistant-cli?color=blue&label=npm%20cli)](https://www.npmjs.com/package/helix-assistant-cli)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+</div>
 
 <!-- TODO: Add a current screenshot or short, real end-to-end GIF under docs/assets/ after verifying the flow on a release build. -->
 
 ## What HELIX does
 
-- **Chat and act:** use conversation to request supported desktop, terminal, file, and browser tasks.
+- **Chat and act:** request supported desktop, terminal, file, and browser tasks; Windows workflows include shell commands, file operations, and desktop controls.
 - **Stay in control:** inspect and approve actions that require system or critical permissions.
-- **Choose an AI provider:** configure supported cloud providers or local model endpoints; credentials and provider access are your responsibility.
+- **Choose an AI provider:** configure supported cloud providers or local model endpoints, with provider-key fallback where configured; credentials and provider access are your responsibility.
 - **Extend HELIX:** add reviewable Markdown skills and opt-in local MCP servers.
 - **Keep useful context:** use local session memory and the Context Compression Layer (CCL) to pack large tool outputs and retrieve their stored originals.
-- **Choose a shell:** HELIX Normal (Electron), Lite (Tauri), Mobile (Android companion), or CLI.
+- **Choose a shell:** HELIX Normal (Electron), Lite (Tauri), the Android mobile companion, or CLI. Official desktop installers are currently available for Windows x64 only.
 
 <!-- HELIX-DATA:model-summary:start -->
 The repository catalog contains **54 entries** across 8 provider identifiers: `anthropic` (7), `free` (6), `google` (9), `groq` (5), `llama_server` (1), `ollama` (8), `openai` (10), `openrouter` (8). These are configured catalog entries, not a guarantee of provider access or successful live requests. See [config/model-catalog.json](config/model-catalog.json).
@@ -29,20 +40,37 @@ Click any preview to play the video from the live landing page.
 
 <table>
   <tr>
-    <td align="center"><strong>Desktop conversation · 4.3 MiB</strong><br><a href="https://helix-assistant.vercel.app/assets/video%201%20-%20helix-SCEFlWXd.mp4"><img src="https://raw.githubusercontent.com/joelpizza0818-blip/Helix-Assitant/main/apps/landing/src/Multimedia/poster-1.jpg" width="320" alt="Desktop conversation video preview"></a></td>
-    <td align="center"><strong>Voice and calls · 56.1 MiB</strong><br><a href="https://helix-assistant.vercel.app/assets/video%202%20-%20helix-BtrdAcgh.mp4"><img src="https://raw.githubusercontent.com/joelpizza0818-blip/Helix-Assitant/main/apps/landing/src/Multimedia/poster-2.jpg" width="320" alt="Voice and calls video preview"></a></td>
+    <td align="center"><strong>Desktop conversation</strong><br><a href="https://helix-assistant.vercel.app/assets/video%201%20-%20helix-SCEFlWXd.mp4"><img src="https://raw.githubusercontent.com/joelpizza0818-blip/Helix-Assitant/main/apps/landing/src/Multimedia/poster-1.jpg" width="320" alt="Desktop conversation video preview"></a></td>
+    <td align="center"><strong>Voice and calls</strong><br><a href="https://helix-assistant.vercel.app/assets/video%202%20-%20helix-BtrdAcgh.mp4"><img src="https://raw.githubusercontent.com/joelpizza0818-blip/Helix-Assitant/main/apps/landing/src/Multimedia/poster-2.jpg" width="320" alt="Voice and calls video preview"></a></td>
   </tr>
   <tr>
-    <td align="center"><strong>Skills editor · 42.8 MiB</strong><br><a href="https://helix-assistant.vercel.app/assets/video%203%20-helix-BgcdftHO.mp4"><img src="https://raw.githubusercontent.com/joelpizza0818-blip/Helix-Assitant/main/apps/landing/src/Multimedia/poster-3.jpg" width="320" alt="Skills editor video preview"></a></td>
-    <td align="center"><strong>Desktop agent chat · 26.5 MiB</strong><br><a href="https://helix-assistant.vercel.app/assets/video%204%20-%20helix-CD9FteH8.mp4"><img src="https://raw.githubusercontent.com/joelpizza0818-blip/Helix-Assitant/main/apps/landing/src/Multimedia/poster-4.jpg" width="320" alt="Desktop agent chat video preview"></a></td>
+    <td align="center"><strong>Skills editor</strong><br><a href="https://helix-assistant.vercel.app/assets/video%203%20-helix-BgcdftHO.mp4"><img src="https://raw.githubusercontent.com/joelpizza0818-blip/Helix-Assitant/main/apps/landing/src/Multimedia/poster-3.jpg" width="320" alt="Skills editor video preview"></a></td>
+    <td align="center"><strong>Desktop agent chat</strong><br><a href="https://helix-assistant.vercel.app/assets/video%204%20-%20helix-CD9FteH8.mp4"><img src="https://raw.githubusercontent.com/joelpizza0818-blip/Helix-Assitant/main/apps/landing/src/Multimedia/poster-4.jpg" width="320" alt="Desktop agent chat video preview"></a></td>
   </tr>
   <tr>
-    <td align="center"><strong>CLI connection · 1.8 MiB</strong><br><a href="https://helix-assistant.vercel.app/assets/helix%20cli%201-B0vC0arT.mp4"><img src="https://raw.githubusercontent.com/joelpizza0818-blip/Helix-Assitant/main/apps/landing/src/Multimedia/poster-cli-1.jpg" width="320" alt="CLI connection video preview"></a></td>
-    <td align="center"><strong>CLI prompt flow · 3.4 MiB</strong><br><a href="https://helix-assistant.vercel.app/assets/helix%20cli%202-YYY4HHO5.mp4"><img src="https://raw.githubusercontent.com/joelpizza0818-blip/Helix-Assitant/main/apps/landing/src/Multimedia/poster-cli-2.jpg" width="320" alt="CLI prompt flow video preview"></a></td>
+    <td align="center"><strong>CLI connection</strong><br><a href="https://helix-assistant.vercel.app/assets/helix%20cli%201-B0vC0arT.mp4"><img src="https://raw.githubusercontent.com/joelpizza0818-blip/Helix-Assitant/main/apps/landing/src/Multimedia/poster-cli-1.jpg" width="320" alt="CLI connection video preview"></a></td>
+    <td align="center"><strong>CLI prompt flow</strong><br><a href="https://helix-assistant.vercel.app/assets/helix%20cli%202-YYY4HHO5.mp4"><img src="https://raw.githubusercontent.com/joelpizza0818-blip/Helix-Assitant/main/apps/landing/src/Multimedia/poster-cli-2.jpg" width="320" alt="CLI prompt flow video preview"></a></td>
   </tr>
   <tr>
-    <td align="center"><strong>CLI task execution · 6.5 MiB</strong><br><a href="https://helix-assistant.vercel.app/assets/helix%20cli%203-v_157PS2.mp4"><img src="https://raw.githubusercontent.com/joelpizza0818-blip/Helix-Assitant/main/apps/landing/src/Multimedia/poster-cli-3.jpg" width="320" alt="CLI task execution video preview"></a></td>
+    <td align="center"><strong>CLI task execution</strong><br><a href="https://helix-assistant.vercel.app/assets/helix%20cli%203-v_157PS2.mp4"><img src="https://raw.githubusercontent.com/joelpizza0818-blip/Helix-Assitant/main/apps/landing/src/Multimedia/poster-cli-3.jpg" width="320" alt="CLI task execution video preview"></a></td>
     <td></td>
+  </tr>
+</table>
+
+## Quick tour
+
+<table align="center">
+  <tr>
+    <td width="50%" align="center">
+      <strong>Natural desktop interaction</strong><br><br>
+      <img src="docs/assets/demo/helix-chat-capabilities.png" alt="HELIX chat capabilities" width="100%">
+      <p align="left"><em>Use chat to request supported desktop, terminal, file, and browser tasks, with confirmation for sensitive actions.</em></p>
+    </td>
+    <td width="50%" align="center">
+      <strong>Provider key failover</strong><br><br>
+      <img src="docs/assets/demo/helix-api-failover-pool.png" alt="HELIX provider key failover pool" width="100%">
+      <p align="left"><em>Configure provider keys and failover behavior for the AI services you choose to use.</em></p>
+    </td>
   </tr>
 </table>
 
@@ -55,11 +83,18 @@ Measured against the production landing page on **2026-11-05 UTC** with the repo
 | HTTP response time (median / p95 / max) | 110 ms / 276 ms / 712 ms |
 | Failed HTTP requests | 0 / 48 |
 | Critical HTML, JavaScript, and CSS response bodies | 611,433 bytes (597 KiB) |
-| Published video, poster, and card image assets combined | 148,721,412 bytes (141.9 MiB) |
 | Single browser navigation (DOMContentLoaded / FCP / load event) | 1.88 s / 2.08 s / 31.50 s* |
 | Browser-recorded resource transfer | 714,464 bytes |
 
-The media total is the size of all published assets, not the initial page transfer; the gallery videos are not eagerly downloaded on first load. *The browser timings are from one navigation; its 31.50 s load event is unexplained (no individual recorded resource exceeded 1.2 s), and LCP was unavailable. Repeat from independent locations before attributing a cause. These observations are not real-user telemetry or a desktop CPU/memory benchmark. Results vary with network, region, cache, and deployment.
+```mermaid
+xychart-beta
+    title "Landing HTTP response time (2026-11-05)"
+    x-axis ["Median", "p95", "Maximum"]
+    y-axis "Milliseconds" 0 --> 800
+    bar [110, 276, 712]
+```
+
+Gallery videos are opened on demand rather than eagerly downloaded on first load. *The browser timings are from one navigation; its 31.50 s load event is unexplained (no individual recorded resource exceeded 1.2 s), and LCP was unavailable. Repeat from independent locations before attributing a cause. These observations are not real-user telemetry or a desktop CPU/memory benchmark. Results vary with network, region, cache, and deployment.
 
 ## Download
 
@@ -129,6 +164,24 @@ flowchart TD
 
 The separate web/API services are not part of the local desktop-to-agent request path. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for boundaries and contracts.
 
+## Context packing and retrieval
+
+Large outputs are represented in the model context by a compact summary and a content-derived ID. The original text is gzip-compressed and retained for selective retrieval; blocks at least 5 MiB before compression spill to a temporary file.
+
+```mermaid
+flowchart LR
+    O[Raw tool output] --> I{Fits inline limit?}
+    I -->|Yes| C[Inline text]
+    I -->|No| P[Compact summary + content ID]
+    P --> G[Gzip original text]
+    G --> S{Original size at least 5 MiB?}
+    S -->|No| M[Session memory]
+    S -->|Yes| D[Temporary spill file]
+    M --> R[context_retrieve]
+    D --> R
+    R --> X[Original text]
+```
+
 | Folder | Responsibility |
 |---|---|
 | `apps/desktop/` | Electron desktop shell and renderer |
@@ -188,4 +241,4 @@ Normal 0.7.0: published (no installer asset on the public release); Lite 0.7.0: 
 
 ## License
 
-TODO: This repository snapshot does not contain a `LICENSE` file. Add one and confirm the intended license before redistributing the project.
+HELIX is distributed under the [MIT License](LICENSE).
