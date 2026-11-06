@@ -9,6 +9,7 @@ import zipfile
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from typing import Any
 
 try:
     from services.agent.browser.action_planner import BrowserActionPlanner
