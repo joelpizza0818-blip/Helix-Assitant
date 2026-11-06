@@ -70,8 +70,12 @@ for (const [outputPath, render] of generatedFiles) {
     let actual = '';
     try {
       actual = await readFile(outputPath, 'utf8');
-    } catch {}
-    if (actual !== expected) failures.push(path.relative(repositoryRoot, outputPath));
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+    if (actual.replace(/\r\n/g, '\n') !== expected) {
+      failures.push(path.relative(repositoryRoot, outputPath));
+    }
     continue;
   }
   await mkdir(path.dirname(outputPath), { recursive: true });

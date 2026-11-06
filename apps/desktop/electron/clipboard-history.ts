@@ -1,11 +1,12 @@
 import { createHash, randomUUID } from 'crypto'
-import { clipboard, nativeImage, type NativeImage } from 'electron'
+import { ClipboardItem, clipboard, nativeImage, type NativeImage } from 'electron'
 
 const MAX_HISTORY_ITEMS = 30
 const MAX_TEXT_LENGTH = 25_000
 const MAX_IMAGE_BYTES = 500_000
 const MAX_IMAGE_DIMENSION = 512
 const POLL_INTERVAL_MS = 750
+const CLIPBOARD_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const
 
 export interface ClipboardHistoryItem {
   id: string
@@ -20,6 +21,7 @@ export class ClipboardHistory {
   private monitoring = true
   private lastSignature = ''
   private timer: NodeJS.Timeout | null = null
+  private captureInProgress = false
 
   constructor(
     private readonly onChange: (items: ClipboardHistoryItem[]) => void,
@@ -58,17 +60,22 @@ export class ClipboardHistory {
     this.onChange([])
   }
 
-  restore(id: string): void {
+  async restore(id: string): Promise<void> {
     const item = this.items.find((candidate) => candidate.id === id)
     if (!item) throw new Error('Clipboard history item no longer exists.')
 
     if (item.kind === 'text' && typeof item.text === 'string') {
-      clipboard.writeText(item.text)
+      await clipboard.writeText(item.text)
       this.lastSignature = this.signature('text', item.text)
       return
     }
     if (item.kind === 'image' && typeof item.dataUrl === 'string') {
-      clipboard.writeImage(nativeImage.createFromDataURL(item.dataUrl))
+      const imageBytes = Uint8Array.from(nativeImage.createFromDataURL(item.dataUrl).toPNG())
+      await clipboard.write([
+        new ClipboardItem({
+          'image/png': new Blob([imageBytes.buffer], { type: 'image/png' }),
+        }),
+      ])
       this.lastSignature = this.signature('image', item.dataUrl)
       return
     }
@@ -76,29 +83,45 @@ export class ClipboardHistory {
   }
 
   private capture(): void {
-    if (!this.monitoring) return
-    try {
-      const image = clipboard.readImage()
-      if (!image.isEmpty()) {
-        this.captureImage(image)
-        return
-      }
+    if (!this.monitoring || this.captureInProgress) return
+    this.captureInProgress = true
+    void this.captureFromClipboard()
+      .catch((error: unknown) => {
+        console.error('[ClipboardHistory] Could not read the system clipboard:', error)
+      })
+      .finally(() => {
+        this.captureInProgress = false
+      })
+  }
 
-      const text = clipboard.readText()
-      if (!text) {
-        this.lastSignature = ''
-        return
-      }
-      const boundedText = text.slice(0, MAX_TEXT_LENGTH)
-      this.addItem({
-        id: randomUUID(),
-        kind: 'text',
-        timestamp: new Date().toISOString(),
-        text: boundedText,
-      }, this.signature('text', boundedText))
-    } catch (error) {
-      console.error('[ClipboardHistory] Could not read the system clipboard:', error)
+  private async captureFromClipboard(): Promise<void> {
+    const clipboardItems = await clipboard.read()
+    if (!this.monitoring) return
+
+    for (const clipboardItem of clipboardItems) {
+      const imageType = CLIPBOARD_IMAGE_TYPES.find((type) => clipboardItem.types.includes(type))
+      if (!imageType) continue
+      const imageBlob = await clipboardItem.getType(imageType)
+      if (!this.monitoring) return
+      const image = nativeImage.createFromBuffer(Buffer.from(await imageBlob.arrayBuffer()))
+      if (image.isEmpty()) continue
+      this.captureImage(image)
+      return
     }
+
+    const text = await clipboard.readText()
+    if (!this.monitoring) return
+    if (!text) {
+      this.lastSignature = ''
+      return
+    }
+    const boundedText = text.slice(0, MAX_TEXT_LENGTH)
+    this.addItem({
+      id: randomUUID(),
+      kind: 'text',
+      timestamp: new Date().toISOString(),
+      text: boundedText,
+    }, this.signature('text', boundedText))
   }
 
   private captureImage(image: NativeImage): void {

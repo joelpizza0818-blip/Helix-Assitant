@@ -1,16 +1,165 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import type { HelixSettings } from '../../../types/global'
-import { playSuccessChime } from '../../../lib/soundEffects'
+import {
+  deleteCustomSound,
+  getCustomSoundMetadata,
+  saveCustomSound,
+  type CustomSoundKind,
+  type CustomSoundMetadata,
+} from '../../../lib/customSoundStore'
+import {
+  ERROR_SOUND_PRESETS,
+  playConfiguredSound,
+  SUCCESS_SOUND_PRESETS,
+} from '../../../lib/soundEffects'
 import '../Toolbox.css'
 
 interface Props {
   settings: HelixSettings
   onSave: (partial: Partial<HelixSettings>) => Promise<void>
+  onSaveSound: (partial: Partial<HelixSettings>) => Promise<boolean>
 }
 
-export default function SystemSection({ settings, onSave }: Props) {
+export default function SystemSection({ settings, onSave, onSaveSound }: Props) {
   const [newPathInput, setNewPathInput] = useState('')
+  const [customSounds, setCustomSounds] = useState<Record<CustomSoundKind, CustomSoundMetadata | null>>({
+    success: null,
+    error: null,
+  })
+  const [soundMessage, setSoundMessage] = useState<string | null>(null)
   const protectedPaths = settings.protected_paths || ['C:\\Windows', 'C:\\Windows\\System32', 'C:\\Program Files']
+
+  useEffect(() => {
+    let active = true
+    void Promise.all([
+      getCustomSoundMetadata('success'),
+      getCustomSoundMetadata('error'),
+    ]).then(([success, error]) => {
+      if (active) setCustomSounds({ success, error })
+    }).catch((error: unknown) => {
+      console.error('[SystemSection] Could not load custom sound details:', error)
+      if (active) setSoundMessage('Could not load saved sound details.')
+    })
+    return () => { active = false }
+  }, [])
+
+  const handleUploadSound = async (kind: CustomSoundKind, file: File) => {
+    setSoundMessage(null)
+    try {
+      await saveCustomSound(kind, file)
+      await onSaveSound(kind === 'success'
+        ? { success_sound_preset: 'custom' }
+        : { error_sound_preset: 'custom' })
+      setCustomSounds((current) => ({ ...current, [kind]: { name: file.name, size: file.size, type: file.type } }))
+      setSoundMessage(`${kind === 'success' ? 'Success' : 'Error'} sound saved.`)
+    } catch (error) {
+      console.error(`[SystemSection] Could not save custom ${kind} sound:`, error)
+      setSoundMessage(error instanceof Error ? error.message : 'Could not save the selected sound.')
+    }
+  }
+
+  const handleRemoveSound = async (kind: CustomSoundKind) => {
+    setSoundMessage(null)
+    try {
+      await onSaveSound(kind === 'success'
+        ? { success_sound_preset: 'helix_chime' }
+        : { error_sound_preset: 'low_buzz' })
+      await deleteCustomSound(kind)
+      setCustomSounds((current) => ({ ...current, [kind]: null }))
+      setSoundMessage(`${kind === 'success' ? 'Success' : 'Error'} sound removed.`)
+    } catch (error) {
+      console.error(`[SystemSection] Could not remove custom ${kind} sound:`, error)
+      setSoundMessage(error instanceof Error ? error.message : 'Could not remove the saved sound.')
+    }
+  }
+
+  const handlePreviewSound = (kind: CustomSoundKind) => {
+    const preset = kind === 'success'
+      ? settings.success_sound_preset ?? 'helix_chime'
+      : settings.error_sound_preset ?? 'low_buzz'
+    setSoundMessage(null)
+    void playConfiguredSound(kind, preset).catch((error: unknown) => {
+      console.error(`[SystemSection] Could not preview ${kind} sound:`, error)
+      setSoundMessage(error instanceof Error ? error.message : 'Could not play the selected sound.')
+    })
+  }
+
+  const handleSelectSound = async (kind: CustomSoundKind, preset: string) => {
+    setSoundMessage(null)
+    try {
+      const saved = await onSaveSound(kind === 'success'
+        ? { success_sound_preset: preset }
+        : { error_sound_preset: preset })
+      if (!saved) setSoundMessage('Could not save the selected sound.')
+    } catch (error) {
+      console.error(`[SystemSection] Could not select ${kind} sound:`, error)
+      setSoundMessage(error instanceof Error ? error.message : 'Could not save the selected sound.')
+    }
+  }
+
+  const renderSoundControl = (
+    kind: CustomSoundKind,
+    label: string,
+    presets: readonly { id: string; label: string }[],
+    selectedPreset: string,
+  ) => (
+    <div className="form-row" style={{ alignItems: 'flex-start' }}>
+      <label className="form-label" htmlFor={`system-${kind}-sound`}>{label}</label>
+      <div style={{ display: 'flex', flex: 1, flexDirection: 'column', gap: 8, maxWidth: 420 }}>
+        <select
+          id={`system-${kind}-sound`}
+          className="form-input"
+          value={selectedPreset}
+          onChange={(event) => void handleSelectSound(kind, event.target.value)}
+        >
+          {presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}
+          {(customSounds[kind] || selectedPreset === 'custom') && (
+            <option value="custom">
+              {customSounds[kind]?.name ?? 'Custom sound (upload again)'}
+            </option>
+          )}
+        </select>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className="validate-btn"
+            style={{ fontSize: 11, padding: '4px 8px' }}
+            onClick={() => handlePreviewSound(kind)}
+          >
+            Test
+          </button>
+          <label className="validate-btn" style={{ fontSize: 11, padding: '4px 8px', cursor: 'pointer' }}>
+            Upload sound
+            <input
+              type="file"
+              accept="audio/*,video/mp4,.mp4"
+              style={{ display: 'none' }}
+              onChange={(event) => {
+                const file = event.target.files?.[0]
+                event.target.value = ''
+                if (file) void handleUploadSound(kind, file)
+              }}
+            />
+          </label>
+          {customSounds[kind] && (
+            <button
+              type="button"
+              className="validate-btn"
+              style={{ fontSize: 11, padding: '4px 8px' }}
+              onClick={() => void handleRemoveSound(kind)}
+            >
+              Remove custom
+            </button>
+          )}
+          {customSounds[kind] && (
+            <span className="text-xs text-muted">
+              {(customSounds[kind].size / (1024 * 1024)).toFixed(1)} MB
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  )
 
   const handleAddPath = async () => {
     if (!newPathInput.trim()) return
@@ -133,33 +282,29 @@ export default function SystemSection({ settings, onSave }: Props) {
           <span className="toolbox-card__title">Audio Feedback & Sound Effects</span>
         </div>
         <p className="text-xs text-muted" style={{ marginBottom: 12 }}>
-          Play subtle audio feedback when tasks complete successfully, errors occur, or commands finish in terminal.
+          Play a sound for successful or failed actions. Built-in tones run locally; custom clips are stored on this device only.
         </p>
 
-        <div className="form-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="form-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <div>
             <span className="text-sm weight-medium text-bone">Enable UI Sound Effects</span>
-            <p className="text-xs text-muted">Acoustic chimes synthesized locally with zero asset overhead</p>
+            <p className="text-xs text-muted">Custom files up to 5 MB; MP4 files must contain an audio track with a supported codec.</p>
           </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button
-              type="button"
-              className="validate-btn"
-              style={{ fontSize: 11, padding: '4px 8px' }}
-              onClick={() => playSuccessChime()}
-            >
-              Test Chime
-            </button>
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={settings.sound_effects_enabled ?? true}
-                onChange={(e) => void onSave({ sound_effects_enabled: e.target.checked })}
-              />
-              <span className="toggle__slider" />
-            </label>
-          </div>
+          <label className="toggle">
+            <input
+              type="checkbox"
+              checked={settings.sound_effects_enabled ?? true}
+              onChange={(event) => void onSave({ sound_effects_enabled: event.target.checked })}
+            />
+            <span className="toggle__slider" />
+          </label>
         </div>
+        {renderSoundControl('success', 'Successful action', SUCCESS_SOUND_PRESETS, settings.success_sound_preset ?? 'helix_chime')}
+        {renderSoundControl('error', 'Failed action', ERROR_SOUND_PRESETS, settings.error_sound_preset ?? 'low_buzz')}
+        <p className="text-xs text-muted" style={{ margin: '0 0 8px' }}>
+          Audio and video files with audio: MP3, WAV, OGG, M4A, AAC, MP4, WebM, or FLAC.
+        </p>
+        {soundMessage && <p className="text-xs text-muted" role="status">{soundMessage}</p>}
       </div>
 
       {/* ── Protected Directory Boundaries ─────────────────────── */}

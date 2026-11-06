@@ -7,6 +7,7 @@ interface Props {
   runningCount: number
   activeDescription: string | null
   activeTask?: TaskDefinition | null
+  activeProgressMessage?: string
   runningTasks?: TaskDefinition[]
   expanded?: boolean
   onClick: () => void
@@ -16,6 +17,7 @@ export default function TaskStatusBar({
   runningCount,
   activeDescription,
   activeTask,
+  activeProgressMessage,
   runningTasks = [],
   expanded = false,
   onClick,
@@ -39,7 +41,7 @@ export default function TaskStatusBar({
       >
         <span className="task-status-bar__dot" />
         <span className="task-status-bar__count">
-          {runningCount} task{runningCount !== 1 ? 's' : ''} running
+          {runningCount} active task{runningCount !== 1 ? 's' : ''}
           {subagents.length > 0 ? ` (${subagents.length} subagent${subagents.length > 1 ? 's' : ''})` : ''}
         </span>
         {activeDescription && (
@@ -66,7 +68,9 @@ export default function TaskStatusBar({
                         {sub.name || (sub.role ? `Subagente · ${sub.role}` : 'Subagente')}
                       </span>
                       {sub.role && <span className="subagent-process-card__badge">{sub.role}</span>}
-                      <span className="subagent-process-card__status">{sub.status}</span>
+                      <span className="subagent-process-card__status">
+                        {sub.execution_summary?.progress_label || sub.status}
+                      </span>
                     </div>
                     {(sub.function || sub.description) && (
                       <p className="subagent-process-card__func">
@@ -83,7 +87,7 @@ export default function TaskStatusBar({
             <>
               <div className="task-status-summary__progress-row">
                 <span className="task-status-summary__label">Progress</span>
-                <span className="task-status-summary__progress-label">{safeSummaryText(summary.progress_label, 80)}</span>
+                <span className="task-status-summary__progress-label">{safeSummaryText(activeProgressMessage ?? summary.progress_label, 160)}</span>
                 <span className="task-status-summary__percent">{Math.max(0, Math.min(100, activeTask.progress ?? 0))}%</span>
               </div>
               <div className="task-status-summary__progress-track">

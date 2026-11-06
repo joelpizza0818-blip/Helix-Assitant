@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import * as path from 'node:path'
 import { test } from 'node:test'
@@ -43,6 +43,79 @@ function createBridge() {
     () => true,
   )
 }
+
+test('browser extension resolves label selectors to associated form controls', async () => {
+  const contentScript = await readFile(
+    path.join(__dirname, '../browser-extension/content.js'),
+    'utf8',
+  )
+  const start = contentScript.indexOf('function findControlElement(selector) {')
+  const end = contentScript.indexOf('\nfunction findControl(selector, purpose) {', start)
+  assert.ok(start >= 0 && end > start)
+
+  type MockControl = {
+    labels: Array<{ innerText?: string; textContent?: string }>
+    getAttribute: (name: string) => string | null
+  }
+  const field: MockControl = {
+    labels: [{ innerText: 'Email address' }],
+    getAttribute: () => null,
+  }
+  const controls: MockControl[] = [field]
+  const referencedLabels = {
+    'email-label': { innerText: '', textContent: 'Email address' },
+    'email-hint': { innerText: 'Required', textContent: 'Required' },
+  }
+  const mockDocument = {
+    querySelectorAll: () => controls,
+    getElementById: (id: string) => referencedLabels[id as keyof typeof referencedLabels] ?? null,
+  }
+  class MockHTMLElement {}
+  const createResolver = new Function(
+    'document',
+    'HTMLElement',
+    'isVisibleControl',
+    'controlElementsById',
+    `${contentScript.slice(start, end)}; return findControlElement;`,
+  ) as (
+    document: typeof mockDocument,
+    HTMLElement: typeof MockHTMLElement,
+    isVisibleControl: (element: unknown) => boolean,
+    controlElementsById: Map<string, unknown>,
+  ) => (selector: string) => unknown
+  const resolveControl = createResolver(
+    mockDocument,
+    MockHTMLElement,
+    () => true,
+    new Map(),
+  )
+
+  assert.equal(resolveControl('label=Email address'), field)
+  const compositeLabelField: MockControl = {
+    labels: [],
+    getAttribute: (name) => (
+      name === 'aria-labelledby' ? 'email-label email-hint' : null
+    ),
+  }
+  controls.splice(0, controls.length, compositeLabelField)
+  assert.equal(resolveControl('label=Email address'), compositeLabelField)
+
+  controls.splice(0, controls.length, {
+    labels: [],
+    getAttribute: (name) => (name === 'aria-label' ? 'Email address' : null),
+  }, {
+    labels: [],
+    getAttribute: (name) => (name === 'aria-label' ? 'Email work' : null),
+  })
+  assert.throws(
+    () => resolveControl('label=Email'),
+    /matches multiple form controls/,
+  )
+  assert.throws(
+    () => resolveControl('label=Missing field'),
+    /No visible form control matches label/,
+  )
+})
 
 test('browser debugger sends page input through CDP and detaches from the managed tab', async () => {
   const calls: Array<{ method: string; parameters?: Record<string, unknown> }> = []

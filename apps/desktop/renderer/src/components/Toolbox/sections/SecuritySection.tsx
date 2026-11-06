@@ -81,6 +81,7 @@ export default function SecuritySection({ settings, onSave }: Props) {
           id="auto-approve-up-to"
           className="form-input"
           value={settings.auto_approve_up_to}
+          disabled={(settings.permissions_mode || 'SMART_APPROVAL') !== 'SMART_APPROVAL'}
           onChange={(event) => onSave({
             auto_approve_up_to: event.target.value as HelixSettings['auto_approve_up_to']
           })}
@@ -89,6 +90,11 @@ export default function SecuritySection({ settings, onSave }: Props) {
           <option value="LOW_RISK">Low risk</option>
           <option value="MODIFY">Modify</option>
         </select>
+        <p className="text-xs text-muted" style={{ marginTop: 8 }}>
+          This limit applies to Smart Approval. Auto Approve permits non-system and non-critical actions;
+          Always Ask confirms every action. Shell commands, dangerous operations, and protected resources
+          still require confirmation.
+        </p>
       </div>
 
       {/* ── Command Sandboxing & Isolation ───────────────────── */}

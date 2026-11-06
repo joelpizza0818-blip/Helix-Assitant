@@ -7,7 +7,12 @@ from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Callable, Any
-from .model_router import RouteCandidate, TaskRequirements, ModelRouter
+from .model_router import (
+    RouteCandidate,
+    TaskRequirements,
+    ModelRouter,
+    credential_provider_id,
+)
 from .key_manager import KeyManager
 try:
     from core.event_bus import EventBus
@@ -120,7 +125,9 @@ class FallbackManager:
 
         def is_blocked(option):
             return (
-                self.key_manager.get_key(option.provider_id, option.key_slot)
+                self.key_manager.get_key(
+                    credential_provider_id(option.provider_id), option.key_slot
+                )
                 in excluded_api_keys
                 or
                 (option.provider_id, option.model_id) in execution_failed_models
@@ -220,7 +227,10 @@ class FallbackManager:
                 started_at = time.perf_counter()
                 result = await provider_call_fn(candidate, context)
                 latency_ms = round((time.perf_counter() - started_at) * 1000)
-                self.key_manager.mark_key_success(candidate.provider_id, candidate.key_slot)
+                self.key_manager.mark_key_success(
+                    credential_provider_id(candidate.provider_id),
+                    candidate.key_slot,
+                )
                 logger.info(
                     "Model attempt succeeded provider=%s model=%s key_slot=%d duration_ms=%d",
                     candidate.provider_id,
@@ -279,7 +289,7 @@ class FallbackManager:
                     "CONTEXT_LENGTH_EXCEEDED",
                 } and not model_scoped_limit:
                     self.key_manager.mark_key_failure(
-                        candidate.provider_id,
+                        credential_provider_id(candidate.provider_id),
                         candidate.key_slot,
                         e.code,
                     )

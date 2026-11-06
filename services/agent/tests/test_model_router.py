@@ -52,6 +52,45 @@ def test_router_returns_none_when_no_provider_configured(clean_env, model_router
     candidate = model_router.get_best_candidate(req)
     assert candidate is None
 
+
+def test_free_tier_route_uses_configured_openrouter_credential(
+    clean_env,
+    model_router,
+    provider_registry,
+    key_manager,
+):
+    from services.agent.ai.free_provider import FreeModelProvider
+
+    key_manager.keys["openrouter"][0] = "test-openrouter-key"
+    key_manager.key_states["openrouter"][0]["health"] = KeyHealth.HEALTHY
+    provider_registry.register_provider(FreeModelProvider())
+
+    candidate = model_router.get_best_candidate(TaskRequirements(
+        text=True,
+        preferred_provider="free",
+        preferred_model="meta-llama/llama-3.2-3b-instruct:free",
+    ))
+
+    assert candidate is not None
+    assert candidate.provider_id == "free"
+    assert key_manager.get_key("openrouter", candidate.key_slot) == "test-openrouter-key"
+
+
+def test_free_tier_route_is_unavailable_without_openrouter_credential(
+    clean_env,
+    model_router,
+    provider_registry,
+):
+    from services.agent.ai.free_provider import FreeModelProvider
+
+    provider_registry.register_provider(FreeModelProvider())
+
+    assert model_router.get_best_candidate(TaskRequirements(
+        text=True,
+        preferred_provider="free",
+        preferred_model="meta-llama/llama-3.2-3b-instruct:free",
+    )) is None
+
 def test_router_round_robins_unique_credentials_for_equal_best_routes(
     google_only_env, model_router, key_manager, monkeypatch
 ):

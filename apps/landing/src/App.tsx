@@ -68,7 +68,7 @@ function App() {
         <Route path="/features" element={<FeaturesPage />} />
         <Route path="/whats-new" element={<FeaturesPage />} />
         <Route path="/announcements" element={<AnnouncementsPage />} />
-        <Route path="/admin" element={<RequireAuth><AdminPage /></RequireAuth>} />
+        <Route path="/admin" element={<RequireAuth adminOnly><AdminPage /></RequireAuth>} />
         <Route path="/privacy" element={<PrivacyPage />} />
         <Route path="/docs" element={<DocsPage />} />
         <Route path="/login" element={<LoginPage />} />

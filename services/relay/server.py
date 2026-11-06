@@ -51,6 +51,7 @@ class RelayServer:
         self._lock = asyncio.Lock()
 
     async def _room_for(self, token: str, expires_at: float, role: str, websocket: Any) -> Room | None:
+        # Admission and removal share this lock so reconnects cannot race room membership changes.
         async with self._lock:
             room = self.rooms.get(token)
             if room is not None and not room.active():
@@ -64,6 +65,7 @@ class RelayServer:
                 room = Room(token=token, expires_at=expires_at, desktop=websocket)
                 self.rooms[token] = room
                 return room
+            # The Desktop creates the room; mobile clients are guests and can join only while their host is present.
             if role != "mobile" or room is None or room.desktop is None:
                 return None
             return room
@@ -101,6 +103,7 @@ class RelayServer:
                 if isinstance(message, str) and len(message.encode("utf-8")) > MAX_MESSAGE_BYTES:
                     await websocket.close(code=4409, reason="Message too large")
                     break
+                # Desktop events fan out to mobile peers; mobile events return only to the Desktop.
                 target = room.mobiles if role == "desktop" else ({room.desktop} if room.desktop else set())
                 stale = []
                 for peer in target:

@@ -1,0 +1,126 @@
+.project-files-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--color-graphite);
+  border-radius: 8px;
+  background: var(--color-void);
+}
+
+.project-files-panel__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--color-mist);
+  font-size: 12px;
+}
+
+.project-files-panel__import {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--color-graphite);
+  border-radius: 6px;
+  background: var(--color-carbon);
+  color: var(--color-mist);
+  cursor: pointer;
+  font: inherit;
+}
+
+.project-files-panel__import:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.project-files-panel__import svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.project-files-panel__root,
+.project-files-panel__entry {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-fog);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.project-files-panel__root {
+  padding-left: 10px;
+  color: var(--color-mist);
+}
+
+.project-files-panel__entry:hover,
+.project-files-panel__root:hover,
+.project-files-panel__entry.is-selected,
+.project-files-panel__root.is-selected {
+  background: var(--color-carbon);
+  color: var(--color-bone);
+}
+
+.project-files-panel__entry:disabled,
+.project-files-panel__root:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.project-files-panel__entry-mark {
+  flex: 0 0 14px;
+  color: var(--color-mist);
+  text-align: center;
+}
+
+.project-files-panel__folder::before {
+  content: '';
+  display: inline-block;
+  width: 12px;
+  height: 9px;
+  margin-right: 6px;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+
+.project-files-panel__tree {
+  max-height: 280px;
+  overflow: auto;
+  border-top: 1px solid var(--color-graphite);
+  border-bottom: 1px solid var(--color-graphite);
+  padding: 4px 0;
+}
+
+.project-files-panel__create {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.project-files-panel__create > div {
+  display: flex;
+  gap: 6px;
+}
+
+@media (max-width: 600px) {
+  .project-files-panel__create > div .validate-btn {
+    flex: 1;
+  }
+}

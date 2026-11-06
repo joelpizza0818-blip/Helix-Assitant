@@ -33,7 +33,9 @@ class ProviderRegistry:
         if provider_id not in self._providers:
             return False
         provider = self._providers[provider_id]
-        if getattr(provider, "no_key_required", False) or provider_id in {"free", "ollama", "local"}:
+        if provider_id == "free":
+            return self.key_manager.is_provider_configured("openrouter")
+        if getattr(provider, "no_key_required", False) or provider_id in {"ollama", "local"}:
             return True
         return self.key_manager.is_provider_configured(provider_id)
 

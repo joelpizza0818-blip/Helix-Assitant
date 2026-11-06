@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import type { HelixSettings } from '../../../types/global'
 import '../Toolbox.css'
 
@@ -8,53 +8,87 @@ interface Props {
 }
 
 export default function WebSection({ settings, onSave }: Props) {
+  const [installingChromium, setInstallingChromium] = useState(false)
+  const [chromiumInstallMessage, setChromiumInstallMessage] = useState('')
+  const isManagedChromium = (settings.browser_channel || 'chrome') === 'bundled'
+
+  const installChromium = async () => {
+    const confirmed = window.confirm(
+      'Download Playwright Chromium now? This requires an internet connection. The download starts only after you confirm.',
+    )
+    if (!confirmed) return
+
+    setInstallingChromium(true)
+    setChromiumInstallMessage('Downloading and installing Playwright Chromium…')
+    try {
+      const result = await window.helix.installPlaywrightChromium()
+      setChromiumInstallMessage(result.message)
+    } catch (error) {
+      setChromiumInstallMessage(
+        error instanceof Error ? error.message : String(error),
+      )
+    } finally {
+      setInstallingChromium(false)
+    }
+  }
+
   return (
     <div className="toolbox-section">
       <h2 className="toolbox-section__title">Browser Automation & Web Research</h2>
       <p className="toolbox-section__desc">
-        Configure Playwright-driven autonomous browsing, deep web research, data extraction, and search engine preferences.
+        Playwright opens a visible HELIX browser window so you can follow browser-control actions live. Configure the isolated browser profile, research, and search preferences.
       </p>
 
-      {/* ── Browser Execution Mode ─────────────────────────────── */}
       <div className="toolbox-card" style={{ marginBottom: 16 }}>
         <div className="toolbox-card__header">
-          <span className="toolbox-card__title">Browser Control Mode</span>
+          <span className="toolbox-card__title">Playwright Browser</span>
         </div>
-
-        <div className="form-row">
-          <label className="form-label">Active Automation Provider</label>
+        <div className="form-row toolbox-browser-row">
+          <label className="form-label toolbox-browser-row__label">
+            Browser
+            <small className="toolbox-browser-row__hint">
+              Opens a visible window controlled live by Playwright, using a separate persistent HELIX profile (never your usual browser profile or tabs).
+            </small>
+          </label>
           <select
             className="form-input"
-            value={settings.browser_control_mode || 'playwright'}
-            onChange={(e) => void onSave({ browser_control_mode: e.target.value as HelixSettings['browser_control_mode'] })}
+            value={settings.browser_channel || 'chrome'}
+            onChange={(event) => void onSave({
+              browser_channel: event.target.value as HelixSettings['browser_channel'],
+              browser_headless: false,
+            })}
           >
-            <option value="playwright">Playwright Isolated Browser (Recomendado - Automático y Rápido)</option>
-            <option value="extension">Extensión Chrome / Edge (Navegador real del usuario)</option>
-          </select>
-        </div>
-      </div>
-
-      <div className="toolbox-card" style={{ marginBottom: 16 }}>
-        <div className="toolbox-card__header">
-          <span className="toolbox-card__title">Playwright Engine Configuration</span>
-        </div>
-
-        <div className="form-row">
-          <label className="form-label">Browser Engine</label>
-          <select className="form-input" value={settings.browser_engine || 'chromium'} onChange={(e) => void onSave({ browser_engine: e.target.value as HelixSettings['browser_engine'] })}>
-            <option value="chromium">Chromium (Google Chrome / Microsoft Edge)</option>
-            <option value="firefox">Firefox</option>
-            <option value="webkit">WebKit (Safari engine)</option>
+            <option value="bundled">Playwright Chromium (install on demand)</option>
+            <option value="chrome">Installed Google Chrome · HELIX profile</option>
+            <option value="msedge">Installed Microsoft Edge · HELIX profile</option>
           </select>
         </div>
 
-        <div className="form-row">
-          <label className="form-label">Headless Mode (Silent Background Execution)</label>
-          <label className="toggle">
-            <input type="checkbox" checked={settings.browser_headless ?? true} onChange={(e) => void onSave({ browser_headless: e.target.checked })} />
-            <span className="toggle__slider" />
-          </label>
-        </div>
+        {isManagedChromium && (
+          <div className="form-row toolbox-browser-row">
+            <div className="form-label toolbox-browser-row__label">
+              Playwright Chromium
+              <small className="toolbox-browser-row__hint">
+                Install the browser used for visible Playwright sessions.
+              </small>
+            </div>
+            <div className="toolbox-browser-row__actions">
+              <button
+                type="button"
+                className="validate-btn"
+                disabled={installingChromium}
+                onClick={() => void installChromium()}
+              >
+                {installingChromium ? 'Installing…' : 'Download Playwright Chromium'}
+              </button>
+              {chromiumInstallMessage && (
+                <p className="toolbox-browser-row__hint" role="status" aria-live="polite">
+                  {chromiumInstallMessage}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="form-row">
           <label className="form-label">Default Search Provider</label>

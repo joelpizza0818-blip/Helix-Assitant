@@ -1,5 +1,9 @@
 import asyncio
+import io
+import logging
 from typing import Any, Dict, Tuple
+
+from PIL import Image, UnidentifiedImageError
 
 try:
     import pyautogui
@@ -19,6 +23,9 @@ except (ImportError, SystemExit, Exception):
     _PYAUTOGUI_AVAILABLE = False
 
 from .base_tool import BaseTool, ToolResult
+from .permission_utils import has_consequential_action_text
+from ..perception.screen_engine import ScreenEngine
+from ..perception.screen_observation_policy import screen_observation_is_allowed
 
 _OPERATIONS = {
     "move",
@@ -31,10 +38,26 @@ _OPERATIONS = {
 }
 _MOUSE_BUTTONS = {"left", "middle", "right"}
 _MAX_SCROLL_AMOUNT = 10
+logger = logging.getLogger(__name__)
 
 
 def _valid_coordinate(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _is_valid_screenshot(data: bytes) -> bool:
+    try:
+        with Image.open(io.BytesIO(data)) as image:
+            image.verify()
+    except (
+        Image.DecompressionBombError,
+        OSError,
+        SyntaxError,
+        UnidentifiedImageError,
+        ValueError,
+    ):
+        return False
+    return True
 
 
 class MouseTool(BaseTool):
@@ -56,12 +79,25 @@ class MouseTool(BaseTool):
             "Control the mouse using coordinates from the latest screen "
             "observation. Coordinates start at the top-left; inspect the screen "
             "before clicking or dragging. Available operations: move, click, "
-            "double_click, right_click, drag, scroll, get_position."
+            "double_click, right_click, drag, scroll, get_position. Include the "
+            "visible target label for consequential clicks, double-clicks, "
+            "right-clicks, or drags."
         )
 
     @property
     def permission_level(self) -> str:
         return "LOW_RISK"
+
+    def permission_level_for(self, params: Dict[str, Any]) -> str:
+        operation = params.get("operation")
+        if (
+            operation in {"click", "double_click", "right_click", "drag"}
+            and has_consequential_action_text(
+                params.get("target_description")
+            )
+        ):
+            return "EXECUTE"
+        return self.permission_level
 
     @property
     def requires_confirmation(self) -> bool:
@@ -77,14 +113,22 @@ class MouseTool(BaseTool):
         expected_keys = {
             "get_position": {"operation"},
             "move": {"operation", "x", "y"},
-            "click": {"operation", "x", "y", "button"},
-            "double_click": {"operation", "x", "y"},
-            "right_click": {"operation", "x", "y"},
+            "click": {"operation", "x", "y", "button", "target_description"},
+            "double_click": {"operation", "x", "y", "target_description"},
+            "right_click": {"operation", "x", "y", "target_description"},
             "drag": {
                 "operation", "from_x", "from_y", "to_x", "to_y", "duration",
+                "target_description",
             },
             "scroll": {"operation", "x", "y", "amount"},
         }[operation]
+        target_description = params.get("target_description")
+        if target_description is not None and (
+            operation not in {"click", "double_click", "right_click", "drag"}
+            or not isinstance(target_description, str)
+            or len(target_description) > 300
+        ):
+            return False
         if not set(params).issubset(expected_keys):
             return False
         if operation == "get_position":
@@ -133,6 +177,14 @@ class MouseTool(BaseTool):
                     "button": {
                         "type": "string",
                         "enum": sorted(_MOUSE_BUTTONS),
+                    },
+                    "target_description": {
+                        "type": "string",
+                        "description": (
+                            "Visible label or purpose of a click, double-click, "
+                            "right-click, or drag target from the latest "
+                            "screenshot, if consequential."
+                        ),
                     },
                     "from_x": coordinate,
                     "from_y": coordinate,
@@ -250,7 +302,56 @@ class MouseTool(BaseTool):
             else:
                 x, y = await self.get_position()
                 return ToolResult(success=True, output={"x": x, "y": y})
-            return ToolResult(success=True, output={"operation": operation})
+            output = {"operation": operation}
+            if screen_observation_is_allowed():
+                try:
+                    context = await asyncio.to_thread(
+                        ScreenEngine().capture_context
+                    )
+                except Exception as error:
+                    logger.exception("Mouse post-action screen capture failed")
+                    return ToolResult(
+                        success=False,
+                        output={
+                            "operation": operation,
+                            "action_may_have_succeeded": True,
+                        },
+                        error=(
+                            "The mouse action may have succeeded, but its "
+                            "post-action screenshot failed. Inspect the current "
+                            "screen before retrying."
+                        ),
+                    )
+                screenshot = (
+                    context.get("screenshot_bytes")
+                    if isinstance(context, dict)
+                    else None
+                )
+                if (
+                    not isinstance(screenshot, bytes)
+                    or not screenshot
+                    or not await asyncio.to_thread(
+                        _is_valid_screenshot,
+                        screenshot,
+                    )
+                ):
+                    logger.error(
+                        "Mouse post-action screen capture returned no image"
+                    )
+                    return ToolResult(
+                        success=False,
+                        output={
+                            "operation": operation,
+                            "action_may_have_succeeded": True,
+                        },
+                        error=(
+                            "The mouse action may have succeeded, but no "
+                            "post-action screenshot was returned. Inspect the "
+                            "current screen before retrying."
+                        ),
+                    )
+                output["screenshot_bytes"] = screenshot
+            return ToolResult(success=True, output=output)
         except Exception as error:
             return ToolResult(
                 success=False,

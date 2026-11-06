@@ -3,6 +3,7 @@ import logging
 from typing import Any, Callable, Optional
 
 from .base_tool import BaseTool, ToolResult
+from .permission_utils import has_consequential_action_text
 from ..perception.screen_engine import ScreenEngine
 from ..perception.screen_observation_policy import screen_observation_is_allowed
 
@@ -213,6 +214,13 @@ class ComputerTool(_ComputerActions, BaseTool):
     def permission_level(self) -> str:
         return "LOW_RISK"
 
+    def permission_level_for(self, params: dict) -> str:
+        return (
+            "EXECUTE"
+            if has_consequential_action_text(params.get("description"))
+            else self.permission_level
+        )
+
     @property
     def requires_confirmation(self) -> bool:
         return False
@@ -286,6 +294,13 @@ class ClickTextTool(_ComputerActions, BaseTool):
     def permission_level(self) -> str:
         return "LOW_RISK"
 
+    def permission_level_for(self, params: dict) -> str:
+        return (
+            "EXECUTE"
+            if has_consequential_action_text(params.get("text"))
+            else self.permission_level
+        )
+
     @property
     def requires_confirmation(self) -> bool:
         return False
@@ -345,18 +360,31 @@ class VisualClickTool(_ComputerActions, BaseTool):
     def description(self) -> str:
         return (
             "Fallback for a visible target identified from the latest screenshot "
-            "when UI Automation and OCR cannot locate it."
+            "when UI Automation and OCR cannot locate it. Describe the visible "
+            "target in target_description if its action is consequential."
         )
 
     @property
     def permission_level(self) -> str:
         return "LOW_RISK"
 
+    def permission_level_for(self, params: dict) -> str:
+        return (
+            "EXECUTE"
+            if has_consequential_action_text(
+                params.get("target_description")
+            )
+            else self.permission_level
+        )
+
     @property
     def requires_confirmation(self) -> bool:
         return False
 
     def validate_params(self, params: dict) -> bool:
+        if not isinstance(params, dict):
+            return False
+        target_description = params.get("target_description")
         return (
             isinstance(params.get("x"), int)
             and not isinstance(params.get("x"), bool)
@@ -364,6 +392,13 @@ class VisualClickTool(_ComputerActions, BaseTool):
             and not isinstance(params.get("y"), bool)
             and 0 <= params["x"] <= 32767
             and 0 <= params["y"] <= 32767
+            and (
+                target_description is None
+                or (
+                    isinstance(target_description, str)
+                    and len(target_description) <= 300
+                )
+            )
         )
 
     def get_schema(self) -> dict:
@@ -375,6 +410,13 @@ class VisualClickTool(_ComputerActions, BaseTool):
                 "properties": {
                     "x": {"type": "integer", "minimum": 0},
                     "y": {"type": "integer", "minimum": 0},
+                    "target_description": {
+                        "type": "string",
+                        "description": (
+                            "Visible label or purpose of the target in the latest "
+                            "screenshot, if consequential."
+                        ),
+                    },
                 },
                 "required": ["x", "y"],
             },
@@ -437,6 +479,8 @@ class TypeInFieldTool(_ComputerActions, BaseTool):
         return True
 
     def validate_params(self, params: dict) -> bool:
+        if not isinstance(params, dict):
+            return False
         return (
             isinstance(params.get("field_description"), str)
             and bool(params["field_description"].strip())

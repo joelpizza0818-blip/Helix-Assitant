@@ -2,7 +2,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from services.agent.tools.computer_tool import ComputerTool, TypeInFieldTool
+from services.agent.tools.computer_tool import (
+    ClickTextTool,
+    ComputerTool,
+    TypeInFieldTool,
+    VisualClickTool,
+)
+from services.agent.tools.keyboard_tool import KeyboardTool
 from services.agent.perception.screen_observation_policy import (
     screen_observation_scope,
 )
@@ -79,3 +85,23 @@ def test_desktop_tool_schemas_require_nonempty_and_bounded_input():
     assert not type_tool.validate_params(
         {"field_description": "Document", "text": ""}
     )
+
+
+def test_native_desktop_actions_escalate_consequential_targets():
+    assert ComputerTool().permission_level_for(
+        {"description": "Delete workspace"}
+    ) == "EXECUTE"
+    assert ComputerTool().permission_level_for(
+        {"description": "Open settings"}
+    ) == "LOW_RISK"
+    assert ClickTextTool().permission_level_for(
+        {"text": "Confirm purchase"}
+    ) == "EXECUTE"
+    assert VisualClickTool().permission_level_for(
+        {"target_description": "Send message"}
+    ) == "EXECUTE"
+    assert VisualClickTool().permission_level_for(
+        {"target_description": "Open menu"}
+    ) == "LOW_RISK"
+    assert KeyboardTool().permission_level_for({"key": "enter"}) == "EXECUTE"
+    assert KeyboardTool().permission_level_for({"key": "tab"}) == "LOW_RISK"

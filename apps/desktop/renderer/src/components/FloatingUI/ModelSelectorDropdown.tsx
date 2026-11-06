@@ -255,7 +255,7 @@ export default function ModelSelectorDropdown({ settings, onSave }: Props) {
   const [downloadProgress, setDownloadProgress] = useState<number>(0)
   const [downloadStatus, setDownloadStatus] = useState<string>('')
   const [catalog, setCatalog] = useState<ModelCatalog | null>(null)
-  const [freeTierKeyConfigured, setFreeTierKeyConfigured] = useState<boolean>(false)
+  const [catalogError, setCatalogError] = useState<string | null>(null)
   const [llamaStatus, setLlamaStatus] = useState<{ running: boolean; models?: Array<{ name: string; path: string }> } | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
@@ -278,9 +278,7 @@ export default function ModelSelectorDropdown({ settings, onSave }: Props) {
     void getModelCatalog().then((cat) => {
       if (!mounted) return
       setCatalog(cat)
-      // Check if any free-tier model is AVAILABLE (means key is configured)
-      const hasKey = cat.categories.free_tier.some((m) => m.status === 'AVAILABLE')
-      setFreeTierKeyConfigured(hasKey)
+      setCatalogError(null)
       // Extract installed ollama models from catalog
       const installedNames = cat.categories.local
         .filter((m) => m.installed)
@@ -291,6 +289,9 @@ export default function ModelSelectorDropdown({ settings, onSave }: Props) {
         if (mounted && st) setLlamaStatus(st)
       }).catch(() => {})
     }).catch(() => {
+      if (mounted) {
+        setCatalogError('No se pudo cargar el catálogo de modelos. Algunos estados pueden no estar actualizados.')
+      }
       // Fallback: check Ollama directly
       void checkOllamaRunning().then((running) => {
         if (!mounted) return
@@ -463,81 +464,37 @@ export default function ModelSelectorDropdown({ settings, onSave }: Props) {
       {/* ── Dropdown Menu Expanding Downwards ── */}
       {isOpen && (
         <div className="model-dropdown-menu" role="dialog" aria-label="Modelos disponibles">
-          {/* 1. Modelos via OpenRouter (requieren OPENROUTER_API_KEY) */}
-          <div className="model-dropdown__section-title">
-            <FreeIcon />
-            <span>Open Weight Cloud (Tu OPENROUTER_API_KEY)</span>
-          </div>
-          {!freeTierKeyConfigured && (
-            <div className="model-dropdown__key-notice" style={{ padding: '8px 10px', background: 'rgba(234, 88, 12, 0.08)', border: '1px solid rgba(234, 88, 12, 0.25)', borderRadius: '6px', margin: '4px 10px 8px 10px' }}>
-              <div style={{ fontSize: '11px', color: '#fed7aa', marginBottom: '6px' }}>
-                ℹ️ Añade tu <code>OPENROUTER_API_KEY</code> en ajustes para activar estos modelos
-              </div>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    window.helix?.openToolbox?.()
-                  }}
-                  style={{
-                    padding: '4px 9px',
-                    fontSize: '11px',
-                    background: '#ea580c',
-                    color: '#fff',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                    fontWeight: 600,
-                  }}
-                >
-                  ⚙️ Ir a Configuración
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    window.helix?.openExternal?.('https://openrouter.ai/keys')
-                  }}
-                  style={{
-                    padding: '4px 9px',
-                    fontSize: '11px',
-                    background: '#1e293b',
-                    color: '#e2e8f0',
-                    border: '1px solid #475569',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  🔑 Obtener clave (openrouter.ai)
-                </button>
-              </div>
+          {catalogError && (
+            <div className="model-dropdown__key-notice" role="status">
+              {catalogError}
             </div>
           )}
+          {/* 1. Modelos cloud gratuitos de OpenRouter */}
+          <div className="model-dropdown__section-title">
+            <FreeIcon />
+            <span>Open Weight Cloud · Enrutamiento gratuito</span>
+          </div>
+          <div className="model-dropdown__free-tier-note">
+            No necesitas configurar una API key para usar estos modelos gratuitos.
+          </div>
           {FREE_MODELS.map((m) => {
             const isSelected = activeModelId === m.id
-            const catalogEntry = catalog?.categories.free_tier.find((c) => c.id === m.id)
-            const isAvailable = catalogEntry?.status === 'AVAILABLE' || freeTierKeyConfigured
             return (
               <button
                 key={m.id}
                 type="button"
-                className={`model-dropdown__item ${isSelected ? 'model-dropdown__item--selected' : ''} ${!isAvailable ? 'model-dropdown__item--auth-required' : ''}`}
-                onClick={() => isAvailable ? void handleSelectModel(m) : undefined}
-                disabled={!isAvailable}
-                title={isAvailable ? m.description : 'Añade OPENROUTER_API_KEY en ajustes'}
+                className={`model-dropdown__item ${isSelected ? 'model-dropdown__item--selected' : ''}`}
+                onClick={() => void handleSelectModel(m)}
+                title={m.description}
               >
                 <div className="model-dropdown__item-info">
                   <div className="model-dropdown__item-header">
                     <span className="model-dropdown__item-name">{m.name}</span>
-                    {isAvailable
-                      ? <span className="model-dropdown__badge model-dropdown__badge--free">OpenRouter</span>
-                      : <span className="model-dropdown__badge model-dropdown__badge--auth">Key requerida</span>
-                    }
+                    <span className="model-dropdown__badge model-dropdown__badge--free">OpenRouter</span>
                   </div>
                   <span className="model-dropdown__item-desc">{m.description}</span>
                 </div>
-                {isSelected && isAvailable && <span className="model-dropdown__check">✓</span>}
+                {isSelected && <span className="model-dropdown__check">✓</span>}
               </button>
             )
           })}

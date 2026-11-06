@@ -10,6 +10,7 @@ from services.agent.core.orchestrator import (
 )
 from services.agent.core.planner import Plan, PlanStep, Planner
 from services.agent.core.react_loop import ReActLoop
+from services.agent.core.task_manager import TaskStatus
 
 
 def _tool_schema(name):
@@ -264,6 +265,392 @@ def test_failed_workflow_step_skips_dependents_and_runs_independent_steps():
     assert result["steps"]["dependent"]["status"] == "skipped"
     assert result["steps"]["independent"]["status"] == "completed"
     assert react_loop.execute_planned_tool.await_count == 2
+
+
+def test_workflow_condition_skips_unselected_branch_without_failing():
+    plan = Plan([
+        PlanStep("trigger", "__workflow_trigger__", {"input": "hello"}, []),
+        PlanStep(
+            "condition",
+            "__workflow_condition__",
+            {"source": "trigger", "operator": "truthy"},
+            ["trigger"],
+        ),
+        PlanStep(
+            "true-output",
+            "__workflow_output__",
+            {"value": "selected"},
+            ["condition"],
+            when=[{"source": "condition", "value": True}],
+        ),
+        PlanStep(
+            "false-output",
+            "__workflow_output__",
+            {"value": "not selected"},
+            ["condition"],
+            when=[{"source": "condition", "value": False}],
+        ),
+    ])
+    task_manager = SimpleNamespace(
+        is_cancelled=AsyncMock(return_value=False),
+        update_progress=AsyncMock(),
+        set_progress_label=AsyncMock(),
+    )
+    orchestrator = Orchestrator(
+        planner=None,
+        task_manager=task_manager,
+        event_bus=None,
+        react_loop=None,
+        agent_manager=None,
+        tool_registry=None,
+        role_config=None,
+    )
+
+    result = asyncio.run(orchestrator._execute_workflow_plan(
+        "task-condition",
+        plan,
+        screen_request_active=False,
+    ))
+
+    assert result["status"] == "completed"
+    assert result["steps"]["true-output"]["status"] == "completed"
+    assert result["steps"]["false-output"]["status"] == "skipped"
+    assert task_manager.update_progress.await_args_list[-1].args == ("task-condition", 100)
+
+
+def test_saved_workflow_task_publishes_output_to_chat():
+    events = []
+
+    async def publish(event_name, payload):
+        events.append((event_name, payload))
+
+    task_manager = SimpleNamespace(
+        is_cancelled=AsyncMock(return_value=False),
+        get_task=AsyncMock(return_value=None),
+        update_status=AsyncMock(),
+        set_result=AsyncMock(),
+    )
+    store = SimpleNamespace(
+        to_plan=lambda _workflow, input_text: Plan([
+            PlanStep("trigger", "__workflow_trigger__", {"input": input_text}, []),
+            PlanStep("output", "__workflow_output__", {"value": "Workflow result"}, ["trigger"]),
+        ])
+    )
+    orchestrator = Orchestrator(
+        planner=None,
+        task_manager=task_manager,
+        event_bus=SimpleNamespace(publish=publish),
+        react_loop=None,
+        agent_manager=None,
+        tool_registry=None,
+        role_config=None,
+        workflow_store=store,
+    )
+
+    result = asyncio.run(orchestrator.execute_task(
+        "task-saved-workflow",
+        "Run summary",
+        {
+            "workflow_definition": {"id": "summary", "name": "Summary"},
+            "workflow_id": "summary",
+            "workflow_input": "Document text",
+            "conversation_id": "conversation-1",
+        },
+    ))
+
+    assert result["status"] == "completed"
+    response = next(payload for event, payload in events if event == "AGENT_MESSAGE")
+    assert response["content"].endswith("Workflow result")
+    assert response["conversation_id"] == "conversation-1"
+    task_manager.update_status.assert_awaited_with("task-saved-workflow", TaskStatus.COMPLETED)
+
+
+def test_saved_workflow_exception_publishes_safe_chat_failure():
+    events = []
+
+    async def publish(event_name, payload):
+        events.append((event_name, payload))
+
+    task_manager = SimpleNamespace(
+        is_cancelled=AsyncMock(return_value=False),
+        get_task=AsyncMock(return_value=None),
+        update_status=AsyncMock(),
+        set_result=AsyncMock(),
+    )
+
+    def fail_to_build_plan(*_args, **_kwargs):
+        raise RuntimeError("internal workflow details")
+
+    orchestrator = Orchestrator(
+        planner=None,
+        task_manager=task_manager,
+        event_bus=SimpleNamespace(publish=publish),
+        react_loop=None,
+        agent_manager=None,
+        tool_registry=None,
+        role_config=None,
+        workflow_store=SimpleNamespace(to_plan=fail_to_build_plan),
+    )
+
+    result = asyncio.run(orchestrator.execute_task(
+        "task-workflow-failure",
+        "Run summary",
+        {
+            "workflow_definition": {"id": "summary", "name": "Summary"},
+            "workflow_id": "summary",
+            "conversation_id": "conversation-1",
+        },
+    ))
+    message = next(
+        payload
+        for event, payload in events
+        if event == "AGENT_MESSAGE"
+    )
+
+    assert result["status"] == "failed"
+    assert task_manager.update_status.await_args_list[-1].args == (
+        "task-workflow-failure",
+        TaskStatus.FAILED,
+    )
+    assert message["conversation_id"] == "conversation-1"
+    assert "internal workflow details" not in message["content"]
+
+
+def test_workflow_resumes_from_encrypted_checkpoint_state():
+    class CheckpointStore:
+        def __init__(self):
+            self.checkpoint = {
+                "plan": [
+                    {
+                        "id": "find",
+                        "action": "find_files",
+                        "params": {},
+                        "dependencies": [],
+                    },
+                    {
+                        "id": "archive",
+                        "action": "archive_file",
+                        "params": {
+                            "path": {"$from_step": "find", "path": ["path"]}
+                        },
+                        "dependencies": ["find"],
+                    },
+                ],
+                "step_outputs": {
+                    "find": {"path": "C:\\data\\report.pdf"},
+                },
+                "step_results": {
+                    "find": {
+                        "action": "find_files",
+                        "status": "completed",
+                        "output": "Found report",
+                    },
+                },
+            }
+            self.saved = []
+            self.deleted = []
+
+        def load(self, _task_id):
+            return self.checkpoint
+
+        def save(self, _task_id, checkpoint):
+            self.saved.append(checkpoint.copy())
+
+        def delete(self, task_id):
+            self.deleted.append(task_id)
+
+    checkpoint_store = CheckpointStore()
+    react_loop = SimpleNamespace(
+        execute_planned_tool=AsyncMock(return_value=SimpleNamespace(
+            success=True,
+            output="Archived",
+            raw_output="Archived",
+        ))
+    )
+    orchestrator = Orchestrator(
+        planner=None,
+        task_manager=SimpleNamespace(is_cancelled=AsyncMock(return_value=False)),
+        event_bus=None,
+        react_loop=react_loop,
+        agent_manager=None,
+        tool_registry=None,
+        role_config=None,
+        checkpoint_store=checkpoint_store,
+    )
+
+    result = asyncio.run(orchestrator._execute_workflow_plan(
+        "task-resume",
+        Plan([PlanStep("new", "unused_tool", {}, [])]),
+        screen_request_active=False,
+    ))
+
+    assert result["status"] == "completed"
+    assert result["steps"]["find"]["status"] == "completed"
+    assert result["steps"]["archive"]["status"] == "completed"
+    assert react_loop.execute_planned_tool.await_count == 1
+    assert react_loop.execute_planned_tool.await_args.args[0] == "archive_file"
+    assert react_loop.execute_planned_tool.await_args.args[1] == {
+        "path": "C:\\data\\report.pdf"
+    }
+    assert checkpoint_store.deleted == []
+
+
+def test_recovery_does_not_repeat_an_action_interrupted_mid_execution():
+    class CheckpointStore:
+        def __init__(self):
+            self.checkpoint = {
+                "task_description": "Run an interrupted workflow",
+                "screen_request_active": False,
+                "plan": [
+                    {
+                        "id": "send",
+                        "action": "send_email",
+                        "params": {},
+                        "dependencies": [],
+                    },
+                    {
+                        "id": "follow-up",
+                        "action": "write_log",
+                        "params": {},
+                        "dependencies": ["send"],
+                    },
+                    {
+                        "id": "independent",
+                        "action": "write_log",
+                        "params": {},
+                        "dependencies": [],
+                    },
+                ],
+                "step_outputs": {},
+                "step_results": {},
+                "current_step": {"id": "send", "status": "running"},
+            }
+            self.saved = []
+
+        def list_task_ids(self):
+            return ["task-interrupted"]
+
+        def load(self, _task_id):
+            return self.checkpoint.copy()
+
+        def save(self, _task_id, checkpoint):
+            self.checkpoint = checkpoint.copy()
+            self.saved.append(checkpoint.copy())
+
+        def delete(self, _task_id):
+            raise AssertionError("A failed recovery checkpoint must be retained.")
+
+    checkpoint_store = CheckpointStore()
+    event_bus = AsyncMock()
+    from services.agent.core.task_manager import TaskManager
+
+    task_manager = TaskManager(event_bus)
+    react_loop = SimpleNamespace(
+        execute_planned_tool=AsyncMock(return_value=SimpleNamespace(
+            success=True,
+            output="Logged",
+            raw_output="Logged",
+        ))
+    )
+    orchestrator = Orchestrator(
+        planner=None,
+        task_manager=task_manager,
+        event_bus=event_bus,
+        react_loop=react_loop,
+        agent_manager=None,
+        tool_registry=None,
+        role_config=None,
+        checkpoint_store=checkpoint_store,
+    )
+
+    asyncio.run(orchestrator.recover_interrupted_workflows())
+
+    assert react_loop.execute_planned_tool.await_count == 1
+    assert react_loop.execute_planned_tool.await_args.args[0] == "write_log"
+    assert checkpoint_store.checkpoint["step_results"]["send"]["status"] == "failed"
+    assert checkpoint_store.checkpoint["step_results"]["follow-up"]["status"] == "skipped"
+    task = asyncio.run(task_manager.get_task("task-interrupted"))
+    assert task.status.value == "failed"
+    assert "unknown" in task.result.lower()
+    assert checkpoint_store.checkpoint["recovery_state"] == "needs_attention"
+    assert (
+        checkpoint_store.checkpoint["step_results"]["independent"]["status"]
+        == "completed"
+    )
+
+
+def test_cancelled_workflow_checkpoint_is_deleted():
+    class CheckpointStore:
+        def __init__(self):
+            self.deleted = []
+
+        def delete(self, task_id):
+            self.deleted.append(task_id)
+
+    checkpoint_store = CheckpointStore()
+    task_manager = SimpleNamespace(
+        is_cancelled=AsyncMock(return_value=False),
+        get_task=AsyncMock(return_value=None),
+        update_status=AsyncMock(),
+    )
+    event_bus = SimpleNamespace(publish=AsyncMock())
+    react_loop = SimpleNamespace(release_task_resources=AsyncMock())
+    orchestrator = Orchestrator(
+        planner=None,
+        task_manager=task_manager,
+        event_bus=event_bus,
+        react_loop=react_loop,
+        agent_manager=None,
+        tool_registry=None,
+        role_config=None,
+        checkpoint_store=checkpoint_store,
+    )
+    orchestrator._execute_task = AsyncMock(
+        return_value={"status": "cancelled", "task_id": "task-cancelled"}
+    )
+
+    result = asyncio.run(
+        orchestrator.execute_task("task-cancelled", "Stop this workflow")
+    )
+
+    assert result["status"] == "cancelled"
+    assert checkpoint_store.deleted == ["task-cancelled"]
+
+
+def test_checkpoint_load_failure_is_visible_as_failed_recovery_task():
+    class CheckpointStore:
+        def list_task_ids(self):
+            return ["task-corrupt"]
+
+        def load(self, _task_id):
+            raise RuntimeError("decryption details must not reach UI")
+
+    from services.agent.core.task_manager import TaskManager
+
+    event_bus = AsyncMock()
+    task_manager = TaskManager(event_bus)
+    orchestrator = Orchestrator(
+        planner=None,
+        task_manager=task_manager,
+        event_bus=event_bus,
+        react_loop=SimpleNamespace(),
+        agent_manager=None,
+        tool_registry=None,
+        role_config=None,
+        checkpoint_store=CheckpointStore(),
+    )
+
+    asyncio.run(orchestrator.recover_interrupted_workflows())
+
+    task = asyncio.run(task_manager.get_task("task-corrupt"))
+    assert task.status.value == "failed"
+    assert "safely restore" in task.result
+    assert "decryption details" not in str(task)
+    assert any(
+        call.args[0] == "ORCHESTRATION_FAILED"
+        and call.args[1]["task_id"] == "task-corrupt"
+        for call in event_bus.publish.await_args_list
+    )
 
 
 def test_orchestrator_rejects_concurrent_duplicate_task_execution():
@@ -599,6 +986,105 @@ def test_react_loop_blocks_duplicate_and_unoffered_tool_calls(
         assert outcomes[1]["execution_succeeded"] is False
 
 
+def test_browser_visual_action_screenshot_reaches_next_model_turn():
+    from services.agent.ai.base_provider import (
+        ChatMessage,
+        ChatResponse,
+        ToolCallResponse,
+    )
+    from services.agent.ai.model_router import TaskRequirements
+
+    screenshot = b"\xff\xd8visual-browser-frame"
+    tool = SimpleNamespace(
+        name="browser_control",
+        permission_level="LOW_RISK",
+        requires_confirmation=False,
+        validate_params=lambda _arguments: True,
+        execute=AsyncMock(return_value=SimpleNamespace(
+            success=True,
+            output={
+                "action": "click_at",
+                "screenshot_bytes": screenshot,
+                "mime_type": "image/jpeg",
+            },
+            error=None,
+        )),
+    )
+    model_messages = []
+
+    async def model_tool_call(messages, *_args, **_kwargs):
+        model_messages.append(messages)
+        if len(model_messages) == 1:
+            return ToolCallResponse(
+                tool_calls=[
+                    SimpleNamespace(
+                        id="visual-call-1",
+                        name="browser_control",
+                        arguments={"action": "click_at", "x": 20, "y": 30},
+                    )
+                ],
+                content="",
+                model="test-model",
+                provider="test",
+            )
+        return ChatResponse(
+            content="The page now shows the requested result.",
+            model="test-model",
+            provider="test",
+            usage=None,
+            finish_reason="stop",
+        )
+
+    class Fallback:
+        async def execute_with_fallback(self, call, requirements, context):
+            return await call(
+                SimpleNamespace(
+                    provider_id="test",
+                    model_id="test-model",
+                    key_slot=0,
+                ),
+                context,
+            )
+
+    async def publish(_event, _payload):
+        return None
+
+    loop = ReActLoop(
+        provider_registry=SimpleNamespace(
+            get_provider=lambda _provider: SimpleNamespace(tool_call=model_tool_call)
+        ),
+        model_router=None,
+        fallback_manager=Fallback(),
+        tool_registry=SimpleNamespace(
+            get_tool_schemas=lambda: [_tool_schema("browser_control")],
+            get_tool=lambda _name: tool,
+        ),
+        key_manager=SimpleNamespace(get_key=lambda _provider, _slot: "test-key"),
+        event_bus=SimpleNamespace(publish=publish),
+        role_config=SimpleNamespace(
+            get_assignment=lambda _role: SimpleNamespace(
+                requirements=TaskRequirements()
+            )
+        ),
+    )
+
+    asyncio.run(loop.execute(
+        [ChatMessage(role="user", content="Click the visual-only button.")],
+        task_id="browser-visual",
+    ))
+
+    assert tool.execute.await_count == 1
+    assert len(model_messages) == 2
+    image_message = next(
+        message
+        for message in model_messages[1]
+        if getattr(message, "image_bytes", None) is not None
+    )
+    assert image_message.image_bytes == screenshot
+    assert image_message.image_mime_type == "image/jpeg"
+    assert "Screen captured after browser_control" in image_message.content
+
+
 @pytest.mark.parametrize(
     "verification_text, expected_status",
     [("VERIFIED.", "completed"), ("NOT_VERIFIED", "failed")],
@@ -637,3 +1123,521 @@ def test_desktop_workflow_actions_require_visual_verification(
     assert react_loop.execute.await_args.kwargs["allow_tool_calls"] is False
     image_message = react_loop.execute.await_args.args[0][1]
     assert image_message.image_bytes == b"post-action-frame"
+
+
+def test_recovery_resumes_interrupted_action_where_it_left_off():
+    class CheckpointStore:
+        def __init__(self):
+            self.checkpoint = {
+                "task_description": "Resume an interrupted workflow",
+                "screen_request_active": False,
+                "plan": [
+                    {
+                        "id": "find",
+                        "action": "find_file",
+                        "params": {},
+                        "dependencies": [],
+                    },
+                    {
+                        "id": "process",
+                        "action": "process_file",
+                        "params": {},
+                        "dependencies": ["find"],
+                    },
+                    {
+                        "id": "notify",
+                        "action": "notify_user",
+                        "params": {},
+                        "dependencies": ["process"],
+                    },
+                ],
+                "step_outputs": {
+                    "find": {"path": "/data/doc.txt"},
+                },
+                "step_results": {
+                    "find": {
+                        "action": "find_file",
+                        "status": "completed",
+                        "output": "Found /data/doc.txt",
+                    },
+                },
+                "current_step": {"id": "process", "status": "running"},
+            }
+            self.saved = []
+            self.deleted = []
+
+        def list_task_ids(self):
+            return ["task-resume-test"]
+
+        def load(self, _task_id):
+            return self.checkpoint.copy()
+
+        def save(self, _task_id, checkpoint):
+            self.checkpoint = checkpoint.copy()
+            self.saved.append(checkpoint.copy())
+
+        def delete(self, task_id):
+            self.deleted.append(task_id)
+
+    checkpoint_store = CheckpointStore()
+    event_bus = AsyncMock()
+    from services.agent.core.task_manager import TaskManager
+
+    task_manager = TaskManager(event_bus)
+    react_loop = SimpleNamespace(
+        execute_planned_tool=AsyncMock(side_effect=[
+            SimpleNamespace(
+                success=True,
+                output="Processed /data/doc.txt",
+                raw_output={"result": "ok"},
+            ),
+            SimpleNamespace(
+                success=True,
+                output="Notified user",
+                raw_output={"notified": True},
+            ),
+        ])
+    )
+    orchestrator = Orchestrator(
+        planner=None,
+        task_manager=task_manager,
+        event_bus=event_bus,
+        react_loop=react_loop,
+        agent_manager=None,
+        tool_registry=None,
+        role_config=None,
+        checkpoint_store=checkpoint_store,
+    )
+
+    recovered = asyncio.run(orchestrator.recover_interrupted_workflows(repeat_interrupted_actions=True))
+
+    assert "task-resume-test" in recovered
+    assert react_loop.execute_planned_tool.await_count == 2
+    assert react_loop.execute_planned_tool.await_args_list[0].args[0] == "process_file"
+    assert react_loop.execute_planned_tool.await_args_list[1].args[0] == "notify_user"
+    assert checkpoint_store.deleted == ["task-resume-test"]
+
+    task = asyncio.run(task_manager.get_task("task-resume-test"))
+    assert task.status.value == "completed"
+
+
+def test_resume_workflow_api_resumes_from_checkpoint():
+    class CheckpointStore:
+        def __init__(self):
+            self.checkpoint = {
+                "task_description": "Manual resume workflow",
+                "screen_request_active": False,
+                "recovery_state": "needs_attention",
+                "plan": [
+                    {
+                        "id": "step1",
+                        "action": "step1_tool",
+                        "params": {},
+                        "dependencies": [],
+                    },
+                    {
+                        "id": "step2",
+                        "action": "step2_tool",
+                        "params": {},
+                        "dependencies": ["step1"],
+                    },
+                ],
+                "step_outputs": {"step1": "output1"},
+                "step_results": {
+                    "step1": {
+                        "action": "step1_tool",
+                        "status": "completed",
+                        "output": "Done 1",
+                    },
+                    "step2": {
+                        "action": "step2_tool",
+                        "status": "failed",
+                        "output": "Temporary failure",
+                    },
+                },
+                "current_step": {"id": "step2", "status": "failed"},
+            }
+            self.deleted = []
+
+        def load(self, _task_id):
+            return self.checkpoint.copy()
+
+        def save(self, _task_id, checkpoint):
+            self.checkpoint = checkpoint.copy()
+
+        def delete(self, task_id):
+            self.deleted.append(task_id)
+
+    checkpoint_store = CheckpointStore()
+    event_bus = AsyncMock()
+    from services.agent.core.task_manager import TaskManager
+
+    task_manager = TaskManager(event_bus)
+    react_loop = SimpleNamespace(
+        execute_planned_tool=AsyncMock(return_value=SimpleNamespace(
+            success=True,
+            output="Step 2 succeeded",
+            raw_output="step2_val",
+        ))
+    )
+    orchestrator = Orchestrator(
+        planner=None,
+        task_manager=task_manager,
+        event_bus=event_bus,
+        react_loop=react_loop,
+        agent_manager=None,
+        tool_registry=None,
+        role_config=None,
+        checkpoint_store=checkpoint_store,
+    )
+
+    result = asyncio.run(orchestrator.resume_workflow("task-manual-resume", force=True))
+
+    assert result["status"] == "completed"
+    assert react_loop.execute_planned_tool.await_count == 1
+    assert react_loop.execute_planned_tool.await_args.args[0] == "step2_tool"
+    assert checkpoint_store.deleted == ["task-manual-resume"]
+    task = asyncio.run(task_manager.get_task("task-manual-resume"))
+    assert task.status.value == "completed"
+
+
+def test_workflow_step_retries_on_transient_failure():
+    attempts = 0
+
+    async def flaky_tool(*args, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts < 2:
+            return SimpleNamespace(
+                success=False,
+                execution_succeeded=False,
+                safe_to_retry=True,
+                output="Temporary connection failure before the operation ran.",
+                raw_output=None,
+            )
+        return SimpleNamespace(
+            success=True,
+            output="Finally connected",
+            raw_output="ok",
+        )
+
+    react_loop = SimpleNamespace(
+        execute_planned_tool=AsyncMock(side_effect=flaky_tool)
+    )
+    orchestrator = Orchestrator(
+        planner=None,
+        task_manager=SimpleNamespace(is_cancelled=AsyncMock(return_value=False)),
+        event_bus=None,
+        react_loop=react_loop,
+        agent_manager=None,
+        tool_registry=None,
+        role_config=None,
+    )
+
+    result = asyncio.run(orchestrator._execute_workflow_plan(
+        "task-flaky",
+        Plan([PlanStep("flaky", "network_call", {}, [])]),
+        screen_request_active=False,
+        max_step_retries=3,
+        step_retry_delay=0.01,
+    ))
+
+    assert result["status"] == "completed"
+    assert attempts == 2
+    assert result["steps"]["flaky"]["status"] == "completed"
+
+
+def test_workflow_step_retries_explicit_not_executed_failure():
+    attempts = 0
+
+    async def flaky_tool(*args, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return SimpleNamespace(
+                success=False,
+                execution_succeeded=False,
+                safe_to_retry=True,
+                output="Tool was unavailable before execution.",
+                raw_output=None,
+            )
+        return SimpleNamespace(
+            success=True,
+            execution_succeeded=True,
+            output="Recovered",
+            raw_output={"ok": True},
+        )
+
+    orchestrator = Orchestrator(
+        planner=None,
+        task_manager=SimpleNamespace(is_cancelled=AsyncMock(return_value=False)),
+        event_bus=None,
+        react_loop=SimpleNamespace(
+            execute_planned_tool=AsyncMock(side_effect=flaky_tool)
+        ),
+        agent_manager=None,
+        tool_registry=None,
+        role_config=None,
+    )
+
+    result = asyncio.run(orchestrator._execute_workflow_plan(
+        "task-explicit-failure",
+        Plan([PlanStep("step", "read_tool", {}, [])]),
+        screen_request_active=False,
+        step_retry_delay=0,
+    ))
+
+    assert result["status"] == "completed"
+    assert attempts == 2
+
+
+def test_workflow_does_not_retry_action_with_uncertain_execution_result():
+    react_loop = SimpleNamespace(
+        execute_planned_tool=AsyncMock(return_value=SimpleNamespace(
+            success=False,
+            execution_succeeded=True,
+            output="Action ran but its result was not verified.",
+            raw_output=None,
+        ))
+    )
+    orchestrator = Orchestrator(
+        planner=None,
+        task_manager=SimpleNamespace(is_cancelled=AsyncMock(return_value=False)),
+        event_bus=None,
+        react_loop=react_loop,
+        agent_manager=None,
+        tool_registry=None,
+        role_config=None,
+    )
+
+    result = asyncio.run(orchestrator._execute_workflow_plan(
+        "task-uncertain-result",
+        Plan([PlanStep("step", "write_tool", {}, [])]),
+        screen_request_active=False,
+    ))
+
+    assert result["status"] == "failed"
+    react_loop.execute_planned_tool.assert_awaited_once()
+
+
+def test_workflow_switches_to_alternative_after_safe_failure():
+    original = Plan([
+        PlanStep("trigger", "__workflow_trigger__", {"input": "Report"}, []),
+        PlanStep("read", "unavailable_tool", {}, ["trigger"]),
+    ])
+    replacement = Plan([PlanStep("fallback", "alternate_tool", {}, [])])
+    planner = SimpleNamespace(
+        replan=AsyncMock(return_value=replacement),
+    )
+    react_loop = SimpleNamespace(
+        execute_planned_tool=AsyncMock(side_effect=[
+            SimpleNamespace(
+                success=False,
+                execution_succeeded=False,
+                allow_replan=True,
+                output="Tool is unavailable.",
+                raw_output=None,
+            ),
+            SimpleNamespace(
+                success=True,
+                raw_output={"matches": [{"path": "04 - Desarrollo/Recuperacion.md"}]},
+            ),
+            SimpleNamespace(
+                success=True,
+                raw_output={"content": "Use a bounded alternate strategy."},
+            ),
+            SimpleNamespace(
+                success=True,
+                execution_succeeded=True,
+                output="Alternative succeeded.",
+                raw_output={"ok": True},
+            ),
+        ])
+    )
+    orchestrator = Orchestrator(
+        planner=planner,
+        task_manager=SimpleNamespace(
+            is_cancelled=AsyncMock(return_value=False),
+            set_progress_label=AsyncMock(),
+        ),
+        event_bus=SimpleNamespace(publish=AsyncMock()),
+        react_loop=react_loop,
+        agent_manager=None,
+        tool_registry=SimpleNamespace(
+            get_tools_by_source=lambda source: [
+                SimpleNamespace(name="helix-vault_search_notes"),
+                SimpleNamespace(name="helix-vault_read_note"),
+            ] if source == "mcp" else [],
+        ),
+        role_config=None,
+    )
+
+    result = asyncio.run(orchestrator._execute_workflow_plan(
+        "task-replan",
+        original,
+        screen_request_active=False,
+        task_description="Read the report.",
+    ))
+
+    assert result["status"] == "completed"
+    assert result["replanned_from_step"] == "read"
+    assert react_loop.execute_planned_tool.await_args_list[1].args[0] == "helix-vault_search_notes"
+    assert react_loop.execute_planned_tool.await_args_list[2].args[0] == "helix-vault_read_note"
+    assert react_loop.execute_planned_tool.await_args_list[3].args[0] == "alternate_tool"
+    planner.replan.assert_awaited_once_with(
+        original.steps[1],
+        "Tool is unavailable.",
+        original,
+        task_description="Read the report.",
+        reference_context=(
+            "Note: 04 - Desarrollo/Recuperacion.md\n"
+            "Use a bounded alternate strategy."
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    "tool_registry",
+    [
+        None,
+        SimpleNamespace(get_tools_by_source=lambda _source: []),
+    ],
+)
+def test_optional_vault_mcp_absence_does_not_report_workflow_error(tool_registry):
+    task_manager = SimpleNamespace(set_progress_label=AsyncMock())
+    orchestrator = Orchestrator(
+        planner=None,
+        task_manager=task_manager,
+        event_bus=None,
+        react_loop=None,
+        agent_manager=None,
+        tool_registry=tool_registry,
+        role_config=None,
+    )
+
+    context = asyncio.run(orchestrator._read_vault_context(
+        task_id="task-no-vault-mcp",
+        task_description="Do the workflow task.",
+        failed_step=PlanStep("step", "read_tool", {}, []),
+        conversation_id=None,
+        source_device_id=None,
+    ))
+
+    assert context == ""
+    task_manager.set_progress_label.assert_not_awaited()
+
+
+def test_safe_replan_intent_survives_checkpoint_reload():
+    checkpoint = {
+        "plan": [
+            {
+                "id": "trigger",
+                "action": "__workflow_trigger__",
+                "params": {"input": "Report"},
+                "dependencies": [],
+                "when": [],
+                "run_if_any": False,
+            },
+            {
+                "id": "read",
+                "action": "unavailable_tool",
+                "params": {},
+                "dependencies": ["trigger"],
+                "when": [],
+                "run_if_any": False,
+            },
+        ],
+        "step_outputs": {"trigger": "Report"},
+        "step_results": {
+            "trigger": {"action": "__workflow_trigger__", "status": "completed", "output": "Report"},
+            "read": {"action": "unavailable_tool", "status": "failed", "output": "Not available."},
+        },
+        "recovery_attempt": 0,
+        "replan_pending": {"step_id": "read", "error": "Not available."},
+    }
+
+    class CheckpointStore:
+        def __init__(self):
+            self.checkpoint = checkpoint
+            self.saved = []
+
+        def load(self, _task_id):
+            return self.checkpoint
+
+        def save(self, _task_id, data):
+            self.saved.append(data.copy())
+            self.checkpoint = data.copy()
+
+    replacement = Plan([PlanStep("fallback", "alternate_tool", {}, [])])
+    planner = SimpleNamespace(replan=AsyncMock(return_value=replacement))
+    react_loop = SimpleNamespace(
+        execute_planned_tool=AsyncMock(return_value=SimpleNamespace(
+            success=True,
+            execution_succeeded=True,
+            output="Recovered.",
+            raw_output="Recovered.",
+        ))
+    )
+    checkpoint_store = CheckpointStore()
+    orchestrator = Orchestrator(
+        planner=planner,
+        task_manager=SimpleNamespace(
+            is_cancelled=AsyncMock(return_value=False),
+            set_progress_label=AsyncMock(),
+        ),
+        event_bus=SimpleNamespace(publish=AsyncMock()),
+        react_loop=react_loop,
+        agent_manager=None,
+        tool_registry=None,
+        role_config=None,
+        checkpoint_store=checkpoint_store,
+    )
+
+    result = asyncio.run(orchestrator._execute_workflow_plan(
+        "task-replan-recovery",
+        Plan([]),
+        screen_request_active=False,
+        task_description="Read the report.",
+    ))
+
+    assert result["status"] == "completed"
+    planner.replan.assert_awaited_once()
+    assert checkpoint_store.saved[0]["recovery_attempt"] == 1
+    assert "replan_pending" not in checkpoint_store.saved[-1]
+
+
+def test_workflow_does_not_replan_after_completed_side_effect():
+    planner = SimpleNamespace(replan=AsyncMock())
+    react_loop = SimpleNamespace(
+        execute_planned_tool=AsyncMock(side_effect=[
+            SimpleNamespace(success=True, output="Changed file.", raw_output=None),
+            SimpleNamespace(
+                success=False,
+                execution_succeeded=False,
+                allow_replan=True,
+                output="Tool is unavailable.",
+                raw_output=None,
+            ),
+        ])
+    )
+    orchestrator = Orchestrator(
+        planner=planner,
+        task_manager=SimpleNamespace(is_cancelled=AsyncMock(return_value=False)),
+        event_bus=None,
+        react_loop=react_loop,
+        agent_manager=None,
+        tool_registry=None,
+        role_config=None,
+    )
+
+    result = asyncio.run(orchestrator._execute_workflow_plan(
+        "task-no-replan",
+        Plan([
+            PlanStep("write", "write_file", {}, []),
+            PlanStep("next", "missing_tool", {}, ["write"]),
+        ]),
+        screen_request_active=False,
+    ))
+
+    assert result["status"] == "failed"
+    planner.replan.assert_not_awaited()

@@ -1,5 +1,6 @@
 import asyncio
 import re
+import uuid
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -105,7 +106,7 @@ class TaskExecutionSummary:
     context: dict = field(default_factory=lambda: {"labels": [], "item_count": 0})
     steps: List[dict] = field(default_factory=list)
     tool_calls: List[dict] = field(default_factory=list)
-    progress_label: str = "Queued"
+    progress_label: str = "Waiting in queue…"
     result: Optional[dict] = None
 
 @dataclass
@@ -193,14 +194,26 @@ class TaskManager:
                     TaskStatus.CANCELLED,
                 }:
                     task.completed_at = task.completed_at or now
-                if status == TaskStatus.RUNNING:
+                if status == TaskStatus.QUEUED:
+                    task.execution_summary.progress_label = "Waiting in queue…"
+                elif status == TaskStatus.RUNNING:
                     task.progress = max(task.progress, 5)
                     task.execution_summary.progress_label = "Thinking…"
+                elif status == TaskStatus.RETRYING:
+                    task.execution_summary.progress_label = "Retrying safely…"
+                elif status == TaskStatus.WAITING_CONFIRMATION:
+                    task.execution_summary.progress_label = "Waiting for your approval…"
+                elif status == TaskStatus.PAUSED:
+                    task.execution_summary.progress_label = "Paused — waiting for you to resume…"
                 elif status == TaskStatus.COMPLETED:
                     task.progress = 100
                     task.execution_summary.progress_label = "Completed"
                 elif status in {TaskStatus.FAILED, TaskStatus.CANCELLED}:
-                    task.execution_summary.progress_label = status.value.title()
+                    task.execution_summary.progress_label = (
+                        "Could not finish this task."
+                        if status == TaskStatus.FAILED
+                        else "Cancelled"
+                    )
                 changed = True
         if not changed:
             return False
@@ -318,6 +331,7 @@ class TaskManager:
                 task_progress = {"progress": task.progress}
                 if isinstance(task.current_action, str):
                     task_progress["current_action"] = task.current_action[:120]
+                task_progress["progress_label"] = task.execution_summary.progress_label
                 progress[task_id] = task_progress
             return progress
 
@@ -418,6 +432,7 @@ class TaskManager:
             if task is None:
                 return
             call = {
+                "id": uuid.uuid4().hex,
                 "tool": _safe_text(tool, 100),
                 "status": "succeeded" if success else "failed",
                 "result_summary": _safe_text(result, 180) if result is not None else "No result summary provided",

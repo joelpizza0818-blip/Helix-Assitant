@@ -134,17 +134,20 @@ class ContextCompressionLayer:
 
         # Short content: inline directly (no compression needed)
         if len(content) <= self.max_inline_chars:
+            # Si ya cabe en el prompt, archivarlo solo añade un paso y un identificador que nadie necesitará.
             self.stats.total_packed_chars += len(content)
             return content, ""
 
         # Build packed representation
         packed = self._build_packed_repr(label, content, block_type)
+        # El identificador depende del contenido, no de la etiqueta: el mismo texto conserva su referencia.
         block_id = self._make_block_id(content)
 
         # Compress and store
         compressed = gzip.compress(content.encode("utf-8"), compresslevel=6)
         spill_path: Optional[str] = None
 
+        # Medimos antes de gzip: el umbral limita el tamaño original, no lo que logró comprimir.
         if self.enable_disk_spill and raw_size >= _SPILL_THRESHOLD_BYTES:
             spill_path = self._spill_to_disk(block_id, compressed)
             compressed_stored = b""   # free memory; data is on disk
@@ -317,6 +320,7 @@ class ContextCompressionLayer:
             head,
         ]
         if tail:
+            # El inicio suele dar contexto y el cierre suele traer el resultado; lo del medio sigue recuperable.
             parts.append(f"  … ({n - self.summary_lines - 4} lines omitted) …")
             parts.append(tail)
         parts.append(f"[Use context_retrieve('{block_id_hint}…') for full content]")
@@ -362,6 +366,7 @@ class ContextCompressionLayer:
         parts = [
             f"[CCL:code {label} | {len(lines)} lines | id:{block_id_hint}]",
         ]
+        # Como el índice de un libro: ayuda a ubicarse rápido, pero no pretende reemplazar la lectura.
         if imports:
             parts.append("Imports: " + "; ".join(imp.strip() for imp in imports))
         if symbols:

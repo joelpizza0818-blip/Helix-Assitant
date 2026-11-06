@@ -4,7 +4,7 @@ def select_desktop_event_recipients(
     clients: set,
     conversation_clients: dict[str, set],
 ) -> set:
-    if event_name not in {"BROWSER_FRAME", "DESKTOP_FRAME"}:
+    if event_name not in {"BROWSER_FRAME", "BROWSER_PROGRESS", "DESKTOP_FRAME"}:
         return clients.copy()
     conversation_id = payload.get("conversation_id")
     if not isinstance(conversation_id, str):

@@ -73,6 +73,25 @@ class Agent:
                 else "voice" if is_voice_input else "text"
             )
         }
+        project_memory_store = getattr(
+            self.orchestrator, "project_memory_store", None
+        )
+        if project_memory_store is not None and input_source != "mobile":
+            try:
+                active_project_id = project_memory_store.get_active_project_id()
+                conversation_id = payload.get("conversation_id")
+                project_id = (
+                    project_memory_store.resolve_conversation_project(
+                        conversation_id,
+                        active_project_id,
+                    )
+                    if isinstance(conversation_id, str) and conversation_id
+                    else active_project_id
+                )
+                if project_id:
+                    context["project_id"] = project_id
+            except Exception:
+                logger.exception("Could not resolve the HELIX project for this conversation.")
         if attachments:
             context["attachments"] = attachments
             if not text:
@@ -82,6 +101,37 @@ class Agent:
             context["conversation_history"] = payload.get("conversation_history", [])
         if input_source == "mobile":
             context["source_device_id"] = payload.get("source_device_id")
+
+        workflow_store = getattr(self.orchestrator, "workflow_store", None)
+        if workflow_store is not None:
+            requested_workflows = re.findall(
+                r"(?<![\w%])%([A-Za-z0-9][A-Za-z0-9_-]{0,63})(?![\w.-])",
+                text,
+            )
+            if requested_workflows:
+                try:
+                    workflow = workflow_store.get_workflow(
+                        requested_workflows[0].lower()
+                    )
+                except ValueError:
+                    logger.info(
+                        "Explicit workflow mention %%%s did not match a saved workflow.",
+                        requested_workflows[0],
+                    )
+                else:
+                    context["workflow_definition"] = workflow
+                    context["workflow_id"] = workflow["id"]
+                    context["workflow_input"] = re.sub(
+                        r" {2,}",
+                        " ",
+                        re.sub(
+                            rf"(?<![\w%])%{re.escape(requested_workflows[0])}(?![\w.-])",
+                            "",
+                            text,
+                            count=1,
+                            flags=re.IGNORECASE,
+                        ),
+                    ).strip()
 
         requested_skill_names = re.findall(r"(?<!\w)@([A-Za-z0-9_.-]+)", text)
         automatic_skill_names = []

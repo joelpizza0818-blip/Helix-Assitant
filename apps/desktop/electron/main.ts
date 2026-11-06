@@ -911,9 +911,9 @@ function setupIPC(): void {
     const error = await shell.openPath(browserExtensionBridge.getInfo().extensionPath)
     if (error) throw new Error(`Could not open the browser extension folder: ${error}`)
   })
-  ipcMain.handle('helix:copy-text-to-clipboard', (_event, text: string) => {
+  ipcMain.handle('helix:copy-text-to-clipboard', async (_event, text: string) => {
     if (typeof text !== 'string') throw new TypeError('Clipboard text must be a string.')
-    clipboard.writeText(text)
+    await clipboard.writeText(text)
   })
 
   clipboardHistory = new ClipboardHistory(
@@ -928,9 +928,9 @@ function setupIPC(): void {
     clipboardHistory?.setMonitoring(enabled)
   })
   ipcMain.handle('helix:clear-clipboard-history', () => clipboardHistory?.clear())
-  ipcMain.handle('helix:restore-clipboard-item', (_event, id: string) => {
+  ipcMain.handle('helix:restore-clipboard-item', async (_event, id: string) => {
     if (typeof id !== 'string') throw new TypeError('Clipboard history item ID must be a string.')
-    clipboardHistory?.restore(id)
+    await clipboardHistory?.restore(id)
   })
 
   ipcMain.handle('helix:ensure-ollama', async () => {
@@ -1230,9 +1230,12 @@ app.whenReady().then(async () => {
   setupAutoUpdater()
 
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    const securityOrigin = 'securityOrigin' in details
+      ? details.securityOrigin ?? details.requestingUrl
+      : details.requestingUrl
     const trusted = isTrustedRendererRequest(
       webContents.getURL(),
-      details.securityOrigin,
+      securityOrigin,
       RENDERER_URL,
     )
     if (!trusted) {
@@ -1241,13 +1244,14 @@ app.whenReady().then(async () => {
     }
 
     if (permission === 'media') {
-      if (!isSupportedMediaRequest(details.mediaTypes)) {
+      const mediaTypes = 'mediaTypes' in details ? details.mediaTypes : undefined
+      if (!isSupportedMediaRequest(mediaTypes)) {
         callback(false)
         return
       }
       void (async () => {
         if (process.platform !== 'darwin') return true
-        for (const mediaType of details.mediaTypes ?? []) {
+        for (const mediaType of mediaTypes ?? []) {
           const systemMediaType = mediaType === 'audio' ? 'microphone' : 'camera'
           const status = systemPreferences.getMediaAccessStatus(systemMediaType)
           if (status === 'granted') continue

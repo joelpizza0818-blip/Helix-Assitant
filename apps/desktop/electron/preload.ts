@@ -16,9 +16,7 @@ contextBridge.exposeInMainWorld('helix', {
     conversation_id: string
     conversation_history: Array<{ role: 'user' | 'assistant'; content: string }>
     attachments?: Array<{ name: string; mime_type: string; size: number; data_base64: string }>
-  }): void => {
-    ipcRenderer.send('helix:send-message', payload)
-  },
+  }): Promise<void> => ipcRenderer.invoke('helix:send-message', payload),
 
   // Cancel a running background task
   cancelTask: (taskId: string): void => {
@@ -75,12 +73,46 @@ contextBridge.exposeInMainWorld('helix', {
 
   saveSettings: (settings: object): Promise<void> =>
     ipcRenderer.invoke('helix:save-settings', settings),
+  installPlaywrightChromium: (): Promise<{
+    installed: boolean
+    message: string
+    output: string
+  }> => ipcRenderer.invoke('helix:install-playwright-chromium'),
 
   testTts: (text?: string): Promise<unknown> =>
     ipcRenderer.invoke('helix:test-tts', text),
 
   getMemoryStatus: (): Promise<unknown> =>
     ipcRenderer.invoke('helix:get-memory-status'),
+  getModelCatalog: (): Promise<unknown> =>
+    ipcRenderer.invoke('helix:get-model-catalog'),
+  getProjects: (): Promise<unknown> =>
+    ipcRenderer.invoke('helix:get-projects'),
+  importProjectFolder: (folderPath: string): Promise<unknown> =>
+    ipcRenderer.invoke('helix:import-project-folder', folderPath),
+  getProjectFiles: (projectId: string): Promise<unknown> =>
+    ipcRenderer.invoke('helix:get-project-files', projectId),
+  createProjectEntry: (
+    projectId: string,
+    relativePath: string,
+    entryType: 'file' | 'folder',
+  ): Promise<unknown> =>
+    ipcRenderer.invoke('helix:create-project-entry', projectId, relativePath, entryType),
+  importProjectFiles: (projectId: string, targetDirectory: string): Promise<unknown> =>
+    ipcRenderer.invoke('helix:import-project-files', projectId, targetDirectory),
+  setActiveProject: (projectId: string | null): Promise<unknown> =>
+    ipcRenderer.invoke('helix:set-active-project', projectId),
+  getProjectGraph: (projectId: string): Promise<unknown> =>
+    ipcRenderer.invoke('helix:get-project-graph', projectId),
+  saveProjectGraph: (
+    projectId: string,
+    graph: { nodes: unknown[]; edges: unknown[] },
+  ): Promise<unknown> =>
+    ipcRenderer.invoke('helix:save-project-graph', projectId, graph),
+  getGeneralMemoryGraph: (): Promise<unknown> =>
+    ipcRenderer.invoke('helix:get-general-memory-graph'),
+  saveGeneralMemoryGraph: (graph: { nodes: unknown[]; edges: unknown[] }): Promise<unknown> =>
+    ipcRenderer.invoke('helix:save-general-memory-graph', graph),
   clearMemory: (): Promise<{ cleared: boolean }> =>
     ipcRenderer.invoke('helix:clear-memory'),
   getUserMemories: (): Promise<unknown[]> =>
@@ -227,6 +259,27 @@ contextBridge.exposeInMainWorld('helix', {
   getMcpServers: (): Promise<unknown[]> =>
     ipcRenderer.invoke('helix:get-mcp-servers'),
 
+  getWorkflows: (): Promise<unknown[]> =>
+    ipcRenderer.invoke('helix:get-workflows'),
+
+  getWorkflowTools: (): Promise<unknown[]> =>
+    ipcRenderer.invoke('helix:get-workflow-tools'),
+
+  getWorkflowAgents: (): Promise<unknown[]> =>
+    ipcRenderer.invoke('helix:get-workflow-agents'),
+
+  getWorkflowCapabilities: (): Promise<unknown[]> =>
+    ipcRenderer.invoke('helix:get-workflow-capabilities'),
+
+  saveWorkflow: (workflow: object): Promise<unknown> =>
+    ipcRenderer.invoke('helix:save-workflow', workflow),
+
+  deleteWorkflow: (id: string): Promise<{ deleted: boolean }> =>
+    ipcRenderer.invoke('helix:delete-workflow', id),
+
+  runWorkflow: (id: string, input: string): Promise<{ task_id: string }> =>
+    ipcRenderer.invoke('helix:run-workflow', id, input),
+
   getBrowserExtensionInfo: (): Promise<unknown> =>
     ipcRenderer.invoke('helix:get-browser-extension-info'),
 
@@ -281,6 +334,12 @@ contextBridge.exposeInMainWorld('helix', {
 
   onFallbackEvent: (fn: (event: unknown) => void): (() => void) =>
     createEventListener('helix:fallback-event', fn),
+
+  onBrowserProgress: (fn: (event: unknown) => void): (() => void) =>
+    createEventListener('helix:browser_progress', fn),
+
+  onBrowserFrame: (fn: (event: unknown) => void): (() => void) =>
+    createEventListener('helix:browser_frame', fn),
 
   onModelRequest: (fn: (request: unknown) => void): (() => void) =>
     createEventListener('helix:model_request', fn),

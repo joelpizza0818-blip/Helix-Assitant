@@ -5,6 +5,7 @@ import logging
 import json
 import uuid
 import inspect
+from urllib.parse import urlsplit
 from copy import deepcopy
 from contextvars import ContextVar
 from dataclasses import asdict, dataclass, field, is_dataclass
@@ -14,12 +15,14 @@ from typing import Any, List, Optional
 
 try:
     from services.agent.ai.base_provider import AgentError, ChatMessage, ChatResponse
+    from services.agent.ai.model_router import credential_provider_id
     from services.agent.core.context_compression import get_ccl
     from services.agent.perception.screen_observation_policy import (
         screen_observation_scope,
     )
 except ImportError:
     from ai.base_provider import AgentError, ChatMessage, ChatResponse
+    from ai.model_router import credential_provider_id
     from core.context_compression import get_ccl
     from perception.screen_observation_policy import screen_observation_scope
 
@@ -250,6 +253,8 @@ class _ToolExecutionOutcome:
     output: str
     raw_output: Any = None
     execution_succeeded: bool = False
+    safe_to_retry: bool = False
+    allow_replan: bool = False
     verification_status: Optional[str] = None
     image_bytes: Optional[bytes] = None
 
@@ -306,6 +311,9 @@ class ReActLoop:
         self._pending_confirmation_devices = {}
         self._resource_locks: dict[str, asyncio.Lock] = {}
         self._browser_frame_last_sent: dict[str, float] = {}
+        self._browser_live_stream_context: ContextVar[Optional[dict]] = ContextVar(
+            f"helix_browser_live_stream_{id(self)}", default=None
+        )
         self._planned_resource_leases: dict[str, _TaskResourceLease] = {}
         self._resource_lease_context: ContextVar[Optional[_TaskResourceLease]] = (
             ContextVar(f"helix_resource_lease_{id(self)}", default=None)
@@ -354,7 +362,7 @@ class ReActLoop:
         future = asyncio.get_running_loop().create_future()
         self._pending_confirmations[request_id] = future
         self._pending_confirmation_devices[request_id] = source_device_id
-        permission_level = str(tool.permission_level)
+        permission_level = self._permission_level_for_tool(tool, arguments)
         if permission_level == "MODERATE":
             permission_level = "MODIFY"
         approved = None
@@ -388,6 +396,7 @@ class ReActLoop:
                 timeout=CONFIRMATION_TIMEOUT_SECONDS,
             )
             return approved
+
         finally:
             self._pending_confirmations.pop(request_id, None)
             self._pending_confirmation_devices.pop(request_id, None)
@@ -407,6 +416,13 @@ class ReActLoop:
                     ),
                 },
             )
+
+    @staticmethod
+    def _permission_level_for_tool(tool, arguments: dict) -> str:
+        contextual_level = getattr(tool, "permission_level_for", None)
+        if callable(contextual_level):
+            return str(contextual_level(arguments)).upper()
+        return str(getattr(tool, "permission_level", "READ_ONLY")).upper()
 
     async def execute_planned_tool(
         self,
@@ -467,6 +483,7 @@ class ReActLoop:
                 output=f"Error: Tool {tool_name} not found.",
                 raw_output=None,
                 execution_succeeded=False,
+                allow_replan=True,
             )
 
         if not tool.validate_params(arguments):
@@ -475,6 +492,7 @@ class ReActLoop:
                 output=f"Invalid parameters for tool {tool_name}.",
                 raw_output=None,
                 execution_succeeded=False,
+                allow_replan=True,
             )
 
         required_capability = getattr(tool, "required_capability", None)
@@ -488,6 +506,7 @@ class ReActLoop:
                     ),
                     raw_output=None,
                     execution_succeeded=False,
+                    allow_replan=True,
                 )
             try:
                 capability_ready = await self.capability_requester(
@@ -507,6 +526,7 @@ class ReActLoop:
                     output=f"Error: {capability_error}",
                     raw_output=None,
                     execution_succeeded=False,
+                    allow_replan=True,
                 )
             tool = self.tool_registry.get_tool(tool_name)
             if tool is None:
@@ -515,6 +535,7 @@ class ReActLoop:
                     output=f"Error: Tool {tool_name} disappeared after capability installation.",
                     raw_output=None,
                     execution_succeeded=False,
+                    allow_replan=True,
                 )
             if not tool.validate_params(arguments):
                 return _ToolExecutionOutcome(
@@ -522,6 +543,7 @@ class ReActLoop:
                     output=f"Error: Installed capability provided an incompatible '{tool_name}' tool.",
                     raw_output=None,
                     execution_succeeded=False,
+                    allow_replan=True,
                 )
 
         is_screen_capture_tool = tool_name in _SCREEN_CAPTURE_TOOL_NAMES
@@ -547,6 +569,7 @@ class ReActLoop:
                 output="Screen capture is disabled for this task.",
                 raw_output=None,
                 execution_succeeded=False,
+                safe_to_retry=True,
             )
         if is_screen_action_tool and not screen_action_allowed:
             return _ToolExecutionOutcome(
@@ -557,6 +580,7 @@ class ReActLoop:
                 ),
                 raw_output=None,
                 execution_succeeded=False,
+                safe_to_retry=True,
             )
 
         permission_ranks = {
@@ -567,9 +591,7 @@ class ReActLoop:
             "SYSTEM": 4,
             "CRITICAL": 5,
         }
-        permission_level = str(
-            getattr(tool, "permission_level", "READ_ONLY")
-        ).upper()
+        permission_level = self._permission_level_for_tool(tool, arguments)
         rank = permission_ranks.get(permission_level, 4)
         permissions_mode = getattr(self, "permissions_mode", "SMART_APPROVAL")
         approval_ceiling = permission_ranks.get(
@@ -627,6 +649,7 @@ class ReActLoop:
                     output=confirmation_error,
                     raw_output=None,
                     execution_succeeded=False,
+                    safe_to_retry=True,
                 )
 
         if self.event_bus is not None:
@@ -676,6 +699,8 @@ class ReActLoop:
             output=str(output) if output is not None else "",
             raw_output=raw_output,
             execution_succeeded=success,
+            safe_to_retry=bool(getattr(result, "safe_to_retry", False)),
+            allow_replan=bool(getattr(result, "allow_replan", False)),
             image_bytes=image_bytes,
         )
 
@@ -815,6 +840,10 @@ class ReActLoop:
     ) -> 'ChatResponse':
         lease = _TaskResourceLease(self, task_id)
         token = self._resource_lease_context.set(lease)
+        browser_stream_state: dict = {}
+        browser_stream_token = self._browser_live_stream_context.set(
+            browser_stream_state
+        )
         try:
             return await self._execute_inner(
                 messages=messages,
@@ -831,6 +860,14 @@ class ReActLoop:
                 preferred_route=preferred_route,
             )
         finally:
+            browser_stream_task = browser_stream_state.get("task")
+            if browser_stream_task is not None:
+                browser_stream_task.cancel()
+                try:
+                    await browser_stream_task
+                except asyncio.CancelledError:
+                    pass
+            self._browser_live_stream_context.reset(browser_stream_token)
             await lease.release_all()
             self._resource_lease_context.reset(token)
 
@@ -927,7 +964,10 @@ class ReActLoop:
                     for schema in tools or []
                     if isinstance(schema, dict)
                 }
-                api_key = self.key_manager.get_key(candidate.provider_id, candidate.key_slot)
+                api_key = self.key_manager.get_key(
+                    credential_provider_id(candidate.provider_id),
+                    candidate.key_slot,
+                )
                 if not api_key:
                     raise RuntimeError(
                         f"No API key is available for {candidate.provider_id} slot {candidate.key_slot}."
@@ -1048,7 +1088,9 @@ class ReActLoop:
                             "SYSTEM": 4,
                             "CRITICAL": 5,
                         }
-                        permission_level = str(getattr(tool, "permission_level", "READ_ONLY")).upper()
+                        permission_level = self._permission_level_for_tool(
+                            tool, tc.arguments
+                        )
                         rank = permission_ranks.get(permission_level, 4)
                         approval_ceiling = permission_ranks.get(
                             self.auto_approve_up_to,
@@ -1211,13 +1253,31 @@ class ReActLoop:
             lease = _TaskResourceLease(self, task_id)
             token = self._resource_lease_context.set(lease)
         nested_request = tool.name in {"delegate_task", "message_subagent"}
+        browser_action = tool.name == "browser_control"
+        browser_conversation_id = provider_context.get("_helix_conversation_id")
+        browser_action_label = (
+            self._browser_action_label(arguments) if browser_action else None
+        )
         try:
+            if browser_action:
+                await self._publish_browser_progress(
+                    task_id,
+                    browser_conversation_id,
+                    browser_action_label,
+                    "running",
+                )
             if nested_request:
                 await lease.suspend()
             else:
                 resource = _shared_resource_for_tool(tool.name)
                 if resource:
                     await lease.acquire(resource)
+            if browser_action:
+                self._start_browser_live_stream(
+                    tool,
+                    provider_context.get("_helix_source_device_id"),
+                    browser_conversation_id,
+                )
             contextual_execute = getattr(tool, "execute_with_context", None)
             if callable(contextual_execute):
                 result = await contextual_execute(
@@ -1229,13 +1289,28 @@ class ReActLoop:
                 )
             else:
                 result = await tool.execute(arguments)
-            if tool.name == "browser_control":
-                await self._publish_mobile_browser_frame(
+            if browser_action:
+                await self._publish_browser_frame(
                     result,
                     provider_context.get("_helix_source_device_id"),
-                    provider_context.get("_helix_conversation_id"),
+                    browser_conversation_id,
+                )
+                await self._publish_browser_progress(
+                    task_id,
+                    browser_conversation_id,
+                    browser_action_label,
+                    "completed" if getattr(result, "success", False) else "failed",
                 )
             return result
+        except Exception:
+            if browser_action:
+                await self._publish_browser_progress(
+                    task_id,
+                    browser_conversation_id,
+                    browser_action_label,
+                    "failed",
+                )
+            raise
         finally:
             if nested_request:
                 await lease.resume()
@@ -1243,7 +1318,103 @@ class ReActLoop:
                 await lease.release_all()
                 self._resource_lease_context.reset(token)
 
-    async def _publish_mobile_browser_frame(
+    def _start_browser_live_stream(
+        self,
+        tool,
+        source_device_id: str | None,
+        conversation_id: str | None,
+    ) -> None:
+        if (
+            not isinstance(source_device_id, str)
+            or conversation_id != f"mobile_{source_device_id}"
+        ):
+            return
+        state = self._browser_live_stream_context.get()
+        if state is None or state.get("task") is not None:
+            return
+        state["task"] = asyncio.create_task(
+            self._publish_browser_live_stream(tool, source_device_id, conversation_id)
+        )
+
+    async def _publish_browser_live_stream(
+        self,
+        tool,
+        source_device_id: str,
+        conversation_id: str,
+    ) -> None:
+        capture_live_frame = getattr(tool, "capture_live_frame", None)
+        if not callable(capture_live_frame):
+            return
+        consecutive_failures = 0
+        while True:
+            try:
+                screenshot = await capture_live_frame()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                consecutive_failures += 1
+                if consecutive_failures == 1 or consecutive_failures % 10 == 0:
+                    logger.warning(
+                        "Mobile browser live-frame capture failed "
+                        "(consecutive failures: %d)",
+                        consecutive_failures,
+                        exc_info=True,
+                    )
+                await asyncio.sleep(0.5)
+                continue
+            consecutive_failures = 0
+            if isinstance(screenshot, bytes) and screenshot:
+                await self._publish_browser_frame(
+                    SimpleNamespace(success=True, output={"screenshot_bytes": screenshot}),
+                    source_device_id,
+                    conversation_id,
+                )
+            await asyncio.sleep(0.5)
+
+    @staticmethod
+    def _browser_action_label(arguments: dict) -> str:
+        action = arguments.get("action")
+        if action == "navigate":
+            url = arguments.get("url")
+            host = urlsplit(url).hostname if isinstance(url, str) else None
+            return f"Opening {host}" if host else "Opening website"
+        return {
+            "click": "Clicking a page element",
+            "click_at": "Clicking a page element",
+            "double_click_at": "Double-clicking a page element",
+            "drag": "Dragging a page element",
+            "get_content": "Reading page content",
+            "move_mouse": "Moving the browser pointer",
+            "press_key": "Pressing a browser key",
+            "refresh": "Refreshing the page",
+            "scroll": "Scrolling the page",
+            "scroll_at": "Scrolling the page",
+            "screenshot": "Capturing the page",
+            "type": "Entering text in a page field",
+            "go_back": "Going back in the browser",
+            "close": "Closing the browser tab",
+        }.get(action, "Using the browser")
+
+    async def _publish_browser_progress(
+        self,
+        task_id: str | None,
+        conversation_id: str | None,
+        action: str,
+        status: str,
+    ) -> None:
+        if not isinstance(conversation_id, str) or not conversation_id:
+            return
+        await self.event_bus.publish(
+            "BROWSER_PROGRESS",
+            {
+                "task_id": task_id,
+                "conversation_id": conversation_id,
+                "action": action,
+                "status": status,
+            },
+        )
+
+    async def _publish_browser_frame(
         self,
         result,
         source_device_id: str | None,
@@ -1261,8 +1432,16 @@ class ReActLoop:
             and conversation_id.startswith("cli_")
             and len(conversation_id) <= 128
         )
+        is_desktop_session = False
+        if source_device_id is None and isinstance(conversation_id, str):
+            try:
+                is_desktop_session = (
+                    str(uuid.UUID(conversation_id)) == conversation_id.casefold()
+                )
+            except ValueError:
+                is_desktop_session = False
         if (
-            not (is_mobile_session or is_cli_session)
+            not (is_mobile_session or is_cli_session or is_desktop_session)
             or not getattr(result, "success", False)
             or not isinstance(getattr(result, "output", None), dict)
         ):
@@ -1271,7 +1450,7 @@ class ReActLoop:
         if not isinstance(screenshot, bytes) or not screenshot or len(screenshot) > 560_000:
             return
         now = asyncio.get_running_loop().time()
-        recipient_key = source_device_id if is_mobile_session else conversation_id
+        recipient_key = source_device_id or conversation_id
         if now - self._browser_frame_last_sent.get(recipient_key, 0) < 0.5:
             return
         self._browser_frame_last_sent[recipient_key] = now

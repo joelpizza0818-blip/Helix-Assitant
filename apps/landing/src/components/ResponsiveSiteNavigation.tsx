@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import { useAdminAccess } from '../hooks/useAdminAccess'
 import { HelixLogo } from './HelixLogo/HelixLogo'
 import './ResponsiveSiteNavigation.css'
 
@@ -8,6 +9,7 @@ export function ResponsiveSiteNavigation() {
   const [menuOpen, setMenuOpen] = useState(false)
   const toggleRef = useRef<HTMLButtonElement>(null)
   const { user } = useAuth()
+  const { access: adminAccess } = useAdminAccess(Boolean(user))
 
   useEffect(() => {
     if (!menuOpen) return
@@ -51,7 +53,12 @@ export function ResponsiveSiteNavigation() {
         <Link to="/privacy" onClick={closeMenu}>Privacy</Link>
         {user ? (
           <>
-            <Link to="/admin" onClick={closeMenu}>Admin panel</Link>
+            {adminAccess.status === 'allowed' && (
+              <Link to="/admin" onClick={closeMenu}>Admin panel</Link>
+            )}
+            {adminAccess.status === 'error' && (
+              <span className="site-header__user" role="status">Could not verify admin access</span>
+            )}
             <span className="site-header__user">{user.email ?? 'GitHub account'}</span>
           </>
         ) : (

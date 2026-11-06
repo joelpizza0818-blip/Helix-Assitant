@@ -3,6 +3,9 @@ from pathlib import Path
 from urllib.parse import urlparse
 from typing import Any
 
+from .input_controller import BrowserInputController
+from .observer import BrowserObserver
+
 logger = logging.getLogger(__name__)
 
 class BrowserSession:
@@ -61,8 +64,9 @@ class BrowserSession:
 })();
 """
 
-    default_headless = True
+    default_headless = False
     default_browser_type = 'chromium'
+    default_browser_channel = 'chrome'
     default_search_provider = 'google'
     default_research_depth = 2
     default_block_downloads = True
@@ -71,11 +75,11 @@ class BrowserSession:
 
     @classmethod
     def configure_defaults(cls, settings: dict) -> None:
-        browser_type = settings.get('browser_engine', cls.default_browser_type)
-        if browser_type in {'chromium', 'firefox', 'webkit'}:
-            cls.default_browser_type = browser_type
-        if isinstance(settings.get('browser_headless'), bool):
-            cls.default_headless = settings['browser_headless']
+        cls.default_browser_type = 'chromium'
+        browser_channel = settings.get('browser_channel', cls.default_browser_channel)
+        if browser_channel in {'bundled', 'chrome', 'msedge'}:
+            cls.default_browser_channel = browser_channel
+        cls.default_headless = False
         if settings.get('search_provider') in {'google', 'duckduckgo', 'bing'}:
             cls.default_search_provider = settings['search_provider']
         if isinstance(settings.get('research_depth'), int) and settings['research_depth'] >= 1:
@@ -93,6 +97,7 @@ class BrowserSession:
     def __init__(self, headless: bool | None = None, browser_type: str | None = None):
         self.headless = self.default_headless if headless is None else headless
         self.browser_type = browser_type or self.default_browser_type
+        self.browser_channel = self.default_browser_channel
         self.search_provider = self.default_search_provider
         self.research_depth = self.default_research_depth
         self.block_downloads = self.default_block_downloads
@@ -102,25 +107,69 @@ class BrowserSession:
         self._browser = None
         self._context = None
         self._page = None
+        self._input_controller = None
+
+    def _input_controller_for_page(self) -> BrowserInputController:
+        if not self._page:
+            raise RuntimeError("Browser not started")
+        if (
+            self._input_controller is None
+            or not self._input_controller.uses_page(self._page)
+        ):
+            self._input_controller = BrowserInputController(self._page)
+        return self._input_controller
 
     async def start(self):
         if self.is_running():
             return
-            
         from playwright.async_api import async_playwright
         self._playwright = await async_playwright().start()
         
         browser_class = getattr(self._playwright, self.browser_type)
-        profile_path = Path.home() / ".helix" / "browser-profile" / self.browser_type
-        profile_path.mkdir(parents=True, exist_ok=True)
-        self._context = await browser_class.launch_persistent_context(
-            user_data_dir=str(profile_path),
-            headless=self.headless,
-            accept_downloads=not self.block_downloads,
+        profile_path = (
+            Path.home()
+            / ".helix"
+            / "browser-profile"
+            / self.browser_type
+            / self.browser_channel
         )
+        profile_path.mkdir(parents=True, exist_ok=True)
+        launch_options: dict[str, Any] = {
+            "user_data_dir": str(profile_path),
+            "headless": self.headless,
+            "accept_downloads": not self.block_downloads,
+        }
+        if self.browser_channel != 'bundled':
+            launch_options["channel"] = self.browser_channel
+        try:
+            self._context = await browser_class.launch_persistent_context(
+                **launch_options,
+            )
+        except Exception as error:
+            await self._playwright.stop()
+            self._playwright = None
+            browser_name = {
+                "chrome": "Google Chrome",
+                "msedge": "Microsoft Edge",
+                "bundled": "Playwright Chromium",
+            }[self.browser_channel]
+            install_help = (
+                "Install it from Toolbox or run `playwright install chromium`."
+                if self.browser_channel == "bundled"
+                else "Check that the selected browser is installed or choose another browser in Toolbox."
+            )
+            raise RuntimeError(
+                f"Could not launch {browser_name} with HELIX's isolated browser profile. "
+                f"{install_help}"
+            ) from error
         self._page = self._context.pages[0] if self._context.pages else await self._context.new_page()
         await self._install_virtual_cursor()
-        logger.info(f"BrowserSession started: {self.browser_type} (headless={self.headless})")
+        logger.info(
+            "BrowserSession started: %s (%s, headless=%s)",
+            self.browser_type,
+            self.browser_channel,
+            self.headless,
+        )
 
     async def _install_virtual_cursor(self):
         if not self._context or not self._page:
@@ -129,23 +178,49 @@ class BrowserSession:
         await self._page.evaluate(self._VIRTUAL_CURSOR_SCRIPT)
 
     async def stop(self):
-        if self._context:
-            await self._context.close()
-        if self._playwright:
-            await self._playwright.stop()
-            
-        self._page = None
-        self._context = None
-        self._browser = None
-        self._playwright = None
+        context = self._context
+        playwright = self._playwright
+        try:
+            if context:
+                try:
+                    await context.close()
+                except Exception:
+                    logger.warning(
+                        "Could not close the browser context cleanly.",
+                        exc_info=True,
+                    )
+        finally:
+            self._page = None
+            self._input_controller = None
+            self._context = None
+            self._browser = None
+            self._playwright = None
+            if playwright:
+                await playwright.stop()
         logger.info("BrowserSession stopped.")
 
     def is_running(self) -> bool:
-        return self._context is not None
+        if self._context is None or self._page is None:
+            return False
+        if self._page.is_closed():
+            return False
+        browser = self._context.browser
+        if browser is not None and not browser.is_connected():
+            return False
+        return True
+
+    def matches_defaults(self) -> bool:
+        return (
+            self.browser_type == self.default_browser_type
+            and self.browser_channel == self.default_browser_channel
+            and self.headless == self.default_headless
+        )
 
     async def navigate(self, url: str, wait_until: str = "domcontentloaded"):
         if not self._page:
             raise RuntimeError("Browser not started")
+        if wait_until not in {"commit", "domcontentloaded", "load", "networkidle"}:
+            raise ValueError("Unsupported browser navigation wait state.")
         parsed = urlparse(url)
         host = (parsed.hostname or '').casefold()
         if self.block_untrusted_domains:
@@ -155,128 +230,44 @@ class BrowserSession:
             if trusted and not any(host == domain or host.endswith('.' + domain) for domain in trusted):
                 raise PermissionError(f"Blocked untrusted domain: {host}")
         logger.info(f"Navigating to {url}")
-        try:
-            await self._page.goto(url, wait_until="networkidle", timeout=15000)
-        except Exception:
-            # networkidle can time out on SPAs with long-polling; domcontentloaded is fine
-            await self._page.goto(url, wait_until="domcontentloaded")
+        await self._page.goto(url, wait_until=wait_until, timeout=15000)
+
+    def _locator_for_selector(self, selector: str, *, prefer_css: bool = False):
+        return self._input_controller_for_page().locator_for_selector(
+            selector, prefer_css=prefer_css
+        )
 
     async def click(self, selector: str):
-        if not self._page:
-            raise RuntimeError("Browser not started")
-        logger.info("Clicking browser target: %s", selector)
-        if selector.isdecimal():
-            selector = f'[data-helix-control="{selector}"]'
-        if selector.startswith(("#", ".", "[", "//", "button", "a[href", "input")):
-            locator = self._page.locator(selector).first
-        else:
-            locator = self._page.get_by_text(selector, exact=True).first
-        try:
-            box = await locator.bounding_box()
-            if box:
-                cx = int(box["x"] + box["width"] / 2)
-                cy = int(box["y"] + box["height"] / 2)
-                await self._show_virtual_cursor(cx, cy, clicked=True)
-        except Exception:
-            pass
-        await locator.click()
+        await self._input_controller_for_page().click(selector)
 
     async def _validate_mouse_coordinates(self, x: int, y: int) -> None:
-        if not self._page:
-            raise RuntimeError("Browser not started")
-        viewport = self._page.viewport_size
-        if viewport is None:
-            viewport = await self._page.evaluate(
-                "() => ({ width: window.innerWidth, height: window.innerHeight })"
-            )
-        if not (0 <= x < viewport["width"] and 0 <= y < viewport["height"]):
-            raise ValueError(
-                f"Coordinates ({x}, {y}) are outside the page viewport "
-                f"({viewport['width']} x {viewport['height']})."
-            )
+        await self._input_controller_for_page().validate_mouse_coordinates(x, y)
 
     async def _show_virtual_cursor(self, x: int, y: int, *, clicked: bool = False) -> None:
-        if not self._page:
-            return
-        await self._page.evaluate(
-            """({ x, y, clicked }) => {
-                window.__helixMoveCursor?.(x, y);
-                if (clicked) window.__helixClickCursor?.(x, y);
-            }""",
-            {"x": x, "y": y, "clicked": clicked},
+        await self._input_controller_for_page()._show_virtual_cursor(
+            x, y, clicked=clicked
         )
 
     async def move_mouse(self, x: int, y: int) -> None:
-        if not self._page:
-            raise RuntimeError("Browser not started")
-        await self._validate_mouse_coordinates(x, y)
-        await self._show_virtual_cursor(x, y)
-        await self._page.mouse.move(x, y, steps=8)
+        await self._input_controller_for_page().move_mouse(x, y)
 
     async def click_at(self, x: int, y: int, button: str = "left") -> None:
-        if not self._page:
-            raise RuntimeError("Browser not started")
-        await self._validate_mouse_coordinates(x, y)
-        await self._show_virtual_cursor(x, y, clicked=True)
-        await self._page.mouse.click(x, y, button=button)
+        await self._input_controller_for_page().click_at(x, y, button)
 
     async def double_click_at(self, x: int, y: int) -> None:
-        if not self._page:
-            raise RuntimeError("Browser not started")
-        await self._validate_mouse_coordinates(x, y)
-        await self._show_virtual_cursor(x, y, clicked=True)
-        await self._page.mouse.dblclick(x, y)
+        await self._input_controller_for_page().double_click_at(x, y)
 
     async def drag(self, x: int, y: int, end_x: int, end_y: int) -> None:
-        if not self._page:
-            raise RuntimeError("Browser not started")
-        await self._validate_mouse_coordinates(x, y)
-        await self._validate_mouse_coordinates(end_x, end_y)
-        await self._show_virtual_cursor(x, y)
-        await self._page.mouse.move(x, y, steps=8)
-        await self._page.mouse.down()
-        try:
-            await self._show_virtual_cursor(end_x, end_y)
-            await self._page.mouse.move(end_x, end_y, steps=12)
-        finally:
-            await self._page.mouse.up()
+        await self._input_controller_for_page().drag(x, y, end_x, end_y)
 
     async def scroll_at(self, x: int, y: int, direction: str, amount: int) -> None:
-        if not self._page:
-            raise RuntimeError("Browser not started")
-        await self._validate_mouse_coordinates(x, y)
-        await self._show_virtual_cursor(x, y)
-        await self._page.mouse.move(x, y, steps=8)
-        delta_x = amount if direction == "right" else -amount if direction == "left" else 0
-        delta_y = amount if direction == "down" else -amount if direction == "up" else 0
-        await self._page.mouse.wheel(delta_x, delta_y)
+        await self._input_controller_for_page().scroll_at(x, y, direction, amount)
 
     async def click_text(self, text: str):
-        if not self._page:
-            raise RuntimeError("Browser not started")
-        logger.info(f"Clicking text: {text}")
-        await self._page.get_by_text(text).first.click()
+        await self._input_controller_for_page().click_text(text)
 
-    async def type_text(self, selector: str, text: str):
-        if not self._page:
-            raise RuntimeError("Browser not started")
-        logger.info(f"Typing into {selector}")
-        if selector.isdecimal():
-            selector = f'[data-helix-control="{selector}"]'
-        if selector.startswith("label="):
-            locator = self._page.get_by_label(selector.split("=", 1)[1]).first
-        else:
-            locator = self._page.locator(selector).first
-        try:
-            box = await locator.bounding_box()
-            if box:
-                cx = int(box["x"] + box["width"] / 2)
-                cy = int(box["y"] + box["height"] / 2)
-                await self._show_virtual_cursor(cx, cy, clicked=True)
-        except Exception:
-            pass
-        await locator.click()
-        await locator.fill(text)
+    async def type_text(self, selector: str, text: str) -> str:
+        return await self._input_controller_for_page().type_text(selector, text)
 
     async def get_text(self, selector: str) -> str:
         if not self._page:
@@ -289,52 +280,18 @@ class BrowserSession:
         return await self._page.content()
 
     async def get_visible_text(self, max_chars: int = 12000) -> str:
+        observation = await self.observe()
+        return observation.to_text(max_chars)
+
+    async def observe(self):
         if not self._page:
             raise RuntimeError("Browser not started")
-        text = await self._page.locator("body").inner_text()
-        controls = await self._page.locator(
-            "a, button, input, textarea, select, [role='button'], [tabindex='0']"
-        ).evaluate_all(
-            """elements => {
-                let count = 0;
-                const result = [];
-                for (const element of elements) {
-                    if (count >= 100) break;
-                    const rect = element.getBoundingClientRect();
-                    if (rect.width <= 0 || rect.height <= 0) continue;
-                    const style = window.getComputedStyle(element);
-                    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') continue;
-
-                    element.setAttribute('data-helix-control', String(count));
-                    const label = (element.getAttribute('aria-label')
-                        || element.innerText
-                        || element.getAttribute('placeholder')
-                        || element.getAttribute('title')
-                        || element.getAttribute('value')
-                        || '').replace(/\\s+/g, ' ').trim().slice(0, 60);
-
-                    const cx = Math.round(rect.left + rect.width / 2);
-                    const cy = Math.round(rect.top + rect.height / 2);
-                    const tag = element.tagName.toLowerCase();
-                    const typeAttr = element.getAttribute('type') ? `[type=${element.getAttribute('type')}]` : '';
-
-                    result.push(`[${count}] selector=[data-helix-control="${count}"] ${tag}${typeAttr} "${label}" at (${cx}, ${cy})`);
-                    count++;
-                }
-                return result.join('\\n');
-            }"""
-        )
-        snapshot = f"URL: {self._page.url}\nTitle: {await self._page.title()}\n\n{text}"
-        if controls:
-            snapshot += f"\n\nInteractive controls:\n{controls}"
-        return snapshot[:max_chars]
+        return await BrowserObserver(self._page).observe()
 
     async def screenshot(self) -> bytes:
         if not self._page:
             raise RuntimeError("Browser not started")
-        # Wait a bit longer for animations/lazy content to settle
-        await self._page.wait_for_timeout(150)
-        return await self._page.screenshot(type="jpeg", quality=75, full_page=False)
+        return await BrowserObserver(self._page).screenshot()
 
     async def screenshot_as_base64(self) -> str:
         """Return a base64-encoded JPEG screenshot, ready to embed or pass to a vision model."""
@@ -342,16 +299,10 @@ class BrowserSession:
         return base64.b64encode(await self.screenshot()).decode("ascii")
 
     async def scroll(self, direction: str, amount: int):
-        if not self._page:
-            raise RuntimeError("Browser not started")
-        delta_x = amount if direction == "right" else -amount if direction == "left" else 0
-        delta_y = amount if direction == "down" else -amount if direction == "up" else 0
-        await self._page.mouse.wheel(delta_x, delta_y)
+        await self._input_controller_for_page().scroll(direction, amount)
 
     async def press_key(self, key: str):
-        if not self._page:
-            raise RuntimeError("Browser not started")
-        await self._page.keyboard.press(key)
+        await self._input_controller_for_page().press_key(key)
 
     async def go_back(self):
         if not self._page:

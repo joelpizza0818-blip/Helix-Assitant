@@ -3,6 +3,8 @@
 
 /// <reference types="vite/client" />
 
+import type { ModelCatalog } from '../services/modelCatalogService'
+
 export {}
 
 declare global {
@@ -17,7 +19,7 @@ export interface HelixAPI {
     conversation_id: string
     conversation_history: Array<{ role: 'user' | 'assistant'; content: string }>
     attachments?: ChatAttachment[]
-  }) => void
+  }) => Promise<void>
   cancelTask: (taskId: string) => void
   emergencyStop: () => void
   confirmAction: (requestId: string) => void
@@ -48,8 +50,32 @@ export interface HelixAPI {
 
   getSettings: () => Promise<HelixSettings>
   saveSettings: (settings: Partial<HelixSettings>) => Promise<void>
+  installPlaywrightChromium: () => Promise<{
+    installed: boolean
+    message: string
+    output: string
+  }>
   testTts: (text?: string) => Promise<TtsTestResult>
   getMemoryStatus: () => Promise<MemoryStatus>
+  getProjects: () => Promise<ProjectRegistry>
+  importProjectFolder: (folderPath: string) => Promise<ProjectRegistry>
+  getProjectFiles: (projectId: string) => Promise<ProjectFilesResult>
+  createProjectEntry: (
+    projectId: string,
+    relativePath: string,
+    entryType: 'file' | 'folder',
+  ) => Promise<ProjectFilesResult>
+  importProjectFiles: (projectId: string, targetDirectory: string) => Promise<ProjectFilesResult>
+  setActiveProject: (projectId: string | null) => Promise<{ active_project_id: string | null }>
+  getProjectGraph: (projectId: string) => Promise<ProjectGraph>
+  saveProjectGraph: (
+    projectId: string,
+    graph: Pick<ProjectGraph, 'nodes' | 'edges'>,
+  ) => Promise<ProjectGraph>
+  getGeneralMemoryGraph: () => Promise<ProjectGraph>
+  saveGeneralMemoryGraph: (
+    graph: Pick<ProjectGraph, 'nodes' | 'edges'>,
+  ) => Promise<ProjectGraph>
   clearMemory: () => Promise<{ cleared: boolean }>
   getUserMemories: () => Promise<UserMemory[]>
   getUserMemoryProfile: () => Promise<UserMemoryProfile>
@@ -98,6 +124,7 @@ export interface HelixAPI {
   downloadGgufModel?: (modelId: string) => Promise<any>
   getProviders: () => Promise<ProviderStatus[]>
   getModels: (requirements?: Partial<ModelRequirements>) => Promise<ModelDefinition[]>
+  getModelCatalog: () => Promise<ModelCatalog>
   getCapabilities: () => Promise<CapabilitySnapshot>
   refreshCapabilities: () => Promise<CapabilitySnapshot>
   setInstallationProfile: (profile: InstallationProfile) => Promise<CapabilitySnapshot>
@@ -108,6 +135,13 @@ export interface HelixAPI {
   saveSkill: (skill: SkillDraft) => Promise<SkillSummary>
   deleteSkill: (name: string) => Promise<void>
   getMcpServers: () => Promise<MCPServerStatus[]>
+  getWorkflows: () => Promise<WorkflowDefinition[]>
+  getWorkflowTools: () => Promise<WorkflowToolOption[]>
+  getWorkflowAgents: () => Promise<AgentProfile[]>
+  getWorkflowCapabilities: () => Promise<WorkflowCapabilityOption[]>
+  saveWorkflow: (workflow: WorkflowDefinition) => Promise<WorkflowDefinition>
+  deleteWorkflow: (id: string) => Promise<{ deleted: boolean }>
+  runWorkflow: (id: string, input: string) => Promise<{ task_id: string }>
 
   onAgentMessage: (fn: (msg: AgentMessage) => void) => () => void
   onAgentUpdate: (fn: (event: AgentLifecycleEvent) => void) => () => void
@@ -116,6 +150,8 @@ export interface HelixAPI {
   onTaskUpdate: (fn: (task: TaskDefinition) => void) => () => void
   onStatusUpdate: (fn: (status: AgentStatusUpdate) => void) => () => void
   onFallbackEvent: (fn: (event: FallbackEvent) => void) => () => void
+  onBrowserProgress: (fn: (event: BrowserProgressEvent) => void) => () => void
+  onBrowserFrame: (fn: (event: BrowserFrameEvent) => void) => () => void
   onModelRequest: (fn: (request: ModelRequestEvent) => void) => () => void
   onConfirmationRequest: (fn: (req: ConfirmationRequest) => void) => () => void
   onConfirmationResolved: (fn: (request: { request_id: string }) => void) => () => void
@@ -408,6 +444,7 @@ export interface TaskDefinition {
   name?: string | null
   function?: string | null
   task_type?: string
+  profile_id?: string
   model_requests?: ModelRequestEvent[]
   progress: number
   execution_summary: TaskExecutionSummary
@@ -445,6 +482,7 @@ export interface AgentLifecycleEvent {
   resource?: string | null
   promotion?: string
   progress?: number
+  activity?: string
   current_action?: string | null
   created_at?: string
   started_at?: string | null
@@ -471,6 +509,52 @@ export interface SkillDraft {
 export interface SkillSummary extends SkillDraft {
   version: string
   custom: boolean
+}
+
+export type WorkflowNodeType =
+  | 'trigger'
+  | 'tool'
+  | 'agent'
+  | 'capability'
+  | 'condition'
+  | 'parallel'
+  | 'merge'
+  | 'output'
+
+export interface WorkflowNode {
+  id: string
+  type: WorkflowNodeType
+  title: string
+  x: number
+  y: number
+  config: Record<string, unknown>
+}
+
+export interface WorkflowEdge {
+  id: string
+  source: string
+  target: string
+  label: string
+}
+
+export interface WorkflowDefinition {
+  id: string
+  name: string
+  description: string
+  nodes: WorkflowNode[]
+  edges: WorkflowEdge[]
+  updated_at?: string
+}
+
+export interface WorkflowToolOption {
+  name: string
+  description: string
+  required_capability: string
+}
+
+export interface WorkflowCapabilityOption {
+  id: string
+  description: string
 }
 
 export interface StdioMCPServerConfig {
@@ -513,6 +597,19 @@ export interface FallbackEvent {
   to_provider: ProviderID
   reason: string
   timestamp: string
+}
+
+export interface BrowserProgressEvent {
+  task_id: string | null
+  conversation_id: string
+  action: string
+  status: 'running' | 'completed' | 'failed'
+}
+
+export interface BrowserFrameEvent {
+  conversation_id: string
+  mime_type: 'image/jpeg'
+  image_base64: string
 }
 
 export interface ConfirmationRequest {
@@ -572,6 +669,7 @@ export interface TaskExecutionStep {
 }
 
 export interface TaskToolCallSummary {
+  id?: string
   tool: string
   status: 'succeeded' | 'failed'
   result_summary: string
@@ -594,7 +692,7 @@ export interface TaskExecutionSummary {
 export interface AgentError {
   code: string
   message: string
-  source?: 'camera' | 'microphone'
+  source?: 'camera' | 'microphone' | 'agent_connection'
   provider?: ProviderID
   model?: string
   timestamp: string
@@ -654,8 +752,11 @@ export interface HelixSettings {
   sandbox_enabled?: boolean
   sandbox_mode?: 'restricted' | 'isolated' | 'windows_sandbox' | 'docker'
   sound_effects_enabled?: boolean
+  success_sound_preset?: string
+  error_sound_preset?: string
   browser_control_mode?: 'extension' | 'playwright'
   browser_engine?: 'chromium' | 'firefox' | 'webkit'
+  browser_channel?: 'bundled' | 'chrome' | 'msedge'
   browser_headless?: boolean
   search_provider?: 'google' | 'duckduckgo' | 'bing'
   research_depth?: number
@@ -674,6 +775,64 @@ export interface HelixSettings {
   memory_auto_compaction?: boolean
   embedding_model?: string
   memory_similarity_threshold?: number
+  execution_memory_ttl?: 'session' | '30_days' | 'permanent'
+}
+
+export interface ProjectRegistry {
+  active_project_id: string | null
+  projects: Array<{
+    project_id: string
+    name: string
+    root_path: string
+    created_at: string
+  }>
+}
+
+export interface ProjectGraph {
+  project_id: string
+  nodes: ProjectGraphNode[]
+  edges: ProjectGraphEdge[]
+}
+
+export interface ProjectFilesResult {
+  project_id?: string
+  entries?: ProjectFileEntry[]
+  truncated?: boolean
+  canceled?: boolean
+}
+
+export interface ProjectFileEntry {
+  name: string
+  path: string
+  type: 'folder' | 'file'
+  children?: ProjectFileEntry[]
+}
+
+export interface ProjectGraphNode {
+  node_id: string
+  type: 'project' | 'memory' | 'technology' | 'decision' | 'problem' | 'solution' | 'task' | 'result' | 'file'
+  title: string
+  content: string
+  color: string
+  created_at: string
+  origin?: 'file_index' | 'auto_technology' | 'learned'
+  relative_path?: string
+  x?: number
+  y?: number
+  expires_at?: string | null
+  scope?: string
+  session_id?: string | null
+  task_id?: string
+  outcome?: 'completed' | 'failed' | 'cancelled'
+}
+
+export interface ProjectGraphEdge {
+  edge_id: string
+  source: string
+  target: string
+  relation: string
+  color: string
+  origin?: 'auto'
 }
 
 export interface HandCommand {

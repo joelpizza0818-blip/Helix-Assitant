@@ -1546,7 +1546,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         title: const Text('Navegador de HELIX'),
         subtitle: Text(frame == null
             ? 'Esperando actividad del navegador…'
-            : 'Vista actualizada al usar el navegador'),
+            : 'Transmisión en vivo cuando HELIX usa el navegador'),
         trailing: IconButton(
           tooltip: link.browserLivePaused ? 'Reanudar video' : 'Pausar video',
           onPressed: _toggleBrowserLive,

@@ -266,7 +266,9 @@ fn is_supported_request(message_type: &str) -> bool {
         "GET_TASKS"
             | "GET_PROVIDERS"
             | "GET_MODELS"
+            | "GET_MODEL_CATALOG"
             | "GET_SETTINGS"
+            | "INSTALL_PLAYWRIGHT_CHROMIUM"
             | "SAVE_SETTINGS"
             | "TEST_TTS"
             | "GET_MEMORY_STATUS"
@@ -276,6 +278,13 @@ fn is_supported_request(message_type: &str) -> bool {
             | "SAVE_SKILL"
             | "DELETE_SKILL"
             | "GET_MCP_SERVERS"
+            | "GET_WORKFLOWS"
+            | "GET_WORKFLOW_TOOLS"
+            | "GET_WORKFLOW_AGENTS"
+            | "GET_WORKFLOW_CAPABILITIES"
+            | "SAVE_WORKFLOW"
+            | "DELETE_WORKFLOW"
+            | "RUN_WORKFLOW"
     )
 }
 
@@ -1600,6 +1609,7 @@ pub fn run() {
     let updater = UpdaterState::default();
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_deep_link::init())
         .manage(bridge.clone())
@@ -1815,6 +1825,13 @@ mod tests {
         assert!(is_supported_request("CLEAR_MEMORY"));
         assert!(is_supported_request("SAVE_SKILL"));
         assert!(is_supported_request("DELETE_SKILL"));
+        assert!(is_supported_request("GET_WORKFLOWS"));
+        assert!(is_supported_request("GET_WORKFLOW_TOOLS"));
+        assert!(is_supported_request("GET_WORKFLOW_AGENTS"));
+        assert!(is_supported_request("GET_WORKFLOW_CAPABILITIES"));
+        assert!(is_supported_request("SAVE_WORKFLOW"));
+        assert!(is_supported_request("DELETE_WORKFLOW"));
+        assert!(is_supported_request("RUN_WORKFLOW"));
         assert!(!is_supported_request("RUN_ARBITRARY_COMMAND"));
     }
 

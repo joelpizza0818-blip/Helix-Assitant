@@ -59,6 +59,7 @@ export default function AgentPanel() {
   const [turnsByProfile, setTurnsByProfile] = useState<Record<string, ChatTurn[]>>({})
   const [messagesByProfile, setMessagesByProfile] = useState<Record<string, string>>({})
   const [sendingProfiles, setSendingProfiles] = useState<Set<string>>(() => new Set())
+  const [chatActivityByProfile, setChatActivityByProfile] = useState<Record<string, string>>({})
   const [chatErrors, setChatErrors] = useState<Record<string, string>>({})
   const [memories, setMemories] = useState<UserMemory[]>([])
   const [memoryDraft, setMemoryDraft] = useState('')
@@ -126,7 +127,7 @@ export default function AgentPanel() {
         .catch((cause: unknown) => {
           if (active) setError(messageFromError(cause))
         })
-    }, 1600)
+    }, 5000)
     const removeListener = window.helix.onAgentUpdate((event) => {
       if (event.promotion) {
         setPromotionNotice(`${event.name ?? 'A teammate'} promoted: ${event.promotion}`)
@@ -149,10 +150,31 @@ export default function AgentPanel() {
           if (active) setError(messageFromError(cause))
         })
     })
+    const removeTaskListener = window.helix.onTaskUpdate((task) => {
+      if (task.task_type !== 'subagent') return
+      const taskProfileId = task.profile_id
+      if (taskProfileId) {
+        setChatActivityByProfile((current) => ({
+          ...current,
+          [taskProfileId]: task.execution_summary.progress_label,
+        }))
+      }
+      setStatuses((current) => current.map((status) => (
+        status.agent_id === task.id
+          ? {
+            ...status,
+            progress: task.progress,
+            current_action: task.current_action,
+            activity: task.execution_summary.progress_label,
+          }
+          : status
+      )))
+    })
     return () => {
       active = false
       window.clearInterval(interval)
       removeListener()
+      removeTaskListener()
     }
   }, [refresh])
 
@@ -219,6 +241,10 @@ export default function AgentPanel() {
     nextSendingProfiles.add(profileId)
     sendingProfilesRef.current = nextSendingProfiles
     setSendingProfiles(nextSendingProfiles)
+    setChatActivityByProfile((current) => ({
+      ...current,
+      [profileId]: 'Thinking…',
+    }))
     setMessagesByProfile((current) => {
       const next = { ...current }
       delete next[profileId]
@@ -584,10 +610,12 @@ export default function AgentPanel() {
                     </span>
                     <span className={`agent-profile__status ${active ? 'is-active' : ''}`}>
                       {chatSending
-                        ? 'responding'
+                        ? chatActivityByProfile[profile.profile_id] || 'Thinking…'
                         : waitingResource
                         ? `waiting · ${waitingResource}`
-                        : active ? current?.status : current ? current.status : 'available'}
+                        : active
+                        ? current?.activity || current?.status
+                        : current?.status ?? 'available'}
                     </span>
                   </button>
                 )
@@ -654,7 +682,11 @@ export default function AgentPanel() {
               </div>
               <div className="agent-detail__status">
                 <span>Status</span>
-                <strong>{selectedProfileSending ? 'responding' : selectedStatus?.status ?? 'available'}</strong>
+                <strong>
+                  {selectedProfileSending
+                    ? chatActivityByProfile[selectedProfile.profile_id] || 'Thinking…'
+                    : selectedStatus?.activity || selectedStatus?.status || 'available'}
+                </strong>
                 <span>{selectedProfile.model_route
                   ? `${selectedProfile.model_route.provider} · ${selectedProfile.model_route.model} · key ${selectedProfile.model_route.key_slot + 1}`
                   : 'Automatic model routing'}
@@ -728,7 +760,11 @@ export default function AgentPanel() {
                       <p>{turn.content}</p>
                     </div>
                   ))}
-                  {selectedProfileSending && <div className="agent-chat__working">{selectedProfile.name} is responding…</div>}
+                  {selectedProfileSending && (
+                    <div className="agent-chat__working" role="status">
+                      {selectedProfile.name} · {chatActivityByProfile[selectedProfile.profile_id] || 'Thinking…'}
+                    </div>
+                  )}
                   {chatErrors[selectedProfile.profile_id] && (
                     <div className="agent-panel__error" role="alert">
                       {chatErrors[selectedProfile.profile_id]}

@@ -82,12 +82,14 @@ Get-ChildItem -LiteralPath (Join-Path $dataSource "tests") -Filter "*.py" -File 
     --collect-submodules tools `
     --collect-submodules edge_tts `
     --collect-all keyring `
+    --collect-all cryptography `
     --collect-all sounddevice `
     --collect-all openwakeword `
     --collect-all cv2 `
     --collect-all mediapipe `
     --collect-all faster_whisper `
     --collect-all onnxruntime `
+    --collect-all playwright `
     --hidden-import webrtcvad `
     --hidden-import sounddevice `
     --hidden-import soundfile `
@@ -107,6 +109,7 @@ Get-ChildItem -LiteralPath (Join-Path $dataSource "tests") -Filter "*.py" -File 
     --copy-metadata openwakeword `
     --copy-metadata mediapipe `
     --copy-metadata onnxruntime `
+    --copy-metadata playwright `
     --copy-metadata tqdm `
     --hidden-import pyautogui `
     --hidden-import mouseinfo `

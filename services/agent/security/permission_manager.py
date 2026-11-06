@@ -50,8 +50,19 @@ class PermissionManager:
     one-shot approvals out of the settings file.
     """
 
-    def __init__(self, mode: PermissionMode | str = PermissionMode.SMART_APPROVAL):
+    def __init__(
+        self,
+        mode: PermissionMode | str = PermissionMode.SMART_APPROVAL,
+        auto_approve_up_to: PermissionLevel | str = PermissionLevel.LOW_RISK,
+    ):
         self.mode = mode if isinstance(mode, PermissionMode) else PermissionMode(str(mode).upper())
+        self.auto_approve_up_to = self._parse_level(auto_approve_up_to)
+        if self.auto_approve_up_to not in {
+            PermissionLevel.READ_ONLY,
+            PermissionLevel.LOW_RISK,
+            PermissionLevel.MODIFY,
+        }:
+            raise ValueError("auto_approve_up_to must be READ_ONLY, LOW_RISK, or MODIFY")
         self.permissions: Dict[str, PermissionLevel] = {}
         self.protected_paths: List[str] = [
             r'C:\Windows',
@@ -82,9 +93,21 @@ class PermissionManager:
         mode: PermissionMode | str | None = None,
         protected_paths: List[str] | None = None,
         protected_apps: List[str] | None = None,
+        auto_approve_up_to: PermissionLevel | str | None = None,
     ) -> None:
         if mode is not None:
             self.mode = mode if isinstance(mode, PermissionMode) else PermissionMode(str(mode).upper())
+        if auto_approve_up_to is not None:
+            ceiling = self._parse_level(auto_approve_up_to)
+            if ceiling not in {
+                PermissionLevel.READ_ONLY,
+                PermissionLevel.LOW_RISK,
+                PermissionLevel.MODIFY,
+            }:
+                raise ValueError(
+                    "auto_approve_up_to must be READ_ONLY, LOW_RISK, or MODIFY"
+                )
+            self.auto_approve_up_to = ceiling
         if protected_paths is not None:
             self.protected_paths = self._merge_protected(
                 self.protected_paths[:4], protected_paths
@@ -111,16 +134,16 @@ class PermissionManager:
         required_level: PermissionLevel | str | None = None,
     ) -> RiskEvaluation:
         params = params or {}
-        level = required_level
-        if isinstance(level, str):
-            try:
-                level = PermissionLevel[level.upper()]
-            except KeyError:
-                level = None
+        level = self._parse_level(required_level) if required_level is not None else None
         if level is None:
             level = self._infer_level(tool_name, params)
         if not isinstance(level, PermissionLevel):
             level = PermissionLevel.SYSTEM
+        command = params.get("command")
+        if isinstance(command, str) and command.strip():
+            inspection = self.inspect_command(command)
+            if not inspection.is_safe and inspection.risk_level.value > level.value:
+                level = inspection.risk_level
 
         protected = False
         path_keys = {"path", "destination", "dest", "working_dir", "file_path"}
@@ -134,6 +157,7 @@ class PermissionManager:
             "executable",
         }
         values = [params]
+        # Tool payloads can nest paths and app names, so protected-resource checks walk the full argument tree.
         while values:
             value = values.pop()
             if isinstance(value, dict):
@@ -166,11 +190,26 @@ class PermissionManager:
             reason = "Always Ask mode requires approval for every tool action."
         elif self.mode is PermissionMode.AUTO_APPROVE:
             requires = False
-            reason = "Auto Approve mode permits non-system actions without interactive confirmation."
+            reason = "Auto Approve permits non-system actions; system and critical actions remain gated."
         else:
-            requires = level.value >= PermissionLevel.MODIFY.value
-            reason = "Smart Approval gates modifications, protected resources, and destructive actions."
+            requires = level.value > self.auto_approve_up_to.value
+            reason = (
+                "Smart Approval requires confirmation above the configured approval ceiling."
+                if requires
+                else "Smart Approval permits actions up to the configured approval ceiling."
+            )
         return RiskEvaluation(level, requires, reason)
+
+    @staticmethod
+    def _parse_level(level: PermissionLevel | str | None) -> PermissionLevel | None:
+        if isinstance(level, PermissionLevel):
+            return level
+        if isinstance(level, str):
+            try:
+                return PermissionLevel[level.upper()]
+            except KeyError:
+                return None
+        return None
 
     @classmethod
     def inspect_command(cls, command: str) -> CommandInspectionResult:

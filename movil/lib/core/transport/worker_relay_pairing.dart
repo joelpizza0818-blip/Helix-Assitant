@@ -37,6 +37,7 @@ class WorkerRelayPairingClient {
                 decoded['type'] is! String) {
               throw const FormatException('Relay pairing response is invalid.');
             }
+            // Pending is a normal wait state; keep listening until the desktop makes the decision.
             if (decoded['type'] == 'HELIX_PAIRING_PENDING') return;
             if (decoded['type'] == 'HELIX_PAIRING_REJECTED') {
               throw StateError('The Desktop rejected this pairing request.');
@@ -51,6 +52,7 @@ class WorkerRelayPairingClient {
             }
             final deviceId = payload['device_id'];
             final deviceToken = payload['device_token'];
+            // Approval is not a substitute for validating credentials before handing them to the session.
             if (deviceId is! String ||
                 !RegExp(r'^[A-Za-z0-9_-]{20,64}$').hasMatch(deviceId) ||
                 deviceToken is! String ||

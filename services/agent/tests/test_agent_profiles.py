@@ -7,6 +7,7 @@ import pytest
 from services.agent.core.agent_manager import AgentManager
 from services.agent.core.agent_profiles import AgentProfileStore
 from services.agent.core.event_bus import EventBus
+from services.agent.core.task_manager import TaskManager, TaskStatus
 
 
 class FakeContextManager:
@@ -162,6 +163,56 @@ async def test_direct_and_peer_chats_use_the_persistent_profile_conversation(tmp
     assert [message.role for message in transcript] == [
         "system", "user", "assistant", "user", "assistant",
     ]
+
+
+@pytest.mark.asyncio
+async def test_direct_chat_reports_running_activity_and_terminal_task_status(tmp_path: Path):
+    class BlockingReactLoop(FakeReactLoop):
+        def __init__(self):
+            super().__init__()
+            self.started = asyncio.Event()
+            self.resume = asyncio.Event()
+
+        async def execute(self, **kwargs):
+            self.execute_kwargs = kwargs
+            self.started.set()
+            await self.resume.wait()
+            return SimpleNamespace(content="verified")
+
+    task_manager = TaskManager(EventBus())
+    loop = BlockingReactLoop()
+    manager = AgentManager(
+        react_loop=loop,
+        context_manager=FakeContextManager(),
+        event_bus=EventBus(),
+        role_config=None,
+        tool_registry=None,
+        task_manager=task_manager,
+        profile_store=AgentProfileStore(tmp_path / "profiles.json"),
+    )
+
+    chat = asyncio.create_task(
+        manager.chat_with_agent("eliot", "Review this source.")
+    )
+    await loop.started.wait()
+
+    task_id = loop.execute_kwargs["task_id"]
+    task = await task_manager.get_task(task_id)
+    assert task.status == TaskStatus.RUNNING
+    assert task.execution_summary.progress_label == "Thinking…"
+
+    loop.resume.set()
+    result = await chat
+    task = await task_manager.get_task(task_id)
+    assert result["response"] == "verified"
+    assert task.status == TaskStatus.COMPLETED
+    assert task.description == "Direct chat with Eliot"
+    assert task.result is None
+    assert task.metadata == {
+        "agent_id": task_id,
+        "profile_id": "eliot",
+        "task_type": "subagent",
+    }
 
 
 @pytest.mark.asyncio

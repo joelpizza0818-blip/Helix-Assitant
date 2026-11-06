@@ -44,18 +44,50 @@ def test_nested_protected_paths_and_process_paths_require_critical_risk(
 
 
 def test_auto_approve_mode_strictly_gates_critical_and_system(permission_manager):
-    permission_manager.configure(mode="AUTO_APPROVE")
+    permission_manager.configure(mode="AUTO_APPROVE", auto_approve_up_to="READ_ONLY")
 
     low_risk = permission_manager.evaluate_risk("system_tool", {"action": "status"}, "LOW_RISK")
     assert low_risk.requires_confirmation is False
+
+    execute_risk = permission_manager.evaluate_risk(
+        "shell_tool", {"command": "git status"}, "EXECUTE"
+    )
+    assert execute_risk.requires_confirmation is False
 
     system_risk = permission_manager.evaluate_risk("system_tool", {"action": "change_setting"}, "SYSTEM")
     assert system_risk.requires_confirmation is True
     assert "mandatory" in system_risk.reason.lower()
 
-    critical_risk = permission_manager.evaluate_risk("filesystem_tool", {"operation": "delete_all"}, "CRITICAL")
+    critical_risk = permission_manager.evaluate_risk(
+        "shell_tool",
+        {"command": "Remove-Item -Recurse C:\\secret"},
+        "EXECUTE",
+    )
     assert critical_risk.requires_confirmation is True
     assert "mandatory" in critical_risk.reason.lower()
+    assert critical_risk.level is PermissionLevel.CRITICAL
+
+
+def test_smart_approval_respects_configured_ceiling(permission_manager):
+    permission_manager.configure(mode="SMART_APPROVAL", auto_approve_up_to="MODIFY")
+
+    modify = permission_manager.evaluate_risk(
+        "filesystem_tool.write_file", {"path": "C:\\Temp\\file.txt"}, "MODIFY"
+    )
+    execute = permission_manager.evaluate_risk("browser_tool", {}, "EXECUTE")
+
+    assert modify.requires_confirmation is False
+    assert execute.requires_confirmation is True
+
+
+def test_always_ask_overrides_approval_ceiling(permission_manager):
+    permission_manager.configure(mode="ALWAYS_ASK", auto_approve_up_to="MODIFY")
+
+    evaluation = permission_manager.evaluate_risk(
+        "filesystem_tool.read_file", {"path": "C:\\Temp\\file.txt"}, "READ_ONLY"
+    )
+
+    assert evaluation.requires_confirmation is True
 
 
 def test_inspect_command_identifies_encoded_and_dangerous_commands():

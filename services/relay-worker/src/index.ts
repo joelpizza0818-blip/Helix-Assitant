@@ -198,16 +198,7 @@ export function sanitizeMobileMessage(
   ) {
     return null
   }
-  const rawAttachments = (payload as Record<string, unknown>).attachments
   const rawModel = (payload as Record<string, unknown>).model
-  const safeAttachments: Array<Record<string, unknown>> = []
-  if (Array.isArray(rawAttachments) && rawAttachments.length <= 10) {
-    for (const att of rawAttachments) {
-      if (att && typeof att === 'object' && !Array.isArray(att)) {
-        safeAttachments.push(att as Record<string, unknown>)
-      }
-    }
-  }
   const safeModel = typeof rawModel === 'string' && rawModel.length < 120 ? rawModel : undefined
 
   return {
@@ -216,7 +207,6 @@ export function sanitizeMobileMessage(
       text: rawText,
       conversation_id: `mobile_${deviceId}`,
       conversation_history: [],
-      ...(safeAttachments.length > 0 ? { attachments: safeAttachments } : {}),
       ...(safeModel ? { model: safeModel } : {}),
     },
     source_device_id: deviceId,

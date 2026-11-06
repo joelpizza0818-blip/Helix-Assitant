@@ -126,6 +126,7 @@ function canonicalManifest(manifest: CapabilityPackManifest): string {
 function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
   if (value && typeof value === 'object') {
+    // Stable key order keeps signatures independent of how callers assembled the object.
     const entries = Object.entries(value).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
     return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(',')}}`
   }
@@ -402,6 +403,7 @@ export class CapabilityManager {
         totalBytes: manifest.sizeBytes,
         status: 'downloading',
       })
+      // The signed manifest is the contract; don't promote staged bytes until both length and digest match it.
       if (received !== manifest.sizeBytes || hasher.digest('hex').toLowerCase() !== manifest.sha256.toLowerCase()) {
         throw new Error('Pack hash or size verification failed.')
       }

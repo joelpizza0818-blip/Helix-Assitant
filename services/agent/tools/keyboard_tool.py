@@ -4,6 +4,7 @@ import logging
 from .base_tool import BaseTool, ToolResult
 from ..perception.screen_engine import ScreenEngine
 from ..perception.screen_observation_policy import screen_observation_is_allowed
+from .permission_utils import has_consequential_action_text
 
 logger = logging.getLogger(__name__)
 
@@ -145,18 +146,40 @@ class KeyboardTool(_KeyboardController, BaseTool):
 
     @property
     def description(self) -> str:
-        return "Press a safe navigation or editing key in the focused control."
+        return (
+            "Press a safe navigation or editing key in the focused control. "
+            "Enter requires confirmation; describe the focused target when a "
+            "different key action is consequential."
+        )
 
     @property
     def permission_level(self) -> str:
         return "LOW_RISK"
+
+    def permission_level_for(self, params: dict) -> str:
+        key = params.get("key")
+        if isinstance(key, str) and key.casefold() == "enter":
+            return "EXECUTE"
+        if has_consequential_action_text(params.get("target_description")):
+            return "EXECUTE"
+        return self.permission_level
 
     @property
     def requires_confirmation(self) -> bool:
         return False
 
     def validate_params(self, params: dict) -> bool:
-        return isinstance(params.get("key"), str) and params["key"].lower() in _SAFE_KEYS
+        if not isinstance(params, dict):
+            return False
+        target = params.get("target_description")
+        return (
+            isinstance(params.get("key"), str)
+            and params["key"].lower() in _SAFE_KEYS
+            and (
+                target is None
+                or (isinstance(target, str) and len(target) <= 300)
+            )
+        )
 
     def get_schema(self) -> dict:
         return {
@@ -166,6 +189,13 @@ class KeyboardTool(_KeyboardController, BaseTool):
                 "type": "object",
                 "properties": {
                     "key": {"type": "string", "enum": sorted(_SAFE_KEYS)},
+                    "target_description": {
+                        "type": "string",
+                        "description": (
+                            "Visible label or purpose of the focused control, if "
+                            "the key action is consequential."
+                        ),
+                    },
                 },
                 "required": ["key"],
             },

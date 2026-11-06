@@ -190,6 +190,50 @@ function findControlElement(selector) {
     }
     return element
   }
+  if (query.startsWith('label=')) {
+    const label = query.slice(6).replace(/^["']|["']$/g, '').trim()
+    if (!label) throw new Error('A form label is required after "label=".')
+    const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim().toLowerCase()
+    const candidates = Array.from(document.querySelectorAll(
+      'input:not([type="hidden"]), textarea, select, [role="textbox"], [role="combobox"], [role="searchbox"], [contenteditable="true"]',
+    )).filter(isVisibleControl)
+    const labelsFor = (candidate) => {
+      const associatedLabels = Array.from(candidate.labels || [])
+        .map((item) => item.innerText || item.textContent || '')
+      const labelledBy = (candidate.getAttribute('aria-labelledby') || '')
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((id) => {
+          const referenced = document.getElementById(id)
+          return referenced?.innerText || referenced?.textContent || ''
+        })
+      const combinedLabels = [
+        associatedLabels.join(' '),
+        labelledBy.join(' '),
+      ]
+      return [
+        candidate.getAttribute('aria-label') || '',
+        ...combinedLabels,
+      ]
+    }
+    const normalizedLabel = normalize(label)
+    const matches = candidates.filter((candidate) => (
+      labelsFor(candidate).some((value) => normalize(value) === normalizedLabel)
+    ))
+    const partialMatches = matches.length > 0
+      ? matches
+      : candidates.filter((candidate) => (
+        labelsFor(candidate).some((value) => normalize(value).includes(normalizedLabel))
+      ))
+    const resolved = matches.length > 0 ? matches : partialMatches
+    if (resolved.length === 0) {
+      throw new Error(`No visible form control matches label "${label}".`)
+    }
+    if (resolved.length > 1) {
+      throw new Error(`The label "${label}" matches multiple form controls; use a unique label or CSS selector.`)
+    }
+    return resolved[0]
+  }
   if (query.startsWith('text=')) {
     const text = query.slice(5).replace(/^["']|["']$/g, '').trim().toLowerCase()
     if (!text) throw new Error('A visible text label is required after "text=".')

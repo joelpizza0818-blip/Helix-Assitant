@@ -326,6 +326,17 @@
   color: #ff914d;
 }
 
+.model-dropdown__free-tier-note {
+  margin: 4px 10px 8px;
+  padding: 6px 8px;
+  border: 1px solid rgba(160, 202, 146, 0.18);
+  border-radius: 6px;
+  background: rgba(160, 202, 146, 0.06);
+  color: #b7c9ae;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
 .model-dropdown__item--auth-required {
   opacity: 0.65;
 }

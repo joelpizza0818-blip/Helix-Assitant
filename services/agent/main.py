@@ -36,6 +36,7 @@ from core.state_manager import StateManager
 from core.task_manager import TaskManager
 from core.planner import Planner
 from core.orchestrator import Orchestrator
+from core.task_checkpoint_store import TaskCheckpointStore
 from core.agent import Agent
 from services.agent.core.tool_registry import ToolRegistry
 from core.role_config import RoleConfig
@@ -43,6 +44,7 @@ from core.context_manager import ContextManager
 from core.react_loop import ReActLoop
 from core.agent_manager import AgentManager
 from core.agent_profiles import AgentProfileStore
+from core.workflow_store import WorkflowStore
 from core.subagent_delegation import (
     configure_subagent_delegation,
     safe_subagent_lifecycle_payload,
@@ -75,6 +77,7 @@ from mcp.tool_provider import MCPToolBridge
 from plugins.plugin_manager import PluginManager
 from security.permission_manager import PermissionManager
 from memory.memory_manager import MemoryManager
+from memory.project_memory import ProjectMemoryStore
 from perception.screen_engine import ScreenEngine
 from perception.screen_vision_sampling import (
     DEFAULT_SCREEN_VISION_INTERVAL_MS,
@@ -339,6 +342,8 @@ async def main():
     # Skills Subsystem
     default_settings_path = Path(os.environ.get("APPDATA", Path.home())) / "HELIX" / "settings.json"
     settings_path = Path(os.environ.get("HELIX_SETTINGS_PATH", default_settings_path))
+    project_memory_store = ProjectMemoryStore(settings_path.parent / "projects")
+    workflow_store = WorkflowStore(settings_path.parent / "workflows", tool_registry)
     skill_loader = SkillLoader()
     skill_registry = SkillRegistry(skill_loader)
     skills_dir = Path(__file__).parent / "skills"
@@ -392,6 +397,9 @@ async def main():
         tool_registry=tool_registry,
         role_config=role_config,
         memory_manager=memory_manager,
+        checkpoint_store=TaskCheckpointStore(settings_path.parent / "tasks"),
+        project_memory_store=project_memory_store,
+        workflow_store=workflow_store,
     )
     
     agent = Agent(
@@ -401,7 +409,7 @@ async def main():
         task_manager=task_manager,
         skill_registry=skill_registry,
         intent_matcher=intent_matcher,
-        agent_manager=agent_manager
+        agent_manager=agent_manager,
     )
 
     request_handler = DesktopRequestHandler(
@@ -418,9 +426,15 @@ async def main():
         skill_registry,
         plugin_manager,
         agent_manager=agent_manager,
+        project_memory_store=project_memory_store,
+        orchestrator=orchestrator,
+        workflow_store=workflow_store,
     )
     def configure_from_saved_settings():
         saved = request_handler.get_settings()
+        project_memory_store.configure(
+            saved.get("execution_memory_ttl", "30_days")
+        )
         for configured_tool in tool_registry.get_all_tools():
             configure = getattr(configured_tool, 'configure', None)
             if callable(configure):
@@ -472,6 +486,7 @@ async def main():
             "AGENT_CANCELLED": "agent_update",
             "REACT_STEP": "react_step",
             "BROWSER_FRAME": "browser_frame",
+            "BROWSER_PROGRESS": "browser_progress",
             "DESKTOP_FRAME": "desktop_frame",
             "HAND_LANDMARKS": "hand_landmarks",
             "CAPABILITY_REQUIRED": "capability-required",
@@ -561,10 +576,10 @@ async def main():
             "payload": event_payload,
         })
         stale_clients = set()
-        if event_name == "BROWSER_FRAME" and not isinstance(
+        if event_name in {"BROWSER_FRAME", "BROWSER_PROGRESS"} and not isinstance(
             event_payload.get("conversation_id"), str
         ):
-            logger.warning("Dropping browser frame without a conversation id")
+            logger.warning("Dropping browser event without a conversation id")
             return
         recipients = select_desktop_event_recipients(
             event_name,
@@ -1226,6 +1241,15 @@ async def main():
         initialize_startup_settings(),
         name="helix-startup-settings",
     )
+
+    async def recover_after_startup_settings():
+        await startup_settings_task
+        await orchestrator.recover_interrupted_workflows()
+
+    recovery_task = asyncio.create_task(
+        recover_after_startup_settings(),
+        name="helix-workflow-recovery",
+    )
     
     try:
         # Keep server running until cancelled or interrupted
@@ -1243,6 +1267,12 @@ async def main():
             startup_settings_task.cancel()
             try:
                 await startup_settings_task
+            except asyncio.CancelledError:
+                pass
+        if not recovery_task.done():
+            recovery_task.cancel()
+            try:
+                await recovery_task
             except asyncio.CancelledError:
                 pass
         if gesture_engine:

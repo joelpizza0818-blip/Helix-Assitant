@@ -109,6 +109,7 @@ fn load_credentials() -> Result<Option<RelayCredentials>, String> {
         Ok(raw) => {
             let credentials = serde_json::from_str::<RelayCredentials>(&raw)
                 .map_err(|error| format!("Saved mobile relay credentials are invalid: {error}"))?;
+            // Keyring storage protects secrets at rest, but deserialized values still need protocol validation.
             validate_credentials(&credentials)?;
             Ok(Some(credentials))
         }

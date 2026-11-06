@@ -8,9 +8,7 @@
   },
   "workspace": {
     "packageJson": {
-      "dependencies": [
-        "npm:promptfoo@~0.124.1"
-      ]
+      "dependencies": []
     },
     "members": {
       "apps/cli": {

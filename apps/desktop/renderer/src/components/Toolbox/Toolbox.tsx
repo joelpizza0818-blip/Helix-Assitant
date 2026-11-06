@@ -13,6 +13,7 @@ import SecuritySection from './sections/SecuritySection'
 import StartupSection from './sections/StartupSection'
 import SkillsSection from './sections/SkillsSection'
 import MCPSection from './sections/MCPSection'
+import WorkflowsSection from './sections/WorkflowsSection'
 import ClipboardSection from './sections/ClipboardSection'
 import BrowserExtensionSection from './sections/BrowserExtensionSection'
 import UpdateSection from './sections/UpdateSection'
@@ -83,6 +84,7 @@ type Section =
   | 'security'
   | 'startup'
   | 'skills'
+  | 'workflows'
   | 'plugins'
   | 'community'
   | 'mcp'
@@ -105,6 +107,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { id: 'ai',       category: 'Intelligence', label: 'AI & Models',   keywords: 'openai anthropic gemini api keys models ollama deepseek', icon: <NavIcon d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" /> },
   { id: 'skills',   category: 'Intelligence', label: 'Skills',        keywords: 'prompts triggers automated workflows tools', icon: <NavIcon d="M12 3v18m-9-9h18M5.6 5.6l12.8 12.8m0-12.8L5.6 18.4" /> },
+  { id: 'workflows', category: 'Intelligence', label: 'Workflows', keywords: 'visual builder nodes trigger condition automation', icon: <NavIcon d="M4 5h6v6H4zM14 13h6v6h-6zM10 8h4v8h-4" /> },
   { id: 'plugins',  category: 'Intelligence', label: 'Plugins',       keywords: 'gmail chatgpt word excel powerpoint browser integrations', icon: <NavIcon d="M8 3v4m8-4v4M3 8h18M5 8v11h14V8M9 13h6" /> },
   { id: 'mcp',      category: 'Intelligence', label: 'MCP Servers',   keywords: 'model context protocol tools servers stdio', icon: <NavIcon d="M12 3v18m-9-9h18M5 5l14 14m0-14L5 19" /> },
   { id: 'memory',   category: 'Intelligence', label: 'Memory & RAG',  keywords: 'context pgvector memory long term history', icon: <NavIcon d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" /> },
@@ -213,6 +216,11 @@ export default function Toolbox() {
   const { settings, isLoading, isSaving, isApplied, error, loadSettings, saveSettings } = useSettings()
   const saveOtherSettings = useCallback(async (partial: Partial<typeof settings>) => {
     await saveSettings(partial)
+  }, [saveSettings])
+  const saveSoundSettings = useCallback(async (partial: Partial<typeof settings>) => {
+    const result = await saveSettings(partial)
+    if (!result.ok) throw result.error
+    return true
   }, [saveSettings])
   const { providers, models, loadProviders, loadModels } = useAgent()
   const isAdmin = profile?.rank === 'admin' || profile?.rank === 'master-admin'
@@ -476,7 +484,7 @@ export default function Toolbox() {
                 <ComputerSection settings={settings} onSave={saveOtherSettings} />
               )}
               {activeSection === 'system' && (
-                <SystemSection settings={settings} onSave={saveOtherSettings} />
+                <SystemSection settings={settings} onSave={saveOtherSettings} onSaveSound={saveSoundSettings} />
               )}
               {activeSection === 'web' && (
                 <WebSection settings={settings} onSave={saveOtherSettings} />
@@ -491,6 +499,7 @@ export default function Toolbox() {
                 <StartupSection settings={settings} onSave={saveOtherSettings} />
               )}
               {activeSection === 'skills' && <SkillsSection />}
+              {activeSection === 'workflows' && <WorkflowsSection />}
               {activeSection === 'plugins' && <PluginsSection />}
               {activeSection === 'community' && <CommunitySection profile={profile} />}
               {activeSection === 'mcp' && (

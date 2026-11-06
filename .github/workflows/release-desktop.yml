@@ -71,8 +71,8 @@ jobs:
           npm ci
           npm run typecheck --workspace=@helix/desktop
 
-      - name: Block release on high or critical dependency advisories
-        run: npm audit --omit=dev --audit-level=high
+      - name: Block release on dependency advisories
+        run: npm audit --audit-level=high
 
       - name: Bump desktop version and lockfile
         id: version

@@ -37,6 +37,17 @@ def test_empty_environment_keys_are_not_configured(clean_env, monkeypatch):
     assert not km.is_provider_configured("openai")
     assert "openai" not in km.get_configured_providers()
 
+
+def test_openrouter_generic_environment_key_is_loaded_into_first_slot(
+    clean_env, monkeypatch
+):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+
+    km = KeyManager()
+
+    assert km.get_key("openrouter", 0) == "test-openrouter-key"
+    assert km.get_configured_providers() == ["openrouter"]
+
 def test_save_key_persists_and_activates_provider(monkeypatch, clean_env):
     saved = {}
     monkeypatch.setattr(

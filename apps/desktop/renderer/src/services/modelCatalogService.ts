@@ -2,13 +2,13 @@
  * Model Catalog Service — communicates with the agent backend via IPC.
  *
  * Provides typed access to the unified model catalog, Ollama status and
- * model pull operations.  Falls back to a static catalog if the backend
- * is not reachable (e.g., during UI development without a running agent).
+ * model pull operations.
  */
 
 declare const window: {
   helix?: {
     sendMessage?: (type: string, payload?: unknown) => Promise<unknown>
+    getModelCatalog?: () => Promise<ModelCatalog>
     ensureOllama?: () => Promise<void>
   }
 }
@@ -98,10 +98,11 @@ const STATIC_CATALOG: ModelCatalog = {
         model_type: 'open_weight',
         access_type: 'free_tier',
         weight_source: 'Meta',
-        note: 'Requiere tu OPENROUTER_API_KEY',
+        note: 'Modelo sin costo de OpenRouter; requiere una API key de OpenRouter.',
+        auth_note: 'Configura una API key de OpenRouter en los ajustes de IA.',
         capabilities: { text: true, tool_calling: true, streaming: true, context_window: 131072 },
         status: 'AUTH_REQUIRED',
-        auth_note: 'Requiere tu propia OPENROUTER_API_KEY',
+        configured: false,
       },
       {
         id: 'qwen/qwen-2.5-coder-7b-instruct:free',
@@ -110,10 +111,11 @@ const STATIC_CATALOG: ModelCatalog = {
         model_type: 'open_weight',
         access_type: 'free_tier',
         weight_source: 'Alibaba',
-        note: 'Requiere tu OPENROUTER_API_KEY',
+        note: 'Modelo sin costo de OpenRouter; requiere una API key de OpenRouter.',
+        auth_note: 'Configura una API key de OpenRouter en los ajustes de IA.',
         capabilities: { text: true, tool_calling: true, streaming: true, coding: true, context_window: 32768 },
         status: 'AUTH_REQUIRED',
-        auth_note: 'Requiere tu propia OPENROUTER_API_KEY',
+        configured: false,
       },
       {
         id: 'deepseek/deepseek-r1:free',
@@ -122,10 +124,11 @@ const STATIC_CATALOG: ModelCatalog = {
         model_type: 'open_weight',
         access_type: 'free_tier',
         weight_source: 'DeepSeek',
-        note: 'Requiere tu OPENROUTER_API_KEY. Sin tool calling.',
+        note: 'Modelo sin costo de OpenRouter; requiere una API key de OpenRouter. Sin tool calling.',
+        auth_note: 'Configura una API key de OpenRouter en los ajustes de IA.',
         capabilities: { text: true, streaming: true, reasoning: true, context_window: 65536 },
         status: 'AUTH_REQUIRED',
-        auth_note: 'Requiere tu propia OPENROUTER_API_KEY',
+        configured: false,
       },
       {
         id: 'google/gemini-2.0-flash-exp:free',
@@ -134,10 +137,11 @@ const STATIC_CATALOG: ModelCatalog = {
         model_type: 'open_weight',
         access_type: 'free_tier',
         weight_source: 'Google',
-        note: 'Requiere tu OPENROUTER_API_KEY',
+        note: 'Modelo sin costo de OpenRouter; requiere una API key de OpenRouter.',
+        auth_note: 'Configura una API key de OpenRouter en los ajustes de IA.',
         capabilities: { text: true, vision: true, tool_calling: true, streaming: true, context_window: 1048576 },
         status: 'AUTH_REQUIRED',
-        auth_note: 'Requiere tu propia OPENROUTER_API_KEY',
+        configured: false,
       },
     ],
     local: [
@@ -234,8 +238,11 @@ async function sendIpc<T>(type: string, payload?: unknown): Promise<T | null> {
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export async function getModelCatalog(): Promise<ModelCatalog> {
-  const result = await sendIpc<ModelCatalog>('GET_MODEL_CATALOG')
-  return result ?? STATIC_CATALOG
+  const getCatalog = window.helix?.getModelCatalog
+  if (!getCatalog) {
+    throw new Error('Model catalog is unavailable in this HELIX runtime.')
+  }
+  return getCatalog()
 }
 
 export async function getOllamaStatus(): Promise<OllamaStatus | null> {

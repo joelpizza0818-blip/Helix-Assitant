@@ -64,6 +64,7 @@ async def test_execution_summary_tracks_steps_tools_progress_and_result():
     summary = serialized["execution_summary"]
     assert task.progress >= 15
     assert summary["steps"][0]["label"] == "Model execution step 1"
+    assert summary["tool_calls"][0]["id"]
     assert summary["tool_calls"][0]["status"] == "succeeded"
     assert "secret-value" not in str(summary)
     assert summary["result"] == {
@@ -82,3 +83,22 @@ async def test_task_manager_rejects_duplicate_task_ids():
 
     task = await manager.get_task("task-once")
     assert task.description == "First request"
+
+
+@pytest.mark.asyncio
+async def test_task_manager_progress_labels_explain_waiting_states():
+    manager = TaskManager(AsyncMock())
+    await manager.create_task("task-state-labels", "Wait for approval")
+
+    expected_labels = [
+        (TaskStatus.QUEUED, "Waiting in queue…"),
+        (TaskStatus.WAITING_CONFIRMATION, "Waiting for your approval…"),
+        (TaskStatus.PAUSED, "Paused — waiting for you to resume…"),
+        (TaskStatus.RETRYING, "Retrying safely…"),
+        (TaskStatus.FAILED, "Could not finish this task."),
+    ]
+
+    for status, expected in expected_labels:
+        await manager.update_status("task-state-labels", status)
+        task = await manager.get_task("task-state-labels")
+        assert task.execution_summary.progress_label == expected

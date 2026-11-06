@@ -32,6 +32,20 @@ def test_browser_frames_without_a_conversation_have_no_recipients():
     ) == set()
 
 
+def test_browser_progress_only_reaches_clients_registered_for_the_conversation():
+    first_client = object()
+    second_client = object()
+
+    recipients = select_desktop_event_recipients(
+        "BROWSER_PROGRESS",
+        {"conversation_id": "conversation-1"},
+        {first_client, second_client},
+        {"conversation-1": {first_client}},
+    )
+
+    assert recipients == {first_client}
+
+
 def test_non_browser_events_keep_the_existing_broadcast_behavior():
     clients = {object(), object()}
     recipients = select_desktop_event_recipients(

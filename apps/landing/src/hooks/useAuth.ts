@@ -1,9 +1,14 @@
 import { useState, useEffect } from 'react';
+import type { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
+
 export function useAuth() {
-  const [user, setUser] = useState<any>(null);
-  const [session, setSession] = useState<any>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -17,7 +22,7 @@ export function useAuth() {
       setIsLoading(false);
     }).catch((sessionError: unknown) => {
       if (!active) return;
-      setError(sessionError instanceof Error ? sessionError.message : 'Could not restore your session.');
+      setError(getErrorMessage(sessionError, 'Could not restore your session.'));
       setIsLoading(false);
     });
 
@@ -41,6 +46,10 @@ export function useAuth() {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) setError(error.message);
       return { error };
+    } catch (authError: unknown) {
+      const message = getErrorMessage(authError, 'Could not sign in.');
+      setError(message);
+      throw authError instanceof Error ? authError : new Error(message);
     } finally {
       setIsLoading(false);
     }
@@ -59,13 +68,31 @@ export function useAuth() {
       });
       if (result.error) setError(result.error.message);
       return result;
+    } catch (authError: unknown) {
+      const message = getErrorMessage(authError, 'Could not create your account.');
+      setError(message);
+      throw authError instanceof Error ? authError : new Error(message);
     } finally {
       setIsLoading(false);
     }
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    setError(null);
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        setError(error.message);
+        return { error };
+      }
+      setSession(null);
+      setUser(null);
+      return { error: null };
+    } catch (authError: unknown) {
+      const message = getErrorMessage(authError, 'Could not sign out.');
+      setError(message);
+      return { error: new Error(message) };
+    }
   };
 
   const signInWithGitHub = async (redirectTo: string) => {
@@ -79,6 +106,10 @@ export function useAuth() {
         }
       });
       if (error) setError(error.message);
+    } catch (authError: unknown) {
+      const message = getErrorMessage(authError, 'Could not authenticate with GitHub.');
+      setError(message);
+      throw authError instanceof Error ? authError : new Error(message);
     } finally {
       setIsLoading(false);
     }

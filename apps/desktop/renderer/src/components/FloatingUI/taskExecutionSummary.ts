@@ -53,6 +53,7 @@ export function safeInputSummary(input?: Partial<ModelInputSummary>): ModelInput
 
 export function safeToolCall(call: TaskToolCallSummary): TaskToolCallSummary {
   return {
+    id: call.id,
     tool: safeSummaryText(call.tool, 100),
     status: call.status === 'succeeded' ? 'succeeded' : 'failed',
     result_summary: safeSummaryText(call.result_summary),

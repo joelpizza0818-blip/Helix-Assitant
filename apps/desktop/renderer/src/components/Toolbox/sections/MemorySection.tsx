@@ -1,5 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react'
-import type { HelixSettings, MemoryStatus } from '../../../types/global'
+import type { HelixSettings, MemoryStatus, ProjectRegistry } from '../../../types/global'
+import ProjectGraphEditor, { type ProjectGraphEditorHandle } from './ProjectGraphEditor'
+import ProjectFilesPanel from './ProjectFilesPanel'
 import '../Toolbox.css'
 
 interface UserMemoryProfile {
@@ -16,6 +18,13 @@ interface Props {
 export default function MemorySection({ settings, onSave }: Props) {
   const [clearedNotice, setClearedNotice] = useState(false)
   const [memoryStatus, setMemoryStatus] = useState<MemoryStatus | null>(null)
+  const [projectRegistry, setProjectRegistry] = useState<ProjectRegistry>({
+    active_project_id: null,
+    projects: [],
+  })
+  const projectGraphEditorRef = useRef<ProjectGraphEditorHandle>(null)
+  const [projectFolderPath, setProjectFolderPath] = useState('')
+  const [projectBusy, setProjectBusy] = useState(false)
   const [profile, setProfile] = useState<UserMemoryProfile>({ summary: '', user_notes: '', updated_at: '' })
   const [maintenanceError, setMaintenanceError] = useState<string | null>(null)
 
@@ -52,6 +61,8 @@ export default function MemorySection({ settings, onSave }: Props) {
           setProfile(p)
           setUserNotesDraft(p.user_notes)
         }
+        const projects = await window.helix.getProjects()
+        if (active) setProjectRegistry(projects)
       } catch (error) {
         if (active) {
           setMaintenanceError(error instanceof Error ? error.message : 'Could not load memory.')
@@ -65,6 +76,38 @@ export default function MemorySection({ settings, onSave }: Props) {
       window.clearInterval(interval)
     }
   }, [])
+
+  const importProjectFolder = async () => {
+    if (!projectFolderPath.trim()) return
+    setProjectBusy(true)
+    setMaintenanceError(null)
+    try {
+      const projects = await window.helix.importProjectFolder(projectFolderPath.trim())
+      setProjectRegistry(projects)
+      setProjectFolderPath('')
+    } catch (error) {
+      setMaintenanceError(error instanceof Error ? error.message : 'Could not import project folder.')
+    } finally {
+      setProjectBusy(false)
+    }
+  }
+
+  const selectProject = async (projectId: string) => {
+    if (!projectGraphEditorRef.current?.confirmProjectChange()) return
+    setProjectBusy(true)
+    setMaintenanceError(null)
+    try {
+      const result = await window.helix.setActiveProject(projectId || null)
+      setProjectRegistry((current) => ({
+        ...current,
+        active_project_id: result.active_project_id,
+      }))
+    } catch (error) {
+      setMaintenanceError(error instanceof Error ? error.message : 'Could not select project.')
+    } finally {
+      setProjectBusy(false)
+    }
+  }
 
   // --- Summary handlers ---
   const startEditSummary = () => {
@@ -140,6 +183,99 @@ export default function MemorySection({ settings, onSave }: Props) {
       <p className="toolbox-section__desc">
         Review what Helix remembers about you and add your own notes.
       </p>
+
+      <div className="toolbox-card" style={{ marginBottom: 16 }}>
+        <div className="toolbox-card__header">
+          <span className="toolbox-card__title">Project context</span>
+        </div>
+        <p className="text-xs text-muted" style={{ marginBottom: 10 }}>
+          Link a folder as a project. HELIX keeps project memory locally and lets you manage files in the linked folder.
+        </p>
+        <div className="form-row">
+          <label className="form-label" htmlFor="active-project">Active project</label>
+          <select
+            id="active-project"
+            className="form-input"
+            value={projectRegistry.active_project_id ?? ''}
+            disabled={projectBusy}
+            onChange={(event) => void selectProject(event.target.value)}
+          >
+            <option value="">No project</option>
+            {projectRegistry.projects.map((project) => (
+              <option key={project.project_id} value={project.project_id}>
+                {project.name} — {project.root_path}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="form-row">
+          <label className="form-label" htmlFor="project-folder-path">Folder path</label>
+          <input
+            id="project-folder-path"
+            className="form-input"
+            value={projectFolderPath}
+            placeholder="Paste an existing folder path"
+            onChange={(event) => setProjectFolderPath(event.target.value)}
+            disabled={projectBusy}
+          />
+          <button
+            type="button"
+            className="validate-btn"
+            disabled={projectBusy || !projectFolderPath.trim()}
+            onClick={() => void importProjectFolder()}
+          >
+            {projectBusy ? 'Saving…' : 'Add project'}
+          </button>
+        </div>
+        <div className="form-row">
+          <label className="form-label" htmlFor="execution-memory-ttl">Execution memory retention</label>
+          <select
+            id="execution-memory-ttl"
+            className="form-input"
+            value={settings.execution_memory_ttl ?? '30_days'}
+            onChange={(event) => void onSave({
+              execution_memory_ttl: event.target.value as NonNullable<HelixSettings['execution_memory_ttl']>,
+            })}
+          >
+            <option value="session">This conversation only</option>
+            <option value="30_days">30 days</option>
+            <option value="permanent">Keep permanently</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="toolbox-card" style={{ marginBottom: 16 }}>
+        <div className="toolbox-card__header">
+          <span className="toolbox-card__title">Project workspace</span>
+        </div>
+        <p className="text-xs text-muted" style={{ marginBottom: 10 }}>
+          Create files and folders in the linked project, or import selected files into the selected folder.
+        </p>
+        <ProjectFilesPanel projectId={projectRegistry.active_project_id} />
+      </div>
+
+      <div className="toolbox-card" style={{ marginBottom: 16 }}>
+        <div className="toolbox-card__header">
+          <span className="toolbox-card__title">Project knowledge graph</span>
+        </div>
+        <p className="text-xs text-muted" style={{ marginBottom: 10 }}>
+          View nodes and relationships, then select an item to edit its content, connections, or appearance.
+        </p>
+        <ProjectGraphEditor
+          ref={projectGraphEditorRef}
+          projectId={projectRegistry.active_project_id}
+        />
+      </div>
+
+      <div className="toolbox-card" style={{ marginBottom: 16 }}>
+        <div className="toolbox-card__header">
+          <span className="toolbox-card__title">General memory graph</span>
+        </div>
+        <p className="text-xs text-muted" style={{ marginBottom: 10 }}>
+          A separate graph of memories HELIX learns across conversations; it does not mix with project files or project knowledge.
+        </p>
+        <ProjectGraphEditor projectId={null} graphType="general" />
+      </div>
 
       {/* ── Helix's knowledge summary ─────────────────────────── */}
       <div className="toolbox-card" style={{ marginBottom: 16 }}>

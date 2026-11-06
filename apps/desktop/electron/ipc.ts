@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import WebSocket from 'ws'
 import type { BrowserPageSnapshot } from './browser-extension-bridge'
 import { websocketAuthHeaders } from './websocket-auth'
@@ -92,13 +92,16 @@ export class IPCBridge {
     })
 
     // Renderer -> Python (fire and forget)
-    ipcMain.on('helix:send-message', (_event, payload: {
+    ipcMain.handle('helix:send-message', async (_event, payload: {
       text: string
       conversation_id: string
       conversation_history: Array<{ role: 'user' | 'assistant'; content: string }>
       attachments?: Array<{ name: string; mime_type: string; size: number; data_base64: string }>
     }) => {
-      this._sendToPython({ type: 'USER_TEXT', payload, timestamp: new Date().toISOString() })
+      await this._request(
+        { type: 'USER_TEXT', payload, timestamp: new Date().toISOString() },
+        10000,
+      )
     })
 
     ipcMain.on('helix:cancel-task', (_event, taskId: string) => {
@@ -122,16 +125,23 @@ export class IPCBridge {
       return this._request({ type: 'GET_TASKS', payload: {} })
     })
 
+    ipcMain.handle('helix:install-playwright-chromium', async () => {
+      return this._request({
+        type: 'INSTALL_PLAYWRIGHT_CHROMIUM',
+        payload: { confirmed: true },
+      }, 900_000)
+    })
+
     ipcMain.handle('helix:get-subagent-profiles', async () => {
-      return this._request({ type: 'GET_SUBAGENT_PROFILES', payload: {} })
+      return this._request({ type: 'GET_SUBAGENT_PROFILES', payload: {} }, 30000)
     })
 
     ipcMain.handle('helix:get-subagent-status', async () => {
-      return this._request({ type: 'GET_SUBAGENT_STATUS', payload: {} })
+      return this._request({ type: 'GET_SUBAGENT_STATUS', payload: {} }, 30000)
     })
 
     ipcMain.handle('helix:get-subagent-routing-options', async () => {
-      return this._request({ type: 'GET_SUBAGENT_ROUTING_OPTIONS', payload: {} })
+      return this._request({ type: 'GET_SUBAGENT_ROUTING_OPTIONS', payload: {} }, 30000)
     })
 
     ipcMain.handle('helix:set-subagent-route', async (_event, route: {
@@ -234,6 +244,10 @@ export class IPCBridge {
       return this._request({ type: 'GET_MODELS', payload: { requirements: requirements ?? {} } })
     })
 
+    ipcMain.handle('helix:get-model-catalog', async () => {
+      return this._request({ type: 'GET_MODEL_CATALOG', payload: {} })
+    })
+
     ipcMain.handle('helix:get-settings', async () => {
       const settings = await this._request({ type: 'GET_SETTINGS', payload: {} })
       this._updateGestureWindowSequenceSetting(settings)
@@ -260,6 +274,99 @@ export class IPCBridge {
 
     ipcMain.handle('helix:get-memory-status', async () => {
       return this._request({ type: 'GET_MEMORY_STATUS', payload: {} })
+    })
+
+    ipcMain.handle('helix:get-projects', async () => {
+      return this._request({ type: 'GET_PROJECTS', payload: {} })
+    })
+
+    ipcMain.handle('helix:import-project-folder', async (_event, folderPath: string) => {
+      return this._request({
+        type: 'IMPORT_PROJECT_FOLDER',
+        payload: { folder_path: folderPath },
+      })
+    })
+
+    ipcMain.handle('helix:get-project-files', async (_event, projectId: string) => {
+      return this._request({
+        type: 'GET_PROJECT_FILES',
+        payload: { project_id: projectId },
+      })
+    })
+
+    ipcMain.handle('helix:create-project-entry', async (
+      _event,
+      projectId: string,
+      relativePath: string,
+      entryType: 'file' | 'folder',
+    ) => {
+      return this._request({
+        type: 'CREATE_PROJECT_ENTRY',
+        payload: {
+          project_id: projectId,
+          relative_path: relativePath,
+          entry_type: entryType,
+        },
+      })
+    })
+
+    ipcMain.handle('helix:import-project-files', async (event, projectId: string, targetDirectory: string) => {
+      const parent = BrowserWindow.fromWebContents(event.sender)
+      const options = {
+        title: 'Import files into project',
+        properties: ['openFile', 'multiSelections'] as Array<'openFile' | 'multiSelections'>,
+      }
+      const result = parent
+        ? await dialog.showOpenDialog(parent, options)
+        : await dialog.showOpenDialog(options)
+      if (result.canceled) return { canceled: true }
+      return this._request({
+        type: 'IMPORT_PROJECT_FILES',
+        payload: {
+          project_id: projectId,
+          source_paths: result.filePaths,
+          target_directory: targetDirectory,
+        },
+      })
+    })
+
+    ipcMain.handle('helix:set-active-project', async (_event, projectId: string | null) => {
+      return this._request({
+        type: 'SET_ACTIVE_PROJECT',
+        payload: { project_id: projectId },
+      })
+    })
+
+    ipcMain.handle('helix:get-project-graph', async (_event, projectId: string) => {
+      return this._request({
+        type: 'GET_PROJECT_GRAPH',
+        payload: { project_id: projectId },
+      })
+    })
+
+    ipcMain.handle('helix:save-project-graph', async (
+      _event,
+      projectId: string,
+      graph: { nodes: unknown[]; edges: unknown[] },
+    ) => {
+      return this._request({
+        type: 'SAVE_PROJECT_GRAPH',
+        payload: { project_id: projectId, graph },
+      })
+    })
+
+    ipcMain.handle('helix:get-general-memory-graph', async () => {
+      return this._request({ type: 'GET_GENERAL_MEMORY_GRAPH', payload: {} })
+    })
+
+    ipcMain.handle('helix:save-general-memory-graph', async (
+      _event,
+      graph: { nodes: unknown[]; edges: unknown[] },
+    ) => {
+      return this._request({
+        type: 'SAVE_GENERAL_MEMORY_GRAPH',
+        payload: { graph },
+      })
     })
 
     ipcMain.handle('helix:clear-memory', async () => {
@@ -323,6 +430,34 @@ export class IPCBridge {
 
     ipcMain.handle('helix:get-mcp-servers', async () => {
       return this._request({ type: 'GET_MCP_SERVERS', payload: {} })
+    })
+
+    ipcMain.handle('helix:get-workflows', async () => {
+      return this._request({ type: 'GET_WORKFLOWS', payload: {} })
+    })
+
+    ipcMain.handle('helix:get-workflow-tools', async () => {
+      return this._request({ type: 'GET_WORKFLOW_TOOLS', payload: {} })
+    })
+
+    ipcMain.handle('helix:get-workflow-agents', async () => {
+      return this._request({ type: 'GET_WORKFLOW_AGENTS', payload: {} }, 30000)
+    })
+
+    ipcMain.handle('helix:get-workflow-capabilities', async () => {
+      return this._request({ type: 'GET_WORKFLOW_CAPABILITIES', payload: {} })
+    })
+
+    ipcMain.handle('helix:save-workflow', async (_event, workflow: object) => {
+      return this._request({ type: 'SAVE_WORKFLOW', payload: { workflow } })
+    })
+
+    ipcMain.handle('helix:delete-workflow', async (_event, id: string) => {
+      return this._request({ type: 'DELETE_WORKFLOW', payload: { id } })
+    })
+
+    ipcMain.handle('helix:run-workflow', async (_event, id: string, input: string) => {
+      return this._request({ type: 'RUN_WORKFLOW', payload: { id, input } })
     })
   }
 
@@ -405,7 +540,11 @@ export class IPCBridge {
           }
     const response = await this._request(
       request,
-      action === 'chat' ? 120000 : 10000,
+      action === 'chat'
+        ? 120000
+        : action === 'list_profiles'
+          ? 30000
+          : 10000,
     )
     if (action === 'chat') {
       if (!isRecord(response)) throw new Error('Desktop returned an invalid subagent reply.')
@@ -669,6 +808,10 @@ export class IPCBridge {
           console.warn('[IPCBridge] WebSocket connection closed')
           if (this.ws === ws) this.ws = null
           if (connected) {
+            this._sendToAll('helix:error', {
+              source: 'agent_connection',
+              message: 'The HELIX agent connection was lost. Reconnecting now.',
+            })
             this._scheduleReconnect()
           } else if (!settled) {
             settled = true

@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, KeyboardEvent } from 'react'
 import { useAgent } from '../../hooks/useAgent'
 import { useSettings } from '../../hooks/useSettings'
+import { playConfiguredSound } from '../../lib/soundEffects'
 import { HelixLogo } from '../HelixLogo/HelixLogo'
 import MessageBubble from './MessageBubble'
 import ConfirmationPrompt from './ConfirmationPrompt'
@@ -20,18 +21,18 @@ import {
   getAttachmentMimeType,
   validateAttachmentSelection,
 } from './attachmentFiles'
-import { splitSkillMentions } from './skillMentions'
-import type { ChatAttachment, MCPServerStatus, SkillSummary } from '../../types/global'
+import { splitSkillMentions, splitWorkflowMentions } from './skillMentions'
+import { getTaskProgressMessage } from './taskProgressMessage'
+import type {
+  ChatAttachment,
+  MCPServerStatus,
+  SkillSummary,
+  WorkflowDefinition,
+} from '../../types/global'
 import ModelSelectorDropdown from './ModelSelectorDropdown'
 import './FloatingUI.css'
 
 export default function FloatingUI() {
-  const {
-    messages, conversationHistory, conversationHistoryError, conversationId, isLoading, tasks, agentUpdates, agentStatus, currentModel, currentProvider,
-    taskCount, pendingConfirmation, fallbackEvent,
-    sendMessage, selectConversation, deleteConversation, startNewConversation,
-    cancelTask, confirmAction, rejectAction, dismissFallback
-  } = useAgent({ persistConversation: true })
   const {
     settings: voiceSettings,
     isLoading: isVoiceSettingsLoading,
@@ -40,6 +41,44 @@ export default function FloatingUI() {
     loadSettings,
     saveSettings,
   } = useSettings()
+  const tasksWithErrorSoundRef = useRef(new Set<string>())
+  const {
+    messages, conversationHistory, conversationHistoryError, conversationId, isLoading, tasks, agentUpdates, agentStatus, currentModel, currentProvider,
+    taskCount, pendingConfirmation, fallbackEvent, browserProgress, browserFrame,
+    sendMessage, selectConversation, deleteConversation, startNewConversation,
+    cancelTask, confirmAction, rejectAction, dismissFallback
+  } = useAgent({
+    persistConversation: true,
+    onTaskUpdate: (task) => {
+      if (voiceSettings.sound_effects_enabled === false) return
+      for (const call of task.execution_summary?.tool_calls ?? []) {
+        const kind = call.status === 'succeeded' ? 'success' : 'error'
+        if (kind === 'error') {
+          tasksWithErrorSoundRef.current.add(task.id)
+          if (tasksWithErrorSoundRef.current.size > 200) {
+            const oldestTaskId = tasksWithErrorSoundRef.current.values().next().value
+            if (oldestTaskId) tasksWithErrorSoundRef.current.delete(oldestTaskId)
+          }
+        }
+        const preset = kind === 'success'
+          ? voiceSettings.success_sound_preset ?? 'helix_chime'
+          : voiceSettings.error_sound_preset ?? 'low_buzz'
+        void playConfiguredSound(kind, preset).catch((error: unknown) => {
+          console.error(`[FloatingUI] Could not play ${kind} action sound:`, error)
+        })
+      }
+      if (task.status === 'failed' && !tasksWithErrorSoundRef.current.has(task.id)) {
+        tasksWithErrorSoundRef.current.add(task.id)
+        void playConfiguredSound('error', voiceSettings.error_sound_preset ?? 'low_buzz').catch((error: unknown) => {
+          console.error('[FloatingUI] Could not play task error sound:', error)
+        })
+        if (tasksWithErrorSoundRef.current.size > 200) {
+          const oldestTaskId = tasksWithErrorSoundRef.current.values().next().value
+          if (oldestTaskId) tasksWithErrorSoundRef.current.delete(oldestTaskId)
+        }
+      }
+    },
+  })
 
   const [inputText, setInputText] = useState('')
   const [voiceSettingsReady, setVoiceSettingsReady] = useState(false)
@@ -47,11 +86,13 @@ export default function FloatingUI() {
   const [showTaskSummary, setShowTaskSummary] = useState(false)
   const [showConversationHistory, setShowConversationHistory] = useState(false)
   const [skills, setSkills] = useState<SkillSummary[]>([])
+  const [workflows, setWorkflows] = useState<WorkflowDefinition[]>([])
   const [mcpServers, setMcpServers] = useState<MCPServerStatus[]>([])
   const [activeMention, setActiveMention] = useState<ActiveMention | null>(null)
   const [selectedMentionIndex, setSelectedMentionIndex] = useState(0)
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const [isReadingAttachments, setIsReadingAttachments] = useState(false)
+  const [taskClock, setTaskClock] = useState(Date.now())
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const inputHighlightRef = useRef<HTMLDivElement>(null)
@@ -136,6 +177,34 @@ export default function FloatingUI() {
   }, [])
 
   useEffect(() => {
+    let active = true
+    void window.helix.getWorkflows().then((availableWorkflows) => {
+      if (active) setWorkflows(availableWorkflows)
+    }).catch((error: unknown) => {
+      console.error('[FloatingUI] Failed to load workflow mentions:', error)
+    })
+    return () => {
+      active = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (activeMention?.trigger !== '%') return
+    let active = true
+    const timeout = window.setTimeout(() => {
+      void window.helix.getWorkflows().then((availableWorkflows) => {
+        if (active) setWorkflows(availableWorkflows)
+      }).catch((error: unknown) => {
+        console.error('[FloatingUI] Failed to refresh workflow suggestions:', error)
+      })
+    }, 200)
+    return () => {
+      active = false
+      window.clearTimeout(timeout)
+    }
+  }, [activeMention?.trigger, activeMention?.query])
+
+  useEffect(() => {
     if (activeMention?.trigger !== '/') return
     let active = true
     const timeout = window.setTimeout(() => {
@@ -164,12 +233,28 @@ export default function FloatingUI() {
         name: server.name,
         description: `MCP server · ${server.tool_count} tools`,
       })),
+    ...workflows.map((workflow) => ({
+      trigger: '%' as const,
+      name: workflow.id,
+      description: workflow.description || workflow.name,
+    })),
   ]
   const filteredMentionOptions = filterMentionOptions(mentionOptions, activeMention)
   const inputSegments = splitSkillMentions(
     inputText,
     skills.map((skill) => skill.name),
-  )
+  ).flatMap((segment) => {
+    if (segment.isSkillMention) {
+      return [{ value: segment.value, className: 'skill-mention' }]
+    }
+    return splitWorkflowMentions(
+      segment.value,
+      workflows.map((workflow) => workflow.id),
+    ).map((workflowSegment) => ({
+      value: workflowSegment.value,
+      className: workflowSegment.isWorkflowMention ? 'workflow-mention' : undefined,
+    }))
+  })
 
   const handleSend = () => {
     const text = inputText.trim()
@@ -317,8 +402,26 @@ export default function FloatingUI() {
     error: 'status-dot--error'
   }[agentStatus] ?? 'status-dot--idle'
 
-  const runningTasks = tasks.filter((t) => t.status === 'running' || t.status === 'queued')
-  const activeTask = tasks.find((t) => t.status === 'running') ?? tasks.find((t) => t.status === 'queued')
+  const runningTasks = tasks.filter((task) => (
+    task.status === 'running'
+    || task.status === 'queued'
+    || task.status === 'retrying'
+    || task.status === 'waiting_confirmation'
+    || task.status === 'paused'
+  ))
+  const activeTask = tasks.find((task) => task.status === 'running')
+    ?? tasks.find((task) => task.status === 'retrying')
+    ?? tasks.find((task) => task.status === 'waiting_confirmation')
+    ?? tasks.find((task) => task.status === 'queued')
+    ?? tasks.find((task) => task.status === 'paused')
+  const activeProgressMessage = getTaskProgressMessage(activeTask, taskClock)
+
+  useEffect(() => {
+    if (!activeTask) return
+    setTaskClock(Date.now())
+    const timer = window.setInterval(() => setTaskClock(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [activeTask?.id])
 
   return (
         <div className={`floating-ui ${suppressedMode ? 'floating-ui--suppressed' : ''}`}>
@@ -479,14 +582,24 @@ export default function FloatingUI() {
               key={`${msg.timestamp}-${idx}`}
               message={msg}
               skillNames={skills.map((skill) => skill.name)}
+              workflowIds={workflows.map((workflow) => workflow.id)}
               agentUpdates={agentUpdates}
             />
           ))}
           {isLoading && (
             <div className="message-bubble message-bubble--assistant">
               <span className="message-progress-label" aria-live="polite">
-                {activeTask?.execution_summary.progress_label ?? 'Thinking…'}
+                {browserProgress
+                  ? `${browserProgress.status === 'running' ? 'Browser' : `Browser ${browserProgress.status}`}: ${browserProgress.action}`
+                  : activeProgressMessage}
               </span>
+              {browserFrame && (
+                <img
+                  className="browser-live-frame"
+                  src={browserFrame}
+                  alt="Live snapshot of the HELIX-controlled browser"
+                />
+              )}
             </div>
           )}
           <div ref={messagesEndRef} />
@@ -508,6 +621,7 @@ export default function FloatingUI() {
           runningCount={runningTasks.length}
           activeDescription={activeTask?.current_action ?? activeTask?.description ?? null}
           activeTask={activeTask}
+          activeProgressMessage={activeProgressMessage}
           runningTasks={runningTasks}
           expanded={showTaskSummary}
           onClick={() => setShowTaskSummary(toggleSummaryExpanded)}
@@ -527,7 +641,7 @@ export default function FloatingUI() {
               {inputSegments.map((segment, index) => (
                 <span
                   key={`${index}-${segment.value}`}
-                  className={segment.isSkillMention ? 'skill-mention' : undefined}
+                  className={segment.className}
                 >
                   {segment.value}
                 </span>
@@ -569,7 +683,13 @@ export default function FloatingUI() {
               id="floating-ui-mention-suggestions"
               className="floating-ui__mention-suggestions"
               role="listbox"
-              aria-label={activeMention?.trigger === '@' ? 'Skills' : 'MCP servers'}
+              aria-label={
+                activeMention?.trigger === '@'
+                  ? 'Skills'
+                  : activeMention?.trigger === '%'
+                    ? 'Workflows'
+                    : 'MCP servers'
+              }
             >
               {filteredMentionOptions.map((option, index) => (
                 <button

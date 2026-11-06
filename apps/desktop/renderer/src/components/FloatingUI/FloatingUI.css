@@ -202,6 +202,16 @@
   color: var(--color-mist);
 }
 
+.browser-live-frame {
+  display: block;
+  width: min(100%, 360px);
+  max-height: 180px;
+  margin-top: 10px;
+  object-fit: contain;
+  border: 1px solid var(--color-graphite);
+  border-radius: var(--radius-btn);
+}
+
 .message-bubble--system,
 .message-bubble--tool {
   align-self: flex-start;
@@ -505,6 +515,15 @@
   color: var(--color-acid-lime);
   font-weight: var(--font-weight-w510);
   background: rgba(228, 242, 34, 0.08);
+  border-radius: var(--radius-small);
+  padding: 0 2px;
+}
+
+.workflow-mention,
+.bubble__workflow-mention {
+  color: #80c9ff;
+  font-weight: var(--font-weight-w510);
+  background: rgba(72, 166, 255, 0.1);
   border-radius: var(--radius-small);
   padding: 0 2px;
 }

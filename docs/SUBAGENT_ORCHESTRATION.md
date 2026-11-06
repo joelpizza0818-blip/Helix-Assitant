@@ -52,6 +52,12 @@ task. Direct subagent chat allows up to 20 minutes in Desktop and the Mobile
 relay path. Failed task updates carry a sanitized explanation that the Task
 Manager displays; raw exception text is not forwarded.
 
+Delegated work and direct profile chats use task progress labels for live
+activity, including thinking, searching, tool execution, resource waits, and
+approval waits. Direct-chat task records expose only the profile ID and generic
+task description; the user's message and the agent's reply stay out of task
+metadata and progress summaries.
+
 Each profile gets a separate `UserMemoryManager` file under
 `<settings directory>/subagents/memories/<profile_id>.json`. `manage_memory`
 operates on the active profile scope during a subagent turn. Memory remains
@@ -110,11 +116,13 @@ uses the restricted preload bridge and exposes:
 - Optional provider/model/key-slot assignment with a visual connection to
   invoked and not-invoked profiles.
 
-Direct-chat activity is tracked per profile in the renderer: a request to one
-profile does not mark other profiles as responding or disable their chat input.
-Different profiles continue to execute concurrently, while requests to the same
-profile remain serialized. Status refreshes share an in-flight request, and the
-backend fetches task progress for all returned subagents in one locked snapshot.
+Direct-chat activity is tracked per profile through task updates from the agent
+runtime: the panel displays the current progress label instead of a generic
+responding state. A request to one profile does not mark other profiles as
+active or disable their chat input. Different profiles continue to execute
+concurrently, while requests to the same profile remain serialized. Status
+refreshes share an in-flight request, and the backend fetches task progress for
+all returned subagents in one locked snapshot.
 
 The Python request handler provides `GET_SUBAGENT_PROFILES`,
 `GET_SUBAGENT_STATUS`, `GET_SUBAGENT_ROUTING_OPTIONS`, `SET_SUBAGENT_ROUTE`,

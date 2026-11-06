@@ -29,10 +29,11 @@ def mock_event_bus():
 
 @pytest.fixture
 def clean_env(monkeypatch):
-    providers = ["OPENAI", "ANTHROPIC", "GOOGLE"]
+    providers = ["OPENAI", "ANTHROPIC", "GOOGLE", "OPENROUTER"]
     for p in providers:
         for i in range(1, 4):
             monkeypatch.delenv(f"{p}_API_KEY_{i}", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
 
 @pytest.fixture
 def google_only_env(clean_env, monkeypatch):

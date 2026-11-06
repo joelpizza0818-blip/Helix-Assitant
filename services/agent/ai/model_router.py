@@ -32,6 +32,10 @@ class RouteCandidate:
     score: int
     fallback_available: bool
 
+
+def credential_provider_id(provider_id: str) -> str:
+    return "openrouter" if provider_id == "free" else provider_id
+
 class ModelRouter:
     def __init__(self, capability_registry: CapabilityRegistry, provider_registry: ProviderRegistry, key_manager: KeyManager):
         self.capability_registry = capability_registry
@@ -73,7 +77,7 @@ class ModelRouter:
                 routes.append(candidate)
                 continue
             credential = self.key_manager.get_key(
-                candidate.provider_id,
+                credential_provider_id(candidate.provider_id),
                 candidate.key_slot,
             )
             if not credential or credential in seen_credentials:
@@ -120,7 +124,7 @@ class ModelRouter:
         response_candidate: RouteCandidate,
     ) -> List[RouteCandidate]:
         response_key = self.key_manager.get_key(
-            response_candidate.provider_id,
+            credential_provider_id(response_candidate.provider_id),
             response_candidate.key_slot,
         )
         if not response_key:
@@ -133,11 +137,11 @@ class ModelRouter:
             candidate
             for candidate in candidates
             if self.key_manager.get_key(
-                candidate.provider_id,
+                credential_provider_id(candidate.provider_id),
                 candidate.key_slot,
             )
             and self.key_manager.get_key(
-                candidate.provider_id,
+                credential_provider_id(candidate.provider_id),
                 candidate.key_slot,
             ) != response_key
         ]
@@ -202,7 +206,8 @@ class ModelRouter:
             elif quality_preference == "low":
                 score += 20 if model.capabilities.cost_tier == "low" else 0
 
-            slots_and_keys = list(self.key_manager.get_available_keys(model.provider))
+            key_provider_id = credential_provider_id(model.provider)
+            slots_and_keys = list(self.key_manager.get_available_keys(key_provider_id))
             prov_obj = self.provider_registry.get_registered_provider(model.provider)
             if not slots_and_keys and prov_obj and getattr(prov_obj, "no_key_required", False):
                 slots_and_keys = [(0, "free-or-local")]

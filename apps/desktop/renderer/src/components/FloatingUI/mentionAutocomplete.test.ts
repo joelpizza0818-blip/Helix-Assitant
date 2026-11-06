@@ -11,6 +11,7 @@ const options: MentionOption[] = [
   { trigger: '@', name: 'coding', description: 'Code assistance' },
   { trigger: '@', name: 'meeting-notes', description: 'Meeting notes' },
   { trigger: '/', name: 'github', description: 'GitHub MCP server' },
+  { trigger: '%', name: 'summarize', description: 'Summarize workflow' },
 ]
 
 test('finds only a mention token at the caret', () => {
@@ -22,6 +23,12 @@ test('finds only a mention token at the caret', () => {
   })
   assert.equal(findActiveMention('email@domain.test'), null)
   assert.equal(findActiveMention('path/to/file'), null)
+  assert.deepEqual(findActiveMention('Run %summ'), {
+    trigger: '%',
+    query: 'summ',
+    start: 4,
+    end: 9,
+  })
 })
 
 test('filters suggestions by mention type and query', () => {
@@ -32,6 +39,10 @@ test('filters suggestions by mention type and query', () => {
   assert.deepEqual(
     filterMentionOptions(options, findActiveMention('Use /')),
     [options[2]],
+  )
+  assert.deepEqual(
+    filterMentionOptions(options, findActiveMention('Run %summ')),
+    [options[3]],
   )
 })
 

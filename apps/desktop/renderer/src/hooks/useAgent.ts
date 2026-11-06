@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import type {
   AgentMessage, AgentStatus, AgentStatusUpdate, TaskDefinition,
   ConfirmationRequest, FallbackEvent, ProviderStatus, ModelDefinition,
-  ProviderID, ModelRequestEvent, AgentLifecycleEvent
+  ProviderID, ModelRequestEvent, AgentLifecycleEvent,
+  BrowserProgressEvent,
 } from '../types/global'
 import type { ChatAttachment } from '../types/global'
 import {
@@ -26,6 +27,8 @@ interface UseAgentReturn {
   taskCount: number
   pendingConfirmation: ConfirmationRequest | null
   fallbackEvent: FallbackEvent | null
+  browserProgress: BrowserProgressEvent | null
+  browserFrame: string | null
   providers: ProviderStatus[]
   models: ModelDefinition[]
   sendMessage: (text: string, attachments?: ChatAttachment[]) => void
@@ -41,10 +44,20 @@ interface UseAgentReturn {
   dismissFallback: () => void
 }
 
-export function useAgent(options: { persistConversation?: boolean } = {}): UseAgentReturn {
+interface UseAgentOptions {
+  persistConversation?: boolean
+  onTaskUpdate?: (task: TaskDefinition) => void
+}
+
+export function useAgent(options: UseAgentOptions = {}): UseAgentReturn {
   const persistConversation = options.persistConversation ?? false
+  const onTaskUpdateRef = useRef(options.onTaskUpdate)
+  const seenToolCallIdsRef = useRef(new Set<string>())
+  onTaskUpdateRef.current = options.onTaskUpdate
   const [messages, setMessages] = useState<AgentMessage[]>([])
   const [conversationId, setConversationId] = useState<string>(() => crypto.randomUUID())
+  const conversationIdRef = useRef(conversationId)
+  conversationIdRef.current = conversationId
   const [conversationHistory, setConversationHistory] = useState<StoredConversation[]>([])
   const [conversationHistoryError, setConversationHistoryError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -56,6 +69,8 @@ export function useAgent(options: { persistConversation?: boolean } = {}): UseAg
   const [taskCount, setTaskCount] = useState(0)
   const [pendingConfirmation, setPendingConfirmation] = useState<ConfirmationRequest | null>(null)
   const [fallbackEvent, setFallbackEvent] = useState<FallbackEvent | null>(null)
+  const [browserProgress, setBrowserProgress] = useState<BrowserProgressEvent | null>(null)
+  const [browserFrame, setBrowserFrame] = useState<string | null>(null)
   const [providers, setProviders] = useState<ProviderStatus[]>([])
   const [models, setModels] = useState<ModelDefinition[]>([])
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -92,6 +107,9 @@ export function useAgent(options: { persistConversation?: boolean } = {}): UseAg
         return refreshed.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
       })
       setConversationId(selected.id)
+      conversationIdRef.current = selected.id
+      setBrowserProgress(null)
+      setBrowserFrame(null)
       setMessages(selected.messages)
     } catch (error) {
       console.error('Failed to open conversation:', error)
@@ -99,7 +117,11 @@ export function useAgent(options: { persistConversation?: boolean } = {}): UseAg
   }, [])
 
   const startNewConversation = useCallback(() => {
-    setConversationId(crypto.randomUUID())
+    const nextConversationId = crypto.randomUUID()
+    conversationIdRef.current = nextConversationId
+    setConversationId(nextConversationId)
+    setBrowserProgress(null)
+    setBrowserFrame(null)
     setMessages([])
     setIsLoading(false)
   }, [])
@@ -140,6 +162,8 @@ export function useAgent(options: { persistConversation?: boolean } = {}): UseAg
           setIsLoading(true)
         } else if (msg.role === 'assistant' && !msg.streaming) {
           setIsLoading(false)
+          setAgentStatus('idle')
+          setBrowserProgress(null)
         }
       })
     )
@@ -158,6 +182,22 @@ export function useAgent(options: { persistConversation?: boolean } = {}): UseAg
 
     cleanups.push(
       window.helix.onTaskUpdate((task) => {
+        const newToolCalls = (task.execution_summary?.tool_calls ?? []).filter((call) => {
+          if (!call.id || seenToolCallIdsRef.current.has(call.id)) return false
+          seenToolCallIdsRef.current.add(call.id)
+          if (seenToolCallIdsRef.current.size > 1000) {
+            const oldestId = seenToolCallIdsRef.current.values().next().value
+            if (oldestId) seenToolCallIdsRef.current.delete(oldestId)
+          }
+          return true
+        })
+        onTaskUpdateRef.current?.({
+          ...task,
+          execution_summary: {
+            ...task.execution_summary,
+            tool_calls: newToolCalls,
+          },
+        })
         setTasks((prev) => {
           const idx = prev.findIndex((t) => t.id === task.id)
           const mergedTask = {
@@ -232,9 +272,37 @@ export function useAgent(options: { persistConversation?: boolean } = {}): UseAg
     )
 
     cleanups.push(
+      window.helix.onBrowserProgress((event) => {
+        if (
+          event.conversation_id !== conversationIdRef.current
+          || typeof event.action !== 'string'
+          || !['running', 'completed', 'failed'].includes(event.status)
+        ) return
+        setBrowserProgress(event)
+      })
+    )
+
+    cleanups.push(
+      window.helix.onBrowserFrame((event) => {
+        if (
+          event.conversation_id !== conversationIdRef.current
+          || event.mime_type !== 'image/jpeg'
+          || typeof event.image_base64 !== 'string'
+          || event.image_base64.length > 750_000
+          || !/^[A-Za-z0-9+/]+={0,2}$/.test(event.image_base64)
+        ) return
+        setBrowserFrame(`data:${event.mime_type};base64,${event.image_base64}`)
+      })
+    )
+
+    cleanups.push(
       window.helix.onError((err) => {
         console.error('[useAgent] Agent error:', err)
-        if (err.source === 'camera' || err.source === 'microphone') {
+        if (
+          err.source === 'camera'
+          || err.source === 'microphone'
+          || err.source === 'agent_connection'
+        ) {
           setMessages((previous) => [
             ...previous,
             {
@@ -261,6 +329,8 @@ export function useAgent(options: { persistConversation?: boolean } = {}): UseAg
 
   const sendMessage = useCallback((text: string, attachments: ChatAttachment[] = []) => {
     if (!text.trim() && attachments.length === 0) return
+    setBrowserProgress(null)
+    setBrowserFrame(null)
     const attachmentSummary = attachments.length
       ? `\n\nAdjuntos: ${attachments.map((item) => item.name).join(', ')}`
       : ''
@@ -281,11 +351,23 @@ export function useAgent(options: { persistConversation?: boolean } = {}): UseAg
       return history
     }, [])
     conversationHistory.push({ role: 'user', content: `${text}${attachmentSummary}` })
-    window.helix?.sendMessage({
+    void window.helix.sendMessage({
       text,
       conversation_id: conversationId,
       conversation_history: conversationHistory,
       attachments,
+    }).catch((error: unknown) => {
+      console.error('[useAgent] Could not deliver message to the agent:', error)
+      setIsLoading(false)
+      setAgentStatus('error')
+      setMessages((previous) => [
+        ...previous,
+        {
+          role: 'assistant',
+          content: 'HELIX could not deliver this message to the agent. Check the connection and try again.',
+          timestamp: new Date().toISOString(),
+        },
+      ])
     })
   }, [messages, conversationId])
 
@@ -324,7 +406,15 @@ export function useAgent(options: { persistConversation?: boolean } = {}): UseAg
   const loadTasks = useCallback(async () => {
     try {
       const result = await window.helix?.getTasks()
-      if (result) setTasks(result as TaskDefinition[])
+      if (result) {
+        const loadedTasks = result as TaskDefinition[]
+        for (const task of loadedTasks) {
+          for (const call of task.execution_summary?.tool_calls ?? []) {
+            if (call.id) seenToolCallIdsRef.current.add(call.id)
+          }
+        }
+        setTasks(loadedTasks)
+      }
     } catch (err) {
       console.error('Failed to load tasks:', err)
     }
@@ -337,7 +427,7 @@ export function useAgent(options: { persistConversation?: boolean } = {}): UseAg
 
   return {
     messages, conversationHistory, conversationHistoryError, conversationId, isLoading, tasks, agentUpdates, agentStatus, currentModel, currentProvider,
-    taskCount, pendingConfirmation, fallbackEvent, providers, models,
+    taskCount, pendingConfirmation, fallbackEvent, browserProgress, browserFrame, providers, models,
     sendMessage, selectConversation, deleteConversation, startNewConversation, cancelTask, confirmAction, rejectAction,
     loadProviders, loadModels, loadTasks, dismissFallback
   }

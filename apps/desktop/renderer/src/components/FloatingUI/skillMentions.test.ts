@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import type { Root } from 'mdast'
 import {
   splitSkillMentions,
+  splitWorkflowMentions,
   transformSkillMentions,
 } from './skillMentions'
 
@@ -35,6 +36,20 @@ test('does not highlight skill-name prefixes or embedded mentions', () => {
   assert.deepEqual(
     splitSkillMentions('x@coding @coding.extra @coding-tools', ['coding']),
     [{ value: 'x@coding @coding.extra @coding-tools', isSkillMention: false }],
+  )
+})
+
+test('highlights only exact saved workflow mentions', () => {
+  assert.deepEqual(
+    splitWorkflowMentions(
+      'Run %summarize, not %unknown or email%summarize.',
+      ['summarize'],
+    ),
+    [
+      { value: 'Run ', isWorkflowMention: false },
+      { value: '%summarize', isWorkflowMention: true },
+      { value: ', not %unknown or email%summarize.', isWorkflowMention: false },
+    ],
   )
 })
 

@@ -381,6 +381,7 @@ export class MobileRelayClient {
 
   private scheduleReconnect(): void {
     if (this.closing || this.reconnectTimer) return
+    // A short pause beats treating a flaky relay like an elevator button: pressing faster won't make it arrive.
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null
       void this.openSocket().catch((error: unknown) => {

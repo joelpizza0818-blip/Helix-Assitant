@@ -27,6 +27,8 @@ const rendererEvents: Record<string, string> = {
   onTaskUpdate: 'helix:task-update',
   onStatusUpdate: 'helix:status-update',
   onFallbackEvent: 'helix:fallback-event',
+  onBrowserProgress: 'helix:browser_progress',
+  onBrowserFrame: 'helix:browser_frame',
   onConfirmationRequest: 'helix:confirmation-request',
   onConfirmationResolved: 'helix:confirmation-resolved',
   onError: 'helix:error',
@@ -89,9 +91,23 @@ export async function installTauriBridge(): Promise<void> {
   const handlers = new Map<string, Set<EventHandler>>()
   const pendingOAuthCallbacks: string[] = []
   const notifyError = (error: unknown) => {
-    handlers.get('onError')?.forEach((handler) => handler({
-      message: error instanceof Error ? error.message : String(error),
-    }))
+    const source =
+      typeof error === 'object'
+      && error !== null
+      && 'source' in error
+      && error.source === 'agent_connection'
+        ? 'agent_connection'
+        : undefined
+    const message =
+      typeof error === 'object'
+      && error !== null
+      && 'message' in error
+      && typeof error.message === 'string'
+        ? error.message
+        : error instanceof Error
+          ? error.message
+          : String(error)
+    handlers.get('onError')?.forEach((handler) => handler({ source, message }))
   }
   let startup: Promise<void> | null = null
   const ensureStarted = () => {
@@ -134,9 +150,12 @@ export async function installTauriBridge(): Promise<void> {
     if (eventName === 'helix:agent-status') {
       const status = (event.payload as { status?: string }).status
       if (status === 'error' || status === 'disconnected') {
-        notifyError(status === 'error'
-          ? 'Python agent could not start'
-          : 'Python agent disconnected')
+        notifyError({
+          source: 'agent_connection',
+          message: status === 'error'
+            ? 'Python agent could not start'
+            : 'The HELIX agent connection was lost. Reconnecting now.',
+        })
       }
       return
     }
@@ -156,8 +175,10 @@ export async function installTauriBridge(): Promise<void> {
   handleOAuthUrls(await getCurrent() ?? [])
 
   const api = {
-    sendMessage: (payload: Parameters<HelixAPI['sendMessage']>[0]) =>
-      send('USER_TEXT', payload),
+    sendMessage: async (payload: Parameters<HelixAPI['sendMessage']>[0]) => {
+      await ensureStarted()
+      await invoke('agent_send', { messageType: 'USER_TEXT', payload })
+    },
     cancelTask: (taskId: string) => send('TASK_CANCEL', { task_id: taskId }),
     emergencyStop: () => send('TASK_CANCEL_ALL'),
     confirmAction: (requestId: string) =>
@@ -194,12 +215,29 @@ export async function installTauriBridge(): Promise<void> {
     saveSettings: async (settings: Partial<HelixSettings>) => {
       await request('SAVE_SETTINGS', { settings })
     },
+    installPlaywrightChromium: () =>
+      request(
+        'INSTALL_PLAYWRIGHT_CHROMIUM',
+        { confirmed: true },
+        900_000,
+      ) as ReturnType<HelixAPI['installPlaywrightChromium']>,
     testTts: (text?: string) => request('TEST_TTS', { text }, 30000) as ReturnType<HelixAPI['testTts']>,
     getMemoryStatus: () => request('GET_MEMORY_STATUS') as ReturnType<HelixAPI['getMemoryStatus']>,
+    getProjects: () => request('GET_PROJECTS') as ReturnType<HelixAPI['getProjects']>,
+    importProjectFolder: (folderPath: string) =>
+      request('IMPORT_PROJECT_FOLDER', { folder_path: folderPath }) as ReturnType<HelixAPI['importProjectFolder']>,
+    setActiveProject: (projectId: string | null) =>
+      request('SET_ACTIVE_PROJECT', { project_id: projectId }) as ReturnType<HelixAPI['setActiveProject']>,
+    getProjectGraph: (projectId: string) =>
+      request('GET_PROJECT_GRAPH', { project_id: projectId }) as ReturnType<HelixAPI['getProjectGraph']>,
+    saveProjectGraph: (projectId: string, graph: Parameters<HelixAPI['saveProjectGraph']>[1]) =>
+      request('SAVE_PROJECT_GRAPH', { project_id: projectId, graph }) as ReturnType<HelixAPI['saveProjectGraph']>,
     clearMemory: () => request('CLEAR_MEMORY') as ReturnType<HelixAPI['clearMemory']>,
     getProviders: () => request('GET_PROVIDERS') as ReturnType<HelixAPI['getProviders']>,
     getModels: (requirements?: Parameters<HelixAPI['getModels']>[0]) =>
       request('GET_MODELS', { requirements: requirements ?? {} }) as ReturnType<HelixAPI['getModels']>,
+    getModelCatalog: () =>
+      request('GET_MODEL_CATALOG') as ReturnType<HelixAPI['getModelCatalog']>,
     getTasks: () => request('GET_TASKS') as ReturnType<HelixAPI['getTasks']>,
     getCapabilities: () => invoke('get_capabilities') as ReturnType<HelixAPI['getCapabilities']>,
     refreshCapabilities: () => invoke('get_capabilities') as ReturnType<HelixAPI['refreshCapabilities']>,
@@ -215,6 +253,16 @@ export async function installTauriBridge(): Promise<void> {
       request('SAVE_SKILL', { skill }) as ReturnType<HelixAPI['saveSkill']>,
     deleteSkill: async (name: string) => { await request('DELETE_SKILL', { name }) },
     getMcpServers: () => request('GET_MCP_SERVERS') as ReturnType<HelixAPI['getMcpServers']>,
+    getWorkflows: () => request('GET_WORKFLOWS') as ReturnType<HelixAPI['getWorkflows']>,
+    getWorkflowTools: () => request('GET_WORKFLOW_TOOLS') as ReturnType<HelixAPI['getWorkflowTools']>,
+    getWorkflowAgents: () => request('GET_WORKFLOW_AGENTS') as ReturnType<HelixAPI['getWorkflowAgents']>,
+    getWorkflowCapabilities: () => request('GET_WORKFLOW_CAPABILITIES') as ReturnType<HelixAPI['getWorkflowCapabilities']>,
+    saveWorkflow: (workflow: Parameters<HelixAPI['saveWorkflow']>[0]) =>
+      request('SAVE_WORKFLOW', { workflow }) as ReturnType<HelixAPI['saveWorkflow']>,
+    deleteWorkflow: (id: string) =>
+      request('DELETE_WORKFLOW', { id }) as ReturnType<HelixAPI['deleteWorkflow']>,
+    runWorkflow: (id: string, input: string) =>
+      request('RUN_WORKFLOW', { id, input }) as ReturnType<HelixAPI['runWorkflow']>,
     openToolbox: () => invoke<void>('open_toolbox').catch(notifyError),
     setFloatingWindowMode: () => Promise.resolve(),
     quit: () => invoke<void>('quit_app').catch(notifyError),
@@ -232,6 +280,8 @@ export async function installTauriBridge(): Promise<void> {
     onTaskUpdate: (handler: EventHandler) => subscribe('onTaskUpdate', handler),
     onStatusUpdate: (handler: EventHandler) => subscribe('onStatusUpdate', handler),
     onFallbackEvent: (handler: EventHandler) => subscribe('onFallbackEvent', handler),
+    onBrowserProgress: (handler: EventHandler) => subscribe('onBrowserProgress', handler),
+    onBrowserFrame: (handler: EventHandler) => subscribe('onBrowserFrame', handler),
     onConfirmationRequest: (handler: EventHandler) => subscribe('onConfirmationRequest', handler),
     onConfirmationResolved: (handler: EventHandler) =>
       subscribe('onConfirmationResolved', handler),

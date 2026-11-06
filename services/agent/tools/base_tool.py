@@ -9,6 +9,8 @@ class ToolResult:
     output: Any
     error: Optional[str] = None
     side_effects: Optional[List[Any]] = field(default_factory=list)
+    safe_to_retry: bool = False
+    allow_replan: bool = False
 
 @dataclass
 class ToolSchema:

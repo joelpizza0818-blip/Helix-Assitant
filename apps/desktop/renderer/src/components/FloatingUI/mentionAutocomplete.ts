@@ -1,12 +1,12 @@
 export interface ActiveMention {
-  trigger: '@' | '/'
+  trigger: '@' | '/' | '%'
   query: string
   start: number
   end: number
 }
 
 export interface MentionOption {
-  trigger: '@' | '/'
+  trigger: '@' | '/' | '%'
   name: string
   description: string
 }
@@ -16,7 +16,7 @@ export function findActiveMention(
   caretPosition = value.length,
 ): ActiveMention | null {
   const beforeCaret = value.slice(0, caretPosition)
-  const match = /(^|\s)([@/])([A-Za-z0-9_.-]*)$/.exec(beforeCaret)
+  const match = /(^|\s)([@/%])([A-Za-z0-9_.-]*)$/.exec(beforeCaret)
   if (!match) return null
 
   const start = beforeCaret.length - match[0].length + match[1].length

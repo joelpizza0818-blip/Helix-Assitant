@@ -128,11 +128,18 @@ class TestGetModels:
         assert "ollama" in providers, "Ollama models should appear with no BYOK keys"
 
     @pytest.mark.asyncio
-    async def test_returns_free_models_with_no_byok(self):
+    async def test_free_models_require_openrouter_key(self):
         bridge = self._make_bridge(configured_providers=[])
         models = await bridge._get_models({})
         providers = {m["provider"] for m in models}
-        assert "free" in providers, "Free models should appear with no BYOK keys"
+        assert "free" not in providers
+
+    @pytest.mark.asyncio
+    async def test_returns_free_models_when_openrouter_is_configured(self):
+        bridge = self._make_bridge(configured_providers=["openrouter"])
+        models = await bridge._get_models({})
+        providers = {m["provider"] for m in models}
+        assert "free" in providers
 
     @pytest.mark.asyncio
     async def test_returns_byok_models_when_configured(self):
@@ -250,6 +257,22 @@ class TestBridgeIpcHandlers:
             assert "local" in result["categories"]
             assert len(result["categories"]["local"]) >= 3
             assert len(result["categories"]["free_tier"]) >= 3
+            assert all(
+                model["status"] == "AUTH_REQUIRED"
+                for model in result["categories"]["free_tier"]
+            )
+
+    @pytest.mark.asyncio
+    async def test_get_model_catalog_marks_free_models_available_with_openrouter_key(self):
+        from services.agent.ai.ollama_manager import OllamaManager
+        stub = self._make_bridge_stub(configured=["openrouter"])
+        with patch.object(OllamaManager, "is_running", new=AsyncMock(return_value=False)), \
+             patch.object(OllamaManager, "list_installed", new=AsyncMock(return_value=[])):
+            result = await _get_bridge_class()._get_model_catalog(stub)
+        assert all(
+            model["status"] == "AVAILABLE"
+            for model in result["categories"]["free_tier"]
+        )
 
     @pytest.mark.asyncio
     async def test_get_ollama_status_shape(self):
@@ -298,7 +321,7 @@ class TestAgentProfilesModelRoute:
         from services.agent.core.agent_profiles import AgentProfileStore
         return AgentProfileStore(path=None)
 
-    def test_free_provider_route_no_key_slot(self):
+    def test_free_provider_route_defaults_key_slot_to_zero(self):
         """free provider should accept model_route without key_slot."""
         store = self._make_store()
         profile_data = {
@@ -311,7 +334,7 @@ class TestAgentProfilesModelRoute:
             "model_route": {
                 "provider": "free",
                 "model": "meta-llama/llama-3.2-3b-instruct:free",
-                # No key_slot — should default to 0
+                # Older saved profiles without a slot remain compatible.
             },
         }
         profile = store._validate_and_build(profile_data)
@@ -415,9 +438,10 @@ class TestSubagentRoutingOptions:
         assert "ollama" in provider_ids
         assert "openai" in provider_ids
 
-        # Free/ollama should have no_key_required=True
+        # Free tier uses the OpenRouter credential pool.
         free_entry = next(p for p in result["providers"] if p["id"] == "free")
-        assert free_entry.get("no_key_required") is True
+        assert free_entry.get("no_key_required") is not True
+        assert free_entry["key_slots"] == [1]
 
 
 # ════════════════════════════════════════════════════════════════════════════

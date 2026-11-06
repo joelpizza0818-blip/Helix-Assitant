@@ -39,6 +39,9 @@ def serialize_task_for_desktop(task: Any) -> dict:
         and metadata.get("task_type") == "subagent"
     ):
         serialized["task_type"] = "subagent"
+        profile_id = metadata.get("profile_id")
+        if isinstance(profile_id, str):
+            serialized["profile_id"] = profile_id
     serialized.pop("result", None)
     serialized.pop("metadata", None)
     return serialized

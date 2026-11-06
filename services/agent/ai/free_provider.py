@@ -43,12 +43,11 @@ DEFAULT_OLLAMA_MODELS = [
 class FreeModelProvider(OpenAIProvider):
     """Provides access to 0-cost cloud models with automatic fallback upon rate-limits."""
 
-    no_key_required = True
+    no_key_required = False
 
     def __init__(self, base_url: str = "https://openrouter.ai/api/v1", api_key: Optional[str] = None):
         self._base_url = os.environ.get("HELIX_FREE_MODELS_URL", base_url).rstrip("/")
-        # User or default public free routing key
-        self._api_key = api_key or os.environ.get("OPENROUTER_API_KEY") or os.environ.get("HELIX_FREE_API_KEY") or "free-tier"
+        self._api_key = api_key or os.environ.get("OPENROUTER_API_KEY") or ""
 
     @property
     def provider_id(self) -> str:
@@ -59,7 +58,9 @@ class FreeModelProvider(OpenAIProvider):
         return "Helix Free Tier (0-Cost)"
 
     def _client(self, api_key: str, base_url: str | None = None):
-        key_to_use = self._api_key if (not api_key or api_key == "free-tier") else api_key
+        key_to_use = api_key or self._api_key
+        if not key_to_use:
+            raise RuntimeError("An OpenRouter API key is required to use free-tier models.")
         url_to_use = base_url or self._base_url
         client = super()._client(api_key=key_to_use, base_url=url_to_use)
         # OpenRouter expects HTTP-Referer and X-Title for free model routing
@@ -76,12 +77,15 @@ class FreeModelProvider(OpenAIProvider):
 
         for target_model in models_to_try:
             try:
+                call_kwargs = dict(kwargs)
+                api_key = call_kwargs.pop("api_key", self._api_key)
+                call_kwargs.pop("base_url", None)
                 return await super().chat(
                     messages=messages,
                     model=target_model,
-                    api_key=kwargs.get("api_key", self._api_key),
+                    api_key=api_key,
                     base_url=self._base_url,
-                    **kwargs,
+                    **call_kwargs,
                 )
             except Exception as exc:
                 last_error = exc
@@ -93,12 +97,15 @@ class FreeModelProvider(OpenAIProvider):
         raise self.normalize_error(last_error or RuntimeError("All free models exhausted"))
 
     async def stream(self, messages: List[ChatMessage], model: str, **kwargs) -> AsyncIterator[StreamChunk]:
+        call_kwargs = dict(kwargs)
+        api_key = call_kwargs.pop("api_key", self._api_key)
+        call_kwargs.pop("base_url", None)
         async for chunk in super().stream(
             messages=messages,
             model=model,
-            api_key=kwargs.get("api_key", self._api_key),
+            api_key=api_key,
             base_url=self._base_url,
-            **kwargs,
+            **call_kwargs,
         ):
             yield chunk
 
@@ -108,13 +115,16 @@ class FreeModelProvider(OpenAIProvider):
 
         for target_model in models_to_try:
             try:
+                call_kwargs = dict(kwargs)
+                api_key = call_kwargs.pop("api_key", self._api_key)
+                call_kwargs.pop("base_url", None)
                 return await super().tool_call(
                     messages=messages,
                     tools=tools,
                     model=target_model,
-                    api_key=kwargs.get("api_key", self._api_key),
+                    api_key=api_key,
                     base_url=self._base_url,
-                    **kwargs,
+                    **call_kwargs,
                 )
             except Exception as exc:
                 last_error = exc

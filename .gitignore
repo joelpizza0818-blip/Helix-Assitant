@@ -50,12 +50,7 @@ supabase/.temp/
 
 tests/*
 !tests/k6/
-!tests/promptfoo/
 !tests/k6/*.js
-!tests/promptfoo/*.mjs
-!tests/promptfoo/*.py
-!tests/promptfoo/*.yaml
-tests/promptfoo/eval-results*.json
 /tools/
 /.tools/
 /.helix-relay-url.json

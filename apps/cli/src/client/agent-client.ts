@@ -220,7 +220,7 @@ export class AgentClient extends EventEmitter {
   }
 
   private _handleMessage(message: AgentMessage): void {
-    // 1. Check if it's a response to a pending request
+    // Resolve a matching request once and keep its reply out of the unsolicited event stream.
     if (message.request_id && this.pendingRequests.has(message.request_id)) {
       const resolver = this.pendingRequests.get(message.request_id)!;
       const timeout = this.requestTimeouts.get(message.request_id);

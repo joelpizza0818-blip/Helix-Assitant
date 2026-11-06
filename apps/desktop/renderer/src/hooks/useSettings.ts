@@ -35,7 +35,8 @@ const DEFAULT_SETTINGS: HelixSettings = {
   shell_timeout_seconds: 60,
   block_elevated_execution: true,
   browser_engine: 'chromium',
-  browser_headless: true,
+  browser_channel: 'chrome',
+  browser_headless: false,
   search_provider: 'google',
   research_depth: 2,
   block_downloads: true,
@@ -64,6 +65,10 @@ const DEFAULT_SETTINGS: HelixSettings = {
   memory_auto_compaction: true,
   embedding_model: 'text-embedding-3-small',
   memory_similarity_threshold: 0.75,
+  execution_memory_ttl: '30_days',
+  sound_effects_enabled: true,
+  success_sound_preset: 'helix_chime',
+  error_sound_preset: 'low_buzz',
 }
 
 interface UseSettingsReturn {

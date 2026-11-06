@@ -79,7 +79,7 @@ async def test_agents_can_use_independent_resources_in_parallel():
 
 
 @pytest.mark.asyncio
-async def test_browser_frames_are_published_only_for_mobile_or_cli_sessions():
+async def test_browser_frames_are_published_for_desktop_and_cli_sessions_only():
     loop = make_loop()
     received = []
     event_received = asyncio.Event()
@@ -91,7 +91,7 @@ async def test_browser_frames_are_published_only_for_mobile_or_cli_sessions():
     await loop.event_bus.subscribe("BROWSER_FRAME", capture_frame)
     result = SimpleNamespace(success=True, output={"screenshot_bytes": b"jpeg"})
 
-    await loop._publish_mobile_browser_frame(result, None, "cli_conv_test")
+    await loop._publish_browser_frame(result, None, "cli_conv_test")
     await asyncio.wait_for(event_received.wait(), timeout=1)
     assert received[0]["conversation_id"] == "cli_conv_test"
     assert received[0]["mime_type"] == "image/jpeg"
@@ -99,6 +99,111 @@ async def test_browser_frames_are_published_only_for_mobile_or_cli_sessions():
 
     received.clear()
     event_received.clear()
-    await loop._publish_mobile_browser_frame(result, None, "unrelated_desktop_session")
+    await loop._publish_browser_frame(
+        result, None, "49ef84a4-d9cb-4de0-b62f-0914f785d667"
+    )
+    await asyncio.wait_for(event_received.wait(), timeout=1)
+    assert received[0]["conversation_id"] == "49ef84a4-d9cb-4de0-b62f-0914f785d667"
+
+    received.clear()
+    event_received.clear()
+    await loop._publish_browser_frame(result, None, "unrelated_desktop_session")
     await asyncio.sleep(0)
     assert received == []
+
+
+@pytest.mark.asyncio
+async def test_mobile_browser_frames_continue_until_request_cleanup():
+    loop = make_loop()
+    received = []
+    two_frames_received = asyncio.Event()
+
+    async def capture_frame(_event_name, payload):
+        received.append(payload)
+        if len(received) >= 2:
+            two_frames_received.set()
+
+    class BrowserTool:
+        async def capture_live_frame(self):
+            return b"live-jpeg"
+
+    await loop.event_bus.subscribe("BROWSER_FRAME", capture_frame)
+    state = {}
+    token = loop._browser_live_stream_context.set(state)
+    try:
+        loop._start_browser_live_stream(
+            BrowserTool(),
+            "device-0123456789abcdef",
+            "mobile_device-0123456789abcdef",
+        )
+        await asyncio.wait_for(two_frames_received.wait(), timeout=2)
+        assert all(
+            frame["conversation_id"] == "mobile_device-0123456789abcdef"
+            for frame in received
+        )
+    finally:
+        state["task"].cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await state["task"]
+        loop._browser_live_stream_context.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_mobile_browser_stream_stops_when_react_request_finishes():
+    loop = make_loop()
+    capture_started = asyncio.Event()
+    capture_stopped = asyncio.Event()
+
+    class BrowserTool:
+        async def capture_live_frame(self):
+            capture_started.set()
+            try:
+                await asyncio.Future()
+            finally:
+                capture_stopped.set()
+
+    async def execute_inner(**_kwargs):
+        loop._start_browser_live_stream(
+            BrowserTool(),
+            "device-0123456789abcdef",
+            "mobile_device-0123456789abcdef",
+        )
+        await capture_started.wait()
+        return "done"
+
+    loop._execute_inner = execute_inner
+    result = await loop.execute([], task_id="mobile-task")
+
+    assert result == "done"
+    assert capture_stopped.is_set()
+
+
+@pytest.mark.asyncio
+async def test_browser_progress_does_not_expose_typed_text():
+    loop = make_loop()
+    events = []
+    completed = asyncio.Event()
+
+    async def capture_progress(_event_name, payload):
+        events.append(payload)
+        if payload["status"] == "completed":
+            completed.set()
+
+    class BrowserTool:
+        name = "browser_control"
+
+        async def execute(self, _arguments):
+            return SimpleNamespace(success=True, output={"screenshot_bytes": b"jpeg"})
+
+    await loop.event_bus.subscribe("BROWSER_PROGRESS", capture_progress)
+    await loop._execute_tool(
+        BrowserTool(),
+        {"action": "type", "text": "private form contents"},
+        "task-1",
+        {"_helix_conversation_id": "49ef84a4-d9cb-4de0-b62f-0914f785d667"},
+    )
+    await asyncio.wait_for(completed.wait(), timeout=1)
+
+    assert [event["status"] for event in events] == ["running", "completed"]
+    assert events[0]["action"] == "Entering text in a page field"
+    assert all("private form contents" not in repr(event) for event in events)

@@ -4,6 +4,7 @@ import asyncio
 import os
 import re
 import base64
+import uuid
 from copy import deepcopy
 from dataclasses import asdict
 from datetime import datetime
@@ -61,6 +62,9 @@ DEFAULT_SETTINGS = {
     "gesture_window_sequence_enabled": True,
     "start_with_windows": True,
     "start_minimized": True,
+    "sound_effects_enabled": True,
+    "success_sound_preset": "helix_chime",
+    "error_sound_preset": "low_buzz",
     "default_model": "meta-llama/llama-3.2-3b-instruct:free",
     "preferred_provider": "free",
     "fallback_enabled": True,
@@ -92,7 +96,8 @@ DEFAULT_SETTINGS = {
     "shell_timeout_seconds": 60,
     "block_elevated_execution": True,
     "browser_engine": "chromium",
-    "browser_headless": True,
+    "browser_channel": "chrome",
+    "browser_headless": False,
     "browser_control_mode": "playwright",
     "search_provider": "google",
     "research_depth": 2,
@@ -118,6 +123,7 @@ DEFAULT_SETTINGS = {
     "model_request_timeout_seconds": 45,
     "embedding_model": "text-embedding-3-small",
     "memory_similarity_threshold": 0.75,
+    "execution_memory_ttl": "30_days",
     "tool_verification_enabled": True,
 }
 
@@ -189,6 +195,9 @@ def _serialize_task_for_desktop(task: Any) -> dict:
         and metadata.get("task_type") == "subagent"
     ):
         serialized["task_type"] = "subagent"
+        profile_id = metadata.get("profile_id")
+        if isinstance(profile_id, str):
+            serialized["profile_id"] = profile_id
     serialized.pop("result", None)
     serialized.pop("metadata", None)
     if serialized.get("status") == "failed":
@@ -228,6 +237,9 @@ class DesktopRequestHandler:
         skill_registry=None,
         plugin_manager=None,
         agent_manager=None,
+        project_memory_store=None,
+        orchestrator=None,
+        workflow_store=None,
     ):
         self.task_manager = task_manager
         self.provider_registry = provider_registry
@@ -242,9 +254,13 @@ class DesktopRequestHandler:
         self.skill_registry = skill_registry
         self.plugin_manager = plugin_manager
         self.agent_manager = agent_manager
+        self.project_memory_store = project_memory_store
+        self.orchestrator = orchestrator
+        self.workflow_store = workflow_store
         self.credentials_updated_callback = None
         self.mcp_status_provider = None
         self._desktop_streamer = None
+        self._playwright_browser_install_lock = asyncio.Lock()
 
     async def dispatch(self, message: dict) -> dict:
         message_type = message.get("type")
@@ -254,6 +270,7 @@ class DesktopRequestHandler:
             "GET_TASKS": self._get_tasks,
             "GET_PROVIDERS": self._get_providers,
             "GET_MODELS": lambda: self._get_models(payload.get("requirements") or {}),
+            "USER_TEXT": lambda: self._submit_user_text(payload),
             "GET_SUBAGENT_PROFILES": self._get_subagent_profiles,
             "GET_SUBAGENT_STATUS": self._get_subagent_status,
             "GET_SUBAGENT_ROUTING_OPTIONS": self._get_subagent_routing_options,
@@ -266,11 +283,22 @@ class DesktopRequestHandler:
             "UPDATE_SUBAGENT_MEMORY": lambda: self._update_subagent_memory(payload),
             "DELETE_SUBAGENT_MEMORY": lambda: self._delete_subagent_memory(payload),
             "GET_SETTINGS": self._get_settings,
+            "INSTALL_PLAYWRIGHT_CHROMIUM": lambda: self._install_playwright_chromium(payload),
             "GET_CAPABILITIES": self._get_capabilities,
             "SAVE_SETTINGS": lambda: self._save_settings(payload.get("settings")),
             "TEST_TTS": lambda: self._test_tts(payload),
             "GET_MEMORY_STATUS": self._get_memory_status,
             "CLEAR_MEMORY": self._clear_memory,
+            "GET_PROJECTS": self._get_projects,
+            "IMPORT_PROJECT_FOLDER": lambda: self._import_project_folder(payload),
+            "GET_PROJECT_FILES": lambda: self._get_project_files(payload),
+            "CREATE_PROJECT_ENTRY": lambda: self._create_project_entry(payload),
+            "IMPORT_PROJECT_FILES": lambda: self._import_project_files(payload),
+            "SET_ACTIVE_PROJECT": lambda: self._set_active_project(payload),
+            "GET_PROJECT_GRAPH": lambda: self._get_project_graph(payload),
+            "SAVE_PROJECT_GRAPH": lambda: self._save_project_graph(payload),
+            "GET_GENERAL_MEMORY_GRAPH": self._get_general_memory_graph,
+            "SAVE_GENERAL_MEMORY_GRAPH": lambda: self._save_general_memory_graph(payload),
             "GET_USER_MEMORIES": self._get_user_memories,
             "GET_USER_MEMORY_PROFILE": self._get_user_memory_profile,
             "UPDATE_USER_MEMORY_SUMMARY": lambda: self._update_user_memory_summary(payload),
@@ -284,6 +312,13 @@ class DesktopRequestHandler:
             "SAVE_SKILL": lambda: self._save_skill(payload.get("skill")),
             "DELETE_SKILL": lambda: self._delete_skill(payload.get("name")),
             "GET_MCP_SERVERS": self._get_mcp_servers,
+            "GET_WORKFLOWS": self._get_workflows,
+            "GET_WORKFLOW_TOOLS": self._get_workflow_tools,
+            "GET_WORKFLOW_AGENTS": self._get_workflow_agents,
+            "GET_WORKFLOW_CAPABILITIES": self._get_workflow_capabilities,
+            "SAVE_WORKFLOW": lambda: self._save_workflow(payload.get("workflow")),
+            "DELETE_WORKFLOW": lambda: self._delete_workflow(payload.get("id")),
+            "RUN_WORKFLOW": lambda: self._run_workflow(payload),
             "LOAD_CAPABILITY_PACK": lambda: self._load_capability_pack(payload),
             "GET_LEARNING_STATS": self._get_learning_stats,
             "RUN_LEARNING_MAINTENANCE": self._run_learning_maintenance,
@@ -308,6 +343,10 @@ class DesktopRequestHandler:
 
         result = await handler()
         return {"request_id": request_id, "payload": result}
+
+    async def _submit_user_text(self, payload: dict) -> dict:
+        await self._dispatch_event("USER_TEXT", payload)
+        return {"accepted": True}
 
     async def _load_capability_pack(self, payload: dict) -> dict:
         pack_id = payload.get("id")
@@ -447,7 +486,6 @@ class DesktopRequestHandler:
             await self.task_manager.event_bus.publish("USER_TEXT", event_payload)
             # EventBus invokes subscribers as scheduled tasks; yield once so
             # request callers observe the event before dispatch returns.
-            import asyncio
             await asyncio.sleep(0)
         elif message_type == "TASK_CANCEL":
             task_id = payload.get("task_id")
@@ -457,6 +495,22 @@ class DesktopRequestHandler:
         elif message_type == "TASK_CANCEL_ALL":
             for task in await self.task_manager.get_running_tasks():
                 await self.task_manager.cancel(task.id)
+        elif message_type == "TASK_RESUME":
+            task_id = payload.get("task_id")
+            if not isinstance(task_id, str) or not task_id:
+                raise ValueError("TASK_RESUME requires a task_id")
+            repeat_interrupted = bool(payload.get("repeat_interrupted", True))
+            force = bool(payload.get("force", True))
+            if hasattr(self.orchestrator, "resume_workflow"):
+                asyncio.ensure_future(
+                    self.orchestrator.resume_workflow(
+                        task_id,
+                        force=force,
+                        repeat_interrupted_actions=repeat_interrupted,
+                    )
+                )
+            else:
+                raise RuntimeError("Orchestrator does not support resume_workflow")
         elif message_type in {"CONFIRMATION_GRANTED", "CONFIRMATION_REJECTED", "CAPABILITY_RESOLVED"}:
             await self.task_manager.event_bus.publish(message_type, payload)
         elif message_type == "DESKTOP_STREAM_START":
@@ -658,10 +712,11 @@ class DesktopRequestHandler:
         return result
 
     async def _get_models(self, requirements: dict) -> list[dict]:
-        """Return all available models: BYOK-configured + free/ollama (always available)."""
+        """Return models that have configured credentials or run locally."""
         configured = set(self.key_manager.get_configured_providers())
-        # Free and ollama providers are available regardless of key configuration
-        always_available = {"free", "ollama", "llama_server"}
+        always_available = {"ollama", "llama_server"}
+        if "openrouter" in configured:
+            always_available.add("free")
         all_provider_filter = list(configured | always_available)
         required = {
             name: True
@@ -709,9 +764,11 @@ class DesktopRequestHandler:
                 )
                 categories["local"].append(item)
             elif provider == "free":
-                has_key = "free" in configured or bool(os.environ.get("OPENROUTER_API_KEY"))
-                item["status"] = "AVAILABLE" if has_key else "AUTH_REQUIRED"
-                item["auth_note"] = "Requiere tu propia OPENROUTER_API_KEY"
+                item["configured"] = "openrouter" in configured
+                item["status"] = (
+                    "AVAILABLE" if item["configured"] else "AUTH_REQUIRED"
+                )
+                item["auth_note"] = "Configure an OpenRouter API key in AI settings."
                 categories["free_tier"].append(item)
             else:
                 item["configured"] = provider in configured
@@ -802,6 +859,8 @@ class DesktopRequestHandler:
                 status["progress"] = max(0, min(100, int(task["progress"])))
                 if "current_action" in task:
                     status["current_action"] = task["current_action"]
+                if isinstance(task.get("progress_label"), str):
+                    status["activity"] = task["progress_label"]
             result.append(status)
         return result
 
@@ -809,9 +868,8 @@ class DesktopRequestHandler:
         providers = []
         models = []
         configured = set(self.key_manager.get_configured_providers())
-        # Include free and ollama providers alongside BYOK providers
-        no_key_providers = {"free", "ollama", "llama_server"}
-        all_providers = sorted(configured | no_key_providers)
+        no_key_providers = {"ollama", "llama_server"}
+        all_providers = sorted(configured | no_key_providers | {"free"})
         for provider_id in all_providers:
             provider_obj = self.provider_registry.get_registered_provider(provider_id)
             if provider_id in no_key_providers:
@@ -823,9 +881,10 @@ class DesktopRequestHandler:
                     "no_key_required": True,
                 })
             else:
+                key_provider_id = "openrouter" if provider_id == "free" else provider_id
                 slots = [
                     slot
-                    for slot, _secret in self.key_manager.get_available_keys(provider_id)
+                    for slot, _secret in self.key_manager.get_available_keys(key_provider_id)
                 ]
                 providers.append({
                     "id": provider_id,
@@ -859,7 +918,7 @@ class DesktopRequestHandler:
                 profile_id, None, None, None
             )
             return profile.public_dict()
-        no_key_providers = {"free", "ollama", "llama_server"}
+        no_key_providers = {"ollama", "llama_server"}
         if not isinstance(provider, str) or not isinstance(model_id, str):
             raise ValueError("A model route requires provider and model.")
         if provider in no_key_providers:
@@ -877,9 +936,10 @@ class DesktopRequestHandler:
             for model in self.capability_registry.get_models_for_provider(provider)
         ):
             raise ValueError("The selected model is not available for that provider.")
+        key_provider_id = "openrouter" if provider == "free" else provider
         if provider not in no_key_providers and not any(
             slot == key_slot
-            for slot, _secret in self.key_manager.get_available_keys(provider)
+            for slot, _secret in self.key_manager.get_available_keys(key_provider_id)
         ):
             raise ValueError("The selected API key slot is not currently available.")
         profile = self.agent_manager.profile_store.assign_route(
@@ -1020,6 +1080,7 @@ class DesktopRequestHandler:
                 settings["permission_mode"] = saved["permissions_mode"]
             elif "permissions_mode" not in saved and "permission_mode" in saved:
                 settings["permissions_mode"] = saved["permission_mode"]
+        settings["browser_headless"] = False
         self._apply_runtime_settings(settings)
         settings["subagents_available"] = True
         return settings
@@ -1063,6 +1124,11 @@ class DesktopRequestHandler:
             raise ValueError(
                 "permissions_mode must be ALWAYS_ASK, AUTO_APPROVE, or SMART_APPROVAL"
             )
+        ceiling = settings.get("auto_approve_up_to", "LOW_RISK")
+        if ceiling not in {"READ_ONLY", "LOW_RISK", "MODIFY"}:
+            raise ValueError(
+                "auto_approve_up_to must be READ_ONLY, LOW_RISK, or MODIFY"
+            )
         model_request_timeout = settings.get("model_request_timeout_seconds", 90)
         if (
             isinstance(model_request_timeout, bool)
@@ -1093,10 +1159,7 @@ class DesktopRequestHandler:
             self.model_router.default_model = settings.get("default_model")
         self._configure_custom_endpoints(settings)
         self._configure_custom_models(settings)
-        browser_mode = settings.get("browser_control_mode")
-        if browser_mode in {"playwright", "extension"}:
-            import os
-            os.environ["HELIX_BROWSER_CONTROL_MODE"] = browser_mode
+        os.environ["HELIX_BROWSER_CONTROL_MODE"] = "playwright"
         if self.memory_manager is not None:
             self.memory_manager.configure(settings)
         if self.react_loop is not None:
@@ -1116,11 +1179,6 @@ class DesktopRequestHandler:
             self.react_loop.model_decides_screen_vision_enabled = settings.get(
                 "model_decides_screen_vision_enabled", False
             )
-            ceiling = settings.get("auto_approve_up_to", "LOW_RISK")
-            if ceiling not in {"READ_ONLY", "LOW_RISK", "MODIFY"}:
-                raise ValueError(
-                    "auto_approve_up_to must be READ_ONLY, LOW_RISK, or MODIFY"
-                )
             self.react_loop.auto_approve_up_to = ceiling
             self.react_loop.permissions_mode = mode
             self.react_loop.tool_verification_enabled = bool(
@@ -1132,6 +1190,7 @@ class DesktopRequestHandler:
                 mode=mode,
                 protected_paths=settings.get("protected_paths", []),
                 protected_apps=settings.get("protected_apps", []),
+                auto_approve_up_to=ceiling,
             )
 
     def _configure_custom_endpoints(self, settings: dict) -> None:
@@ -1194,6 +1253,46 @@ class DesktopRequestHandler:
     async def _get_settings(self) -> dict:
         return self.get_settings()
 
+    async def _install_playwright_chromium(self, payload: dict) -> dict:
+        if not isinstance(payload, dict) or payload.get("confirmed") is not True:
+            raise ValueError("Explicit confirmation is required to download Chromium.")
+
+        async with self._playwright_browser_install_lock:
+            from playwright._impl._driver import compute_driver_executable
+
+            driver, cli = compute_driver_executable()
+            process = await asyncio.create_subprocess_exec(
+                driver,
+                cli,
+                "install",
+                "chromium",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            try:
+                output, _ = await asyncio.wait_for(process.communicate(), timeout=900)
+            except asyncio.TimeoutError:
+                if process.returncode is None:
+                    process.kill()
+                await process.wait()
+                raise TimeoutError(
+                    "Playwright Chromium installation timed out after 15 minutes."
+                ) from None
+
+            output_text = output.decode("utf-8", errors="replace").strip()
+            if process.returncode != 0:
+                details = output_text[-2000:]
+                raise RuntimeError(
+                    f"Playwright Chromium installation failed with exit code {process.returncode}."
+                    + (f" {details}" if details else "")
+                )
+
+            return {
+                "installed": True,
+                "message": "Playwright Chromium is ready for visible browsing.",
+                "output": output_text[-2000:],
+            }
+
     async def _test_tts(self, payload: dict) -> dict:
         settings = self.get_settings()
         text = payload.get("text") if isinstance(payload, dict) else None
@@ -1245,6 +1344,105 @@ class DesktopRequestHandler:
                 "error": str(error),
             }
         return {"ok": True, "provider": getattr(tts, "provider", provider), "fallback_used": fallback_used}
+
+    async def _get_projects(self) -> dict:
+        if self.project_memory_store is None:
+            raise RuntimeError("Project memory is not available.")
+        return self.project_memory_store.list_projects()
+
+    async def _import_project_folder(self, payload: dict) -> dict:
+        if self.project_memory_store is None:
+            raise RuntimeError("Project memory is not available.")
+        folder_path = payload.get("folder_path")
+        if not isinstance(folder_path, str):
+            raise ValueError("A project folder path is required.")
+        self.project_memory_store.import_folder(folder_path)
+        return self.project_memory_store.list_projects()
+
+    async def _get_project_files(self, payload: dict) -> dict:
+        if self.project_memory_store is None:
+            raise RuntimeError("Project memory is not available.")
+        project_id = payload.get("project_id")
+        if not isinstance(project_id, str):
+            raise ValueError("Project id is required.")
+        return self.project_memory_store.list_project_files(project_id)
+
+    async def _create_project_entry(self, payload: dict) -> dict:
+        if self.project_memory_store is None:
+            raise RuntimeError("Project memory is not available.")
+        project_id = payload.get("project_id")
+        relative_path = payload.get("relative_path")
+        entry_type = payload.get("entry_type")
+        if (
+            not isinstance(project_id, str)
+            or not isinstance(relative_path, str)
+            or not isinstance(entry_type, str)
+        ):
+            raise ValueError("Project id, path, and entry type are required.")
+        return self.project_memory_store.create_project_entry(
+            project_id,
+            relative_path,
+            entry_type,
+        )
+
+    async def _import_project_files(self, payload: dict) -> dict:
+        if self.project_memory_store is None:
+            raise RuntimeError("Project memory is not available.")
+        project_id = payload.get("project_id")
+        source_paths = payload.get("source_paths")
+        target_directory = payload.get("target_directory", "")
+        if (
+            not isinstance(project_id, str)
+            or not isinstance(source_paths, list)
+            or not isinstance(target_directory, str)
+        ):
+            raise ValueError("Project id and imported file paths are required.")
+        return self.project_memory_store.import_project_files(
+            project_id,
+            source_paths,
+            target_directory,
+        )
+
+    async def _set_active_project(self, payload: dict) -> dict:
+        if self.project_memory_store is None:
+            raise RuntimeError("Project memory is not available.")
+        project_id = payload.get("project_id")
+        if project_id is not None and not isinstance(project_id, str):
+            raise ValueError("Project id must be a string or null.")
+        return self.project_memory_store.set_active_project(project_id)
+
+    async def _get_project_graph(self, payload: dict) -> dict:
+        if self.project_memory_store is None:
+            raise RuntimeError("Project memory is not available.")
+        project_id = payload.get("project_id")
+        if not isinstance(project_id, str):
+            raise ValueError("Project id is required.")
+        return self.project_memory_store.get_project_graph(project_id)
+
+    async def _save_project_graph(self, payload: dict) -> dict:
+        if self.project_memory_store is None:
+            raise RuntimeError("Project memory is not available.")
+        project_id = payload.get("project_id")
+        graph = payload.get("graph")
+        if not isinstance(project_id, str) or not isinstance(graph, dict):
+            raise ValueError("Project id and graph are required.")
+        return self.project_memory_store.save_project_graph(
+            project_id,
+            graph.get("nodes"),
+            graph.get("edges"),
+        )
+
+    async def _get_general_memory_graph(self) -> dict:
+        return UserMemoryManager.get_instance().get_knowledge_graph()
+
+    async def _save_general_memory_graph(self, payload: dict) -> dict:
+        graph = payload.get("graph")
+        if not isinstance(graph, dict):
+            raise ValueError("A general memory graph is required.")
+        return UserMemoryManager.get_instance().save_knowledge_graph(
+            graph.get("nodes"),
+            graph.get("edges"),
+        )
 
     async def _get_memory_status(self) -> dict:
         if self.memory_manager is None:
@@ -1452,6 +1650,78 @@ class DesktopRequestHandler:
             return servers
         return self.mcp_status_provider(servers)
 
+    async def _get_workflows(self) -> list[dict]:
+        if self.workflow_store is None:
+            raise RuntimeError("Workflow management is unavailable.")
+        return self.workflow_store.list_workflows()
+
+    async def _get_workflow_tools(self) -> list[dict]:
+        if self.workflow_store is None:
+            raise RuntimeError("Workflow management is unavailable.")
+        return self.workflow_store.get_tool_options()
+
+    async def _get_workflow_agents(self) -> list[dict]:
+        if self.agent_manager is None:
+            raise RuntimeError("Workflow agent profiles are unavailable.")
+        return [
+            profile.public_dict()
+            for profile in self.agent_manager.profile_store.list_profiles()
+        ]
+
+    async def _get_workflow_capabilities(self) -> list[dict]:
+        if self.workflow_store is None:
+            raise RuntimeError("Workflow capability registry is unavailable.")
+        return self.workflow_store.get_capability_options()
+
+    async def _save_workflow(self, workflow: dict) -> dict:
+        if self.workflow_store is None:
+            raise RuntimeError("Workflow management is unavailable.")
+        if not isinstance(workflow, dict):
+            raise ValueError("SAVE_WORKFLOW requires a workflow object.")
+        return self.workflow_store.save_workflow(workflow)
+
+    async def _delete_workflow(self, workflow_id: str) -> dict:
+        if self.workflow_store is None:
+            raise RuntimeError("Workflow management is unavailable.")
+        if not isinstance(workflow_id, str):
+            raise ValueError("DELETE_WORKFLOW requires a workflow id.")
+        return {"deleted": self.workflow_store.delete_workflow(workflow_id)}
+
+    async def _run_workflow(self, payload: dict) -> dict:
+        if self.workflow_store is None or self.orchestrator is None:
+            raise RuntimeError("Workflow execution is unavailable.")
+        workflow_id = payload.get("id")
+        input_text = payload.get("input", "")
+        if not isinstance(workflow_id, str) or not isinstance(input_text, str):
+            raise ValueError("RUN_WORKFLOW requires a workflow id and text input.")
+        workflow = self.workflow_store.get_workflow(workflow_id)
+        task_id = f"workflow-{uuid.uuid4().hex}"
+        description = input_text.strip() or workflow["description"] or workflow["name"]
+        context = {
+            "input_source": "workflow",
+            "workflow_definition": workflow,
+            "workflow_id": workflow_id,
+        }
+        await self.task_manager.create_task(task_id, description, context=context)
+        async def execute_workflow() -> None:
+            handle = asyncio.current_task()
+            try:
+                await self.orchestrator.execute_task(task_id, description, context)
+            finally:
+                unregister = getattr(
+                    self.task_manager,
+                    "unregister_task_handle",
+                    None,
+                )
+                if callable(unregister):
+                    await unregister(task_id, handle)
+
+        execution = asyncio.create_task(execute_workflow())
+        register = getattr(self.task_manager, "register_task_handle", None)
+        if callable(register):
+            await register(task_id, execution)
+        return {"task_id": task_id}
+
     async def _get_capabilities(self) -> dict:
         settings = self.get_settings()
         return {
@@ -1460,7 +1730,8 @@ class DesktopRequestHandler:
             "sandbox_enabled": bool(settings.get("sandbox_enabled", False)),
             "sandbox_mode": settings.get("sandbox_mode", "restricted"),
             "browser_engine": settings.get("browser_engine", "chromium"),
-            "browser_headless": settings.get("browser_headless", True),
+            "browser_channel": settings.get("browser_channel", "chrome"),
+            "browser_headless": False,
             "voice_enabled": bool(settings.get("voice_enabled", True)),
             "voice_response_enabled": bool(settings.get("voice_response_enabled", True)),
         }
@@ -1531,6 +1802,23 @@ class DesktopRequestHandler:
     async def _save_settings(self, settings: dict) -> dict:
         if not isinstance(settings, dict):
             raise ValueError("SAVE_SETTINGS requires a settings object")
+        if "browser_channel" in settings and settings["browser_channel"] not in {
+            "bundled",
+            "chrome",
+            "msedge",
+        }:
+            raise ValueError("browser_channel must be bundled, chrome, or msedge")
+        if "execution_memory_ttl" in settings and (
+            not isinstance(settings["execution_memory_ttl"], str)
+            or settings["execution_memory_ttl"] not in {
+                "session",
+                "30_days",
+                "permanent",
+            }
+        ):
+            raise ValueError(
+                "execution_memory_ttl must be session, 30_days, or permanent"
+            )
         if "subagents_enabled" in settings:
             if not isinstance(settings["subagents_enabled"], bool):
                 raise ValueError("subagents_enabled must be a boolean")
@@ -1583,6 +1871,8 @@ class DesktopRequestHandler:
             settings["permission_mode"] = settings["permissions_mode"]
         incoming = deepcopy(settings)
         incoming.pop("subagents_available", None)
+        incoming["browser_control_mode"] = "playwright"
+        incoming["browser_headless"] = False
         for endpoint in incoming.get("custom_endpoints", []):
             if not isinstance(endpoint, dict):
                 continue
@@ -1592,6 +1882,10 @@ class DesktopRequestHandler:
             endpoint.pop("api_key", None)
         merged = self.get_settings()
         merged.update(incoming)
+        if self.project_memory_store is not None:
+            self.project_memory_store.configure(
+                merged.get("execution_memory_ttl", "30_days")
+            )
         merged["subagents_available"] = True
         merged["custom_endpoints"] = self._redact_custom_endpoint_keys(
             merged.get("custom_endpoints", [])

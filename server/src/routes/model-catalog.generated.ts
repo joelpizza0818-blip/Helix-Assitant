@@ -22,11 +22,6 @@ export const PROVIDER_MODELS: Record<string, string[]> = {
     "claude-haiku-4-5-20251001",
   ],
   google: [
-    "gemini-2.0-flash",
-    "gemini-2.0-flash-thinking-exp",
-    "gemini-2.0-pro-exp-02-05",
-    "gemini-1.5-pro",
-    "gemini-1.5-flash",
     "gemini-3.8-flash",
     "gemini-3.6-flash",
     "gemini-3.5-flash-lite",

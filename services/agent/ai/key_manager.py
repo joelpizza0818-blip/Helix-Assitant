@@ -84,6 +84,8 @@ class KeyManager:
                     )
                     key = None
                 key = key or os.environ.get(f"{prefix}_API_KEY_{i}")
+                if provider == "openrouter" and i == 1:
+                    key = key or os.environ.get("OPENROUTER_API_KEY")
                 self.keys[provider].append(key.strip() if key and key.strip() else None)
 
     def save_key(self, provider: str, slot: int, value: str) -> None:

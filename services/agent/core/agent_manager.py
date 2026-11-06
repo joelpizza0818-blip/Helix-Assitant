@@ -420,7 +420,29 @@ class AgentManager:
         # a profile lock indefinitely.  20 minutes matches the Desktop relay path.
         CHAT_TIMEOUT_SECONDS = 1200
         try:
+            if self.task_manager is not None:
+                await self.task_manager.create_task(
+                    task_id,
+                    f"Direct chat with {profile.name}",
+                    context={"input_source": "subagent direct chat"},
+                    role=profile.role,
+                    metadata={
+                        "agent_id": task_id,
+                        "profile_id": profile.profile_id,
+                        "task_type": "subagent",
+                    },
+                )
+            if lock.locked() and self.task_manager is not None:
+                await self.task_manager.set_progress_label(
+                    task_id,
+                    f"Waiting for {profile.name}",
+                    current_action=f"Waiting for {profile.name}",
+                )
             async with lock:
+                if self.task_manager is not None:
+                    await self.task_manager.update_status(
+                        task_id, self._task_status("running")
+                    )
                 try:
                     response = await asyncio.wait_for(
                         agent.chat(message.strip(), task_id),
@@ -431,12 +453,35 @@ class AgentManager:
                         f"Subagent chat with '{profile.name}' timed out after "
                         f"{CHAT_TIMEOUT_SECONDS // 60} minutes."
                     )
+            if self.task_manager is not None:
+                await self.task_manager.set_result(task_id)
+                await self.task_manager.update_status(
+                    task_id, self._task_status("completed")
+                )
             return {
                 "profile_id": profile.profile_id,
                 "name": profile.name,
                 "color": profile.color,
                 "response": response,
             }
+        except asyncio.CancelledError:
+            if self.task_manager is not None:
+                await self.task_manager.set_result(
+                    task_id, error="Subagent chat was cancelled."
+                )
+                await self.task_manager.update_status(
+                    task_id, self._task_status("cancelled")
+                )
+            raise
+        except Exception:
+            if self.task_manager is not None:
+                await self.task_manager.set_result(
+                    task_id, error="Subagent chat failed."
+                )
+                await self.task_manager.update_status(
+                    task_id, self._task_status("failed")
+                )
+            raise
         finally:
             self._execution_profiles.pop(task_id, None)
             if token is not None:

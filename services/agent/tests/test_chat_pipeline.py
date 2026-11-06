@@ -29,6 +29,7 @@ from services.agent.core.agent import Agent
 from services.agent.core.state_manager import StateManager
 from services.agent.core.event_bus import EventBus
 from services.agent.core.task_manager import TaskManager
+from services.agent.memory.project_memory import ProjectMemoryStore
 
 
 def test_user_text_is_routed_as_a_conversation():
@@ -57,6 +58,160 @@ def test_user_text_is_routed_as_a_conversation():
         "conversation_id": "conversation-1",
         "conversation_history": [{"role": "user", "content": "Hi"}],
     }
+
+def test_unhandled_orchestrator_error_fails_task_and_publishes_safe_response():
+    event_bus = SimpleNamespace(publish=AsyncMock())
+    task_manager = TaskManager(event_bus)
+    orchestrator = Orchestrator(
+        planner=None,
+        task_manager=task_manager,
+        event_bus=event_bus,
+        react_loop=SimpleNamespace(),
+        agent_manager=None,
+        tool_registry=None,
+        role_config={},
+    )
+
+    async def fail_before_orchestration(*_args, **_kwargs):
+        raise RuntimeError("sensitive provider detail")
+
+    orchestrator._execute_task = fail_before_orchestration
+
+    async def run_task():
+        await task_manager.create_task("task-unhandled", "Test request.")
+        result = await orchestrator.execute_task(
+            "task-unhandled",
+            "Test request.",
+            {"conversation_id": "conversation-1"},
+        )
+        return result, await task_manager.get_task("task-unhandled")
+
+    result, task = asyncio.run(run_task())
+    events = [call.args for call in event_bus.publish.await_args_list]
+    messages = [
+        payload
+        for event, payload in events
+        if event == "AGENT_MESSAGE"
+    ]
+
+    assert result == {"status": "failed", "task_id": "task-unhandled"}
+    assert task.status == TaskStatus.FAILED
+    assert task.error == messages[0]["content"]
+    assert "sensitive provider detail" not in task.error
+    assert messages[0]["conversation_id"] == "conversation-1"
+    assert any(event == "ORCHESTRATION_FAILED" for event, _ in events)
+
+
+def test_unhandled_error_does_not_overwrite_a_terminal_task():
+    event_bus = SimpleNamespace(publish=AsyncMock())
+    task_manager = TaskManager(event_bus)
+    orchestrator = Orchestrator(
+        planner=None,
+        task_manager=task_manager,
+        event_bus=event_bus,
+        react_loop=SimpleNamespace(),
+        agent_manager=None,
+        tool_registry=None,
+        role_config={},
+    )
+
+    async def complete_then_raise(task_id, *_args, **_kwargs):
+        await task_manager.update_status(task_id, TaskStatus.COMPLETED)
+        raise RuntimeError("late cleanup error")
+
+    orchestrator._execute_task = complete_then_raise
+
+    async def run_task():
+        await task_manager.create_task("task-terminal", "Test request.")
+        result = await orchestrator.execute_task(
+            "task-terminal",
+            "Test request.",
+        )
+        return result, await task_manager.get_task("task-terminal")
+
+    result, task = asyncio.run(run_task())
+    events = [call.args[0] for call in event_bus.publish.await_args_list]
+
+    assert result == {"status": "completed", "task_id": "task-terminal"}
+    assert task.status == TaskStatus.COMPLETED
+    assert "AGENT_MESSAGE" not in events
+    assert "ORCHESTRATION_FAILED" not in events
+
+
+def test_resource_cleanup_failure_does_not_strand_task_execution_lock():
+    event_bus = SimpleNamespace(publish=AsyncMock())
+    task_manager = TaskManager(event_bus)
+    react_loop = SimpleNamespace(
+        release_task_resources=AsyncMock(side_effect=RuntimeError("cleanup failed"))
+    )
+    orchestrator = Orchestrator(
+        planner=None,
+        task_manager=task_manager,
+        event_bus=event_bus,
+        react_loop=react_loop,
+        agent_manager=None,
+        tool_registry=None,
+        role_config={},
+    )
+
+    async def complete_task(task_id, *_args, **_kwargs):
+        await task_manager.update_status(task_id, TaskStatus.COMPLETED)
+        return {"status": "completed", "task_id": task_id}
+
+    orchestrator._execute_task = complete_task
+
+    async def run_task():
+        await task_manager.create_task("task-cleanup", "Test request.")
+        return await orchestrator.execute_task("task-cleanup", "Test request.")
+
+    result = asyncio.run(run_task())
+
+    assert result == {"status": "completed", "task_id": "task-cleanup"}
+    assert "task-cleanup" not in orchestrator._active_execution_ids
+
+
+def test_active_project_is_attached_to_desktop_chat_context(tmp_path):
+    first_root = tmp_path / "workspace-one"
+    second_root = tmp_path / "workspace-two"
+    first_root.mkdir()
+    second_root.mkdir()
+    project_store = ProjectMemoryStore(tmp_path / "helix" / "projects")
+    first_project = project_store.import_folder(str(first_root))
+    second_project = project_store.import_folder(str(second_root))
+    orchestrator = SimpleNamespace(
+        execute_task=AsyncMock(),
+        project_memory_store=project_store,
+    )
+    agent = Agent.__new__(Agent)
+    agent.intent_matcher = None
+    agent.skill_registry = None
+    agent.task_manager = SimpleNamespace(create_task=AsyncMock())
+    agent.orchestrator = orchestrator
+    agent.state_manager = StateManager()
+
+    async def send_texts():
+        await agent.handle_user_input("USER_TEXT", {
+            "text": "Continue this project.",
+            "conversation_id": "conversation-one",
+        })
+        await asyncio.sleep(0)
+        project_store.set_active_project(second_project["project_id"])
+        await agent.handle_user_input("USER_TEXT", {
+            "text": "Continue this project.",
+            "conversation_id": "conversation-one",
+        })
+        await asyncio.sleep(0)
+
+    asyncio.run(send_texts())
+
+    contexts = [
+        call.kwargs["context"]
+        for call in orchestrator.execute_task.await_args_list
+    ]
+    assert [context["project_id"] for context in contexts] == [
+        first_project["project_id"],
+        first_project["project_id"],
+    ]
 
 
 def test_single_user_text_creates_exactly_one_task_created_event():
@@ -792,6 +947,8 @@ def test_text_chat_uses_conversation_loop_and_returns_renderable_message():
     assert messages[0].role == "system"
     assert "Runtime OS:" in messages[0].content
     assert "one direct tool action" in messages[0].content
+    assert "plan only the next browser action" in messages[0].content
+    assert "latest page observation" in messages[0].content
     assert messages[-3:] == [
         ChatMessage(role="user", content="Hola."),
         ChatMessage(role="assistant", content="Hola, ¿en qué ayudo?"),
@@ -973,6 +1130,45 @@ def test_explicit_skill_mention_adds_only_requested_skill_context():
     assert "Follow the coding workflow." in context["requested_skill_instructions"]
 
 
+def test_explicit_workflow_mention_selects_saved_workflow_and_strips_trigger():
+    workflow = {
+        "id": "summarize-flow",
+        "name": "Summarize",
+        "description": "Summarize the input",
+    }
+    workflow_store = SimpleNamespace(
+        get_workflow=lambda workflow_id: workflow
+        if workflow_id == "summarize-flow"
+        else (_ for _ in ()).throw(ValueError("missing")),
+    )
+    orchestrator = SimpleNamespace(
+        workflow_store=workflow_store,
+        execute_task=AsyncMock(),
+        tool_registry=None,
+        project_memory_store=None,
+    )
+    agent = Agent.__new__(Agent)
+    agent.intent_matcher = None
+    agent.skill_registry = None
+    agent.task_manager = SimpleNamespace(create_task=AsyncMock())
+    agent.orchestrator = orchestrator
+    agent.state_manager = StateManager()
+
+    async def send_text():
+        await agent.handle_user_input(
+            "USER_TEXT",
+            {"text": "Please summarize %summarize-flow this document"},
+        )
+        await asyncio.sleep(0)
+
+    asyncio.run(send_text())
+
+    context = orchestrator.execute_task.await_args.kwargs["context"]
+    assert context["workflow_definition"] == workflow
+    assert context["workflow_id"] == "summarize-flow"
+    assert context["workflow_input"] == "Please summarize this document"
+
+
 def test_agent_automatically_selects_a_unique_matching_skill():
     from services.agent.skills.intent_matcher import SkillMatch
     from services.agent.skills.skill_loader import SkillDefinition
@@ -1124,6 +1320,36 @@ def test_provider_quota_failure_is_actionable_without_exposing_provider_details(
     assert "cuota" in message.lower()
     assert "clave es válida" in message
     assert "ProviderExhaustedError" not in message
+
+
+@pytest.mark.parametrize(
+    ("error_text", "expected"),
+    [
+        ("ProviderExhaustedError: Last error: TIMEOUT.", "tardó demasiado"),
+        ("ProviderExhaustedError: Last error: NETWORK_ERROR.", "no pudo conectar"),
+        ("ProviderExhaustedError: Last error: RATE_LIMIT.", "limitando las solicitudes"),
+        (
+            "ProviderExhaustedError: Last error: MODEL_TEMPORARILY_UNAVAILABLE.",
+            "temporalmente saturados",
+        ),
+    ],
+)
+def test_exhausted_provider_failures_explain_next_steps(error_text, expected):
+    message = _conversation_failure_message(RuntimeError(error_text))
+
+    assert expected in message
+    assert "ProviderExhaustedError" not in message
+
+
+def test_checkpoint_storage_failure_is_actionable_and_warns_about_last_action():
+    message = _conversation_failure_message(
+        RuntimeError(
+            "Encrypted task checkpoint storage requires an available OS credential store."
+        )
+    )
+
+    assert "almacén seguro de credenciales" in message
+    assert "última acción podría haberse ejecutado" in message
 
 
 def test_context_limit_failure_is_reported_as_a_task_size_issue_not_provider_failure():

@@ -11,7 +11,15 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from urllib.parse import urlparse
 
+try:
+    from ..browser.recovery_controller import BrowserRecoveryController
+    from ..browser.state_validator import BrowserStateValidator
+except ImportError:
+    from browser.recovery_controller import BrowserRecoveryController
+    from browser.state_validator import BrowserStateValidator
+
 from .base_tool import BaseTool, ToolResult
+from .permission_utils import has_consequential_action_text
 
 logger = logging.getLogger(__name__)
 
@@ -46,17 +54,49 @@ class BrowserControlTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Control the selected HELIX-managed page in the paired Chrome/Edge browser using trusted browser input. "
-            "Other tabs are not inspected or controlled. Navigate, inspect the page controls, "
-            "click/fill using the exact CSS selector shown in the latest snapshot, drag, scroll, or use fresh screenshot coordinates. "
+            "Control a dedicated Playwright browser session using an isolated HELIX profile. "
+            "The installed Chrome/Edge choice launches with a separate HELIX profile; it does not attach to or control "
+            "the user's normal browser profile. A virtual orange cursor and border show HELIX actions in the controlled viewport. "
+            "The profile preserves cookies and site state across sessions. Navigate, inspect the page controls, "
+            "click/fill using the exact CSS selector shown in the latest snapshot, text=Visible label for clicks, "
+            "or label=Form label for inputs; drag, scroll, or use fresh screenshot coordinates. "
+            "For coordinate clicks, double-clicks, or drags, describe a consequential target using its visible label. "
             "Opening a site reuses a matching tab; HELIX keeps its current path only when the full origin (scheme, hostname, and port) matches. "
             "Typing does not submit by default; submit only when the user requested it. Ask before sending, "
-            "publishing, purchasing, deleting, or other irreversible actions."
+            "publishing, purchasing, deleting, or other irreversible actions. After a browser failure, inspect the current "
+            "page before taking another action; HELIX will not replay an action whose result may be uncertain."
         )
 
     @property
     def permission_level(self) -> str:
         return "LOW_RISK"
+
+    def permission_level_for(self, params: Dict[str, Any]) -> str:
+        action = params.get("action")
+        target_description = params.get("target_description")
+        if action == "type" and params.get("submit") is True:
+            return "EXECUTE"
+        if action == "press_key" and str(
+            params.get("key", "Enter")
+        ).casefold() == "enter":
+            return "EXECUTE"
+        if (
+            action == "press_key"
+            and has_consequential_action_text(target_description)
+        ):
+            return "EXECUTE"
+        selector = params.get("selector")
+        selector_action = action in {"click", "type"}
+        visual_action = action in {"click_at", "double_click_at", "drag"}
+        if (
+            selector_action
+            and has_consequential_action_text(selector)
+        ) or (
+            visual_action
+            and has_consequential_action_text(target_description)
+        ):
+            return "EXECUTE"
+        return self.permission_level
 
     @property
     def requires_confirmation(self) -> bool:
@@ -96,7 +136,8 @@ class BrowserControlTool(BaseTool):
                     "type": "string",
                     "description": (
                         "Copy the exact selector provided by the latest page snapshot, "
-                        "or use text=Visible label. Do not use a list position."
+                        "use text=Visible label for clicks, or label=Form label for inputs. "
+                        "Do not use a list position."
                     ),
                 },
                 "x": {
@@ -141,6 +182,14 @@ class BrowserControlTool(BaseTool):
                     "type": "string",
                     "description": "Key name to press (e.g., 'Enter', 'Tab', 'Escape').",
                 },
+                "target_description": {
+                    "type": "string",
+                    "description": (
+                        "Visible label or purpose of a coordinate action's target "
+                        "or the focused control for a non-Enter key action, when "
+                        "consequential."
+                    ),
+                },
             },
             "required": ["action"],
         }
@@ -149,6 +198,12 @@ class BrowserControlTool(BaseTool):
         if not isinstance(params, dict):
             return False
         action = params.get("action")
+        target_description = params.get("target_description")
+        if target_description is not None and (
+            not isinstance(target_description, str)
+            or len(target_description) > 300
+        ):
+            return False
         allowed = {
             "navigate", "click", "move_mouse", "click_at", "double_click_at",
             "drag", "type", "scroll", "scroll_at", "press_key", "screenshot",
@@ -234,10 +289,37 @@ class BrowserControlTool(BaseTool):
     async def _get_or_create_session(self):
         global _active_browser_session
         from ..browser.browser_session import BrowserSession
-        if _active_browser_session is None or not _active_browser_session.is_running():
-            _active_browser_session = BrowserSession(headless=False)
-            await _active_browser_session.start()
+        if _active_browser_session is not None:
+            matches_defaults = getattr(_active_browser_session, "matches_defaults", None)
+            configuration_changed = callable(matches_defaults) and not matches_defaults()
+            if not _active_browser_session.is_running() or configuration_changed:
+                try:
+                    await _active_browser_session.stop()
+                finally:
+                    _active_browser_session = None
+        if _active_browser_session is None:
+            session = BrowserSession()
+            await session.start()
+            _active_browser_session = session
         return _active_browser_session
+
+    async def capture_live_frame(self) -> bytes | None:
+        if _active_extension_session_id is not None:
+            result = await self._extension_command({
+                "action": "screenshot",
+                "session_id": _active_extension_session_id,
+            })
+            data_url = result.get("data_url") if isinstance(result, dict) else None
+            prefix = "data:image/jpeg;base64,"
+            if not isinstance(data_url, str) or not data_url.startswith(prefix):
+                raise RuntimeError(
+                    "The browser companion did not return a valid screenshot."
+                )
+            return base64.b64decode(data_url[len(prefix):], validate=True)
+
+        if _active_browser_session is None or not _active_browser_session.is_running():
+            return None
+        return await _active_browser_session.screenshot()
 
     @staticmethod
     def _extension_request(method: str, path: str, payload: dict | None = None) -> dict:
@@ -311,8 +393,11 @@ class BrowserControlTool(BaseTool):
                 raise RuntimeError("The browser companion could not restore the selected HELIX tab.")
             _active_extension_session_id = opened["session_id"]
             _active_extension_session_url = opened["url"]
-            retry_command = {**command, "session_id": _active_extension_session_id}
-            return await self._extension_command_raw(retry_command)
+            raise RuntimeError(
+                "The managed browser tab was reopened after session loss. "
+                "The original action was not retried; verify the page before "
+                "issuing a new action."
+            ) from error
 
     async def _extension_result(
         self,
@@ -320,6 +405,7 @@ class BrowserControlTool(BaseTool):
         *,
         session_id: str,
         include_page: bool = True,
+        include_screenshot: bool = False,
         **details: Any,
     ) -> ToolResult:
         global _active_extension_session_url
@@ -348,6 +434,23 @@ class BrowserControlTool(BaseTool):
                 "forms": page.get("forms", [])[:50],
                 "controls": page.get("controls", [])[:80],
             }
+        if include_screenshot:
+            screenshot = await self._extension_command({
+                "action": "screenshot",
+                "session_id": session_id,
+            })
+            data_url = screenshot.get("data_url") if isinstance(screenshot, dict) else None
+            if not isinstance(data_url, str) or not data_url.startswith(
+                "data:image/jpeg;base64,"
+            ):
+                raise RuntimeError(
+                    "The browser companion did not return a valid screenshot."
+                )
+            output["mime_type"] = "image/jpeg"
+            output["screenshot_bytes"] = base64.b64decode(
+                data_url.split(",", 1)[1],
+                validate=True,
+            )
         return ToolResult(success=True, output=output)
 
     async def _execute_with_extension(self, params: Dict[str, Any]) -> ToolResult:
@@ -421,6 +524,7 @@ class BrowserControlTool(BaseTool):
             return await self._extension_result(
                 action,
                 session_id=_active_extension_session_id,
+                include_screenshot=True,
                 url=actual_url,
             )
 
@@ -443,7 +547,12 @@ class BrowserControlTool(BaseTool):
                 command["text"] = params["text"]
                 command["submit"] = params.get("submit", False)
             await self._extension_command(command)
-            return await self._extension_result(action, session_id=session_id)
+            return await self._extension_result(
+                action,
+                session_id=session_id,
+                include_screenshot=True,
+                **({"verified": True} if action == "type" else {}),
+            )
 
         if action == "scroll":
             direction = params.get("direction", "down")
@@ -457,6 +566,7 @@ class BrowserControlTool(BaseTool):
             return await self._extension_result(
                 action,
                 session_id=session_id,
+                include_screenshot=True,
                 direction=direction,
                 amount=amount,
             )
@@ -482,7 +592,11 @@ class BrowserControlTool(BaseTool):
                 command["direction"] = params.get("direction", "down")
                 command["amount"] = params.get("amount", 500)
             await self._extension_command(command)
-            return await self._extension_result(action, session_id=session_id)
+            return await self._extension_result(
+                action,
+                session_id=session_id,
+                include_screenshot=True,
+            )
 
         if action == "press_key":
             await self._extension_command({
@@ -490,14 +604,22 @@ class BrowserControlTool(BaseTool):
                 "session_id": session_id,
                 "key": params.get("key", "Enter"),
             })
-            return await self._extension_result(action, session_id=session_id)
+            return await self._extension_result(
+                action,
+                session_id=session_id,
+                include_screenshot=True,
+            )
 
         if action in {"go_back", "refresh"}:
             await self._extension_command({
                 "action": action,
                 "session_id": session_id,
             })
-            return await self._extension_result(action, session_id=session_id)
+            return await self._extension_result(
+                action,
+                session_id=session_id,
+                include_screenshot=True,
+            )
 
         if action == "screenshot":
             result = await self._extension_command({
@@ -520,38 +642,34 @@ class BrowserControlTool(BaseTool):
         return await self._extension_result(action, session_id=session_id)
 
     async def _visual_result(
-        self, session, action: str, *, include_page: bool = True, **details
+        self,
+        session,
+        action: str,
+        *,
+        include_page: bool = True,
+        before_observation=None,
+        **details,
     ) -> ToolResult:
         output = {"action": action, **details}
+        after_observation = await session.observe()
         if include_page:
-            output["page"] = (await session.get_visible_text())[:5000]
+            output["page"] = after_observation.to_text(5000)
+        if before_observation is not None:
+            output["state_validation"] = BrowserStateValidator.compare(
+                before_observation, after_observation
+            )
         output["screenshot_bytes"] = await session.screenshot()
         return ToolResult(success=True, output=output)
 
-    _control_mode: str = "playwright"
-
     def configure(self, settings: dict) -> None:
-        mode = settings.get("browser_control_mode")
-        if mode in {"extension", "playwright"}:
-            self._control_mode = mode
-            os.environ["HELIX_BROWSER_CONTROL_MODE"] = mode
+        os.environ["HELIX_BROWSER_CONTROL_MODE"] = "playwright"
 
     async def execute(self, params: Dict[str, Any]) -> ToolResult:
         if not self.validate_params(params):
             return ToolResult(success=False, output=None, error="Invalid browser action or parameters.")
-        active_mode = os.environ.get("HELIX_BROWSER_CONTROL_MODE", self._control_mode)
-        if active_mode == "extension":
-            try:
-                return await self._execute_with_extension(params)
-            except Exception as error:
-                logger.exception("Paired browser action %s failed", params["action"])
-                return ToolResult(
-                    success=False,
-                    output=None,
-                    error=f"Browser action '{params['action']}' failed: {error}",
-                )
         action = params["action"]
         global _active_browser_session
+        before_observation = None
         try:
             if action == "close":
                 if _active_browser_session is not None:
@@ -560,6 +678,9 @@ class BrowserControlTool(BaseTool):
                 return ToolResult(success=True, output={"action": action, "status": "closed"})
 
             session = await self._get_or_create_session()
+            before_observation = (
+                None if action == "get_content" else await session.observe()
+            )
             if action == "navigate":
                 url = params["url"].strip()
                 if not url.startswith(("http://", "https://")):
@@ -568,26 +689,42 @@ class BrowserControlTool(BaseTool):
                 return await self._visual_result(
                     session,
                     action,
+                    before_observation=before_observation,
                     url=await session.get_current_url(),
                 )
             if action == "click":
                 await session.click(params["selector"].strip())
-                return await self._visual_result(session, action)
+                return await self._visual_result(
+                    session, action, before_observation=before_observation
+                )
             if action == "move_mouse":
                 await session.move_mouse(params["x"], params["y"])
                 return await self._visual_result(
-                    session, action, x=params["x"], y=params["y"]
+                    session,
+                    action,
+                    before_observation=before_observation,
+                    x=params["x"],
+                    y=params["y"],
                 )
             if action == "click_at":
                 button = params.get("button", "left")
                 await session.click_at(params["x"], params["y"], button)
                 return await self._visual_result(
-                    session, action, x=params["x"], y=params["y"], button=button
+                    session,
+                    action,
+                    before_observation=before_observation,
+                    x=params["x"],
+                    y=params["y"],
+                    button=button,
                 )
             if action == "double_click_at":
                 await session.double_click_at(params["x"], params["y"])
                 return await self._visual_result(
-                    session, action, x=params["x"], y=params["y"]
+                    session,
+                    action,
+                    before_observation=before_observation,
+                    x=params["x"],
+                    y=params["y"],
                 )
             if action == "drag":
                 await session.drag(
@@ -596,21 +733,28 @@ class BrowserControlTool(BaseTool):
                 return await self._visual_result(
                     session,
                     action,
+                    before_observation=before_observation,
                     x=params["x"],
                     y=params["y"],
                     end_x=params["end_x"],
                     end_y=params["end_y"],
                 )
             if action == "type":
-                await session.type_text(params["selector"].strip(), params["text"])
+                control_type = await session.type_text(
+                    params["selector"].strip(),
+                    params["text"],
+                )
                 submit = params.get("submit", False)
                 if submit:
                     await session.press_key("Enter")
                 return await self._visual_result(
                     session,
                     action,
+                    before_observation=before_observation,
                     selector=params["selector"],
                     characters_typed=len(params["text"]),
+                    control_type=control_type,
+                    verified=True,
                     submitted=submit,
                 )
             if action == "scroll":
@@ -618,6 +762,7 @@ class BrowserControlTool(BaseTool):
                 return await self._visual_result(
                     session,
                     action,
+                    before_observation=before_observation,
                     direction=params.get("direction", "down"),
                     amount=params.get("amount", 500),
                 )
@@ -630,6 +775,7 @@ class BrowserControlTool(BaseTool):
                 return await self._visual_result(
                     session,
                     action,
+                    before_observation=before_observation,
                     x=params["x"],
                     y=params["y"],
                     direction=direction,
@@ -638,7 +784,10 @@ class BrowserControlTool(BaseTool):
             if action == "press_key":
                 await session.press_key(params.get("key", "Enter"))
                 return await self._visual_result(
-                    session, action, key=params.get("key", "Enter")
+                    session,
+                    action,
+                    before_observation=before_observation,
+                    key=params.get("key", "Enter"),
                 )
             if action == "get_content":
                 return ToolResult(
@@ -647,17 +796,30 @@ class BrowserControlTool(BaseTool):
                 )
             if action == "screenshot":
                 return await self._visual_result(
-                    session, action, include_page=False, mime_type="image/jpeg"
+                    session,
+                    action,
+                    include_page=False,
+                    before_observation=before_observation,
+                    mime_type="image/jpeg",
                 )
             if action == "go_back":
                 await session.go_back()
             elif action == "refresh":
                 await session.refresh()
-            return await self._visual_result(session, action)
+            return await self._visual_result(
+                session, action, before_observation=before_observation
+            )
         except Exception as error:
             logger.exception("Browser action %s failed", action)
+            failure = BrowserRecoveryController.handle_failure(
+                action, error, before_observation
+            )
             return ToolResult(
                 success=False,
                 output=None,
-                error=f"Browser action '{action}' failed: {error}",
+                error=(
+                    f"Browser action '{action}' failed "
+                    f"({failure['error_category']}): {error} "
+                    f"{BrowserRecoveryController.user_message(failure)}"
+                ),
             )

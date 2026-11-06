@@ -1,8 +1,9 @@
 import json
 import hashlib
+import sys
 import pytest
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
@@ -20,6 +21,7 @@ from services.agent.core.desktop_bridge import (
     _serialize_task_for_desktop,
     safe_desktop_request_error,
 )
+from services.agent.core import desktop_bridge as desktop_bridge_module
 from services.agent.core.event_bus import EventBus
 from services.agent.core.browser_page_context import clear_current_page, get_current_page
 from services.agent.core.mcp_settings import _mcp_server_statuses
@@ -47,6 +49,143 @@ def request_handler(tmp_path, clean_env):
 
 def test_microphone_sensitivity_default_is_more_sensitive(request_handler):
     assert request_handler.get_settings()["vad_threshold"] == 250
+
+
+def test_legacy_headless_setting_is_migrated_to_visible_browser(request_handler):
+    request_handler.settings_path.write_text(
+        json.dumps({"browser_headless": True}),
+        encoding="utf-8",
+    )
+
+    settings = request_handler.get_settings()
+
+    assert settings["browser_headless"] is False
+
+
+@pytest.mark.asyncio
+async def test_model_catalog_requires_openrouter_api_key_for_free_models(
+    request_handler,
+    monkeypatch,
+):
+    class FakeOllamaManager:
+        async def is_running(self):
+            return False
+
+        async def list_installed(self):
+            return []
+
+        def is_installed(self):
+            return False
+
+        def get_install_command(self):
+            return None
+
+    monkeypatch.setattr(
+        desktop_bridge_module,
+        "MODEL_CATALOG",
+        [{
+            "id": "test/free-model",
+            "provider": "free",
+            "display_name": "Test Free Model",
+            "access_type": "free_tier",
+            "capabilities": {"text": True},
+        }],
+    )
+    monkeypatch.setattr(
+        desktop_bridge_module,
+        "get_ollama_manager",
+        FakeOllamaManager,
+    )
+
+    response = await request_handler.dispatch({
+        "type": "GET_MODEL_CATALOG",
+        "payload": {},
+        "request_id": "model_catalog",
+    })
+    catalog = response["payload"]
+
+    assert catalog["categories"]["free_tier"][0]["status"] == "AUTH_REQUIRED"
+    assert "OpenRouter API key" in catalog["categories"]["free_tier"][0]["auth_note"]
+
+
+def test_runtime_settings_apply_approval_ceiling_to_permission_manager(
+    request_handler,
+):
+    from services.agent.security.permission_manager import PermissionManager
+
+    request_handler.permission_manager = PermissionManager()
+    request_handler._apply_runtime_settings({
+        **request_handler.get_settings(),
+        "permissions_mode": "SMART_APPROVAL",
+        "auto_approve_up_to": "MODIFY",
+    })
+
+    assert request_handler.permission_manager.auto_approve_up_to.name == "MODIFY"
+
+
+def test_runtime_settings_reject_invalid_approval_ceiling(request_handler):
+    with pytest.raises(ValueError, match="auto_approve_up_to"):
+        request_handler._apply_runtime_settings({
+            **request_handler.get_settings(),
+            "auto_approve_up_to": "SYSTEM",
+        })
+
+
+@pytest.mark.asyncio
+async def test_playwright_chromium_install_requires_explicit_confirmation(request_handler):
+    with pytest.raises(ValueError, match="Explicit confirmation is required"):
+        await request_handler.dispatch({
+            "type": "INSTALL_PLAYWRIGHT_CHROMIUM",
+            "payload": {},
+            "request_id": "install",
+        })
+
+
+@pytest.mark.asyncio
+async def test_playwright_chromium_install_runs_full_browser_installer(
+    request_handler,
+    monkeypatch,
+):
+    driver = SimpleNamespace(
+        compute_driver_executable=lambda: ("node.exe", "playwright-cli.js")
+    )
+    playwright_impl = ModuleType("playwright._impl")
+    playwright_impl._driver = driver
+    playwright_package = ModuleType("playwright")
+    playwright_package.__path__ = []
+    monkeypatch.setitem(sys.modules, "playwright", playwright_package)
+    monkeypatch.setitem(sys.modules, "playwright._impl", playwright_impl)
+    monkeypatch.setitem(sys.modules, "playwright._impl._driver", driver)
+    monkeypatch.setattr(
+        driver,
+        "compute_driver_executable",
+        lambda: ("node.exe", "playwright-cli.js"),
+    )
+    process = SimpleNamespace(
+        communicate=AsyncMock(return_value=(b"Chromium installed", None)),
+        returncode=0,
+    )
+    create_process = AsyncMock(return_value=process)
+    monkeypatch.setattr(
+        desktop_bridge_module.asyncio,
+        "create_subprocess_exec",
+        create_process,
+    )
+
+    result = await request_handler.dispatch({
+        "type": "INSTALL_PLAYWRIGHT_CHROMIUM",
+        "payload": {"confirmed": True},
+        "request_id": "install",
+    })
+
+    assert create_process.await_args.args == (
+        "node.exe",
+        "playwright-cli.js",
+        "install",
+        "chromium",
+    )
+    assert result["payload"]["installed"] is True
+    assert result["payload"]["output"] == "Chromium installed"
 
 
 def test_wake_word_threshold_default_and_range_validation(request_handler):
@@ -151,12 +290,17 @@ async def test_subagent_task_serialization_exposes_only_allowlisted_metadata():
         context={"api_key": "never expose"},
         parent_id="parent-id",
         role="research",
-        metadata={"task_type": "subagent", "private": "never expose"},
+        metadata={
+            "task_type": "subagent",
+            "profile_id": "eliot",
+            "private": "never expose",
+        },
     )
 
     serialized = _serialize_task_for_desktop(task)
 
     assert serialized["task_type"] == "subagent"
+    assert serialized["profile_id"] == "eliot"
     assert serialized["parent_id"] == "parent-id"
     assert serialized["role"] == "research"
     assert "metadata" not in serialized
@@ -170,6 +314,7 @@ async def test_subagent_status_uses_one_batched_task_progress_snapshot(request_h
     task = await task_manager.create_task("subagent-1", "Research task")
     task.progress = 43
     task.current_action = "Reviewing files"
+    task.execution_summary.progress_label = "Searching…"
     request_handler.agent_manager = SimpleNamespace(
         get_all_statuses=AsyncMock(return_value=[{
             "agent_id": "subagent-1",
@@ -186,6 +331,7 @@ async def test_subagent_status_uses_one_batched_task_progress_snapshot(request_h
         "status": "running",
         "progress": 43,
         "current_action": "Reviewing files",
+        "activity": "Searching…",
     }]
 
 
@@ -534,7 +680,11 @@ async def test_desktop_requests_return_serializable_data(request_handler):
     assert tasks["payload"][0]["id"] == "task-1"
     assert tasks["payload"][0]["error"] is None
     assert providers["payload"][0]["configured"] is False
-    assert models["payload"] == []
+    assert models["payload"]
+    assert all(
+        model["provider"] in {"ollama", "llama_server"}
+        for model in models["payload"]
+    )
 
 
 @pytest.mark.asyncio
@@ -600,6 +750,24 @@ async def test_gesture_window_sequence_setting_must_be_boolean(request_handler):
             "request_id": "save-invalid-gesture-window-sequence",
             "payload": {"settings": {"gesture_window_sequence_enabled": "yes"}},
         })
+
+
+@pytest.mark.asyncio
+async def test_browser_channel_setting_accepts_only_supported_playwright_channels(request_handler):
+    saved = await request_handler._save_settings({"browser_channel": "msedge"})
+    assert saved["browser_channel"] == "msedge"
+    assert saved["browser_headless"] is False
+
+    saved = await request_handler._save_settings({"browser_headless": True})
+    assert saved["browser_headless"] is False
+
+    with pytest.raises(ValueError, match="browser_channel must be"):
+        await request_handler._save_settings({"browser_channel": "firefox"})
+
+    migrated = await request_handler._save_settings({
+        "browser_control_mode": "extension",
+    })
+    assert migrated["browser_control_mode"] == "playwright"
 
 
 @pytest.mark.asyncio
@@ -825,6 +993,32 @@ async def test_user_text_forwards_conversation_context(request_handler):
 
 
 @pytest.mark.asyncio
+async def test_user_text_request_acknowledges_dispatch(request_handler):
+    events = []
+
+    async def capture(event_name, payload):
+        events.append((event_name, payload))
+
+    await request_handler.task_manager.event_bus.subscribe("USER_TEXT", capture)
+    response = await request_handler.dispatch({
+        "type": "USER_TEXT",
+        "payload": {
+            "text": "Hello",
+            "conversation_id": "conversation-ack",
+            "conversation_history": [],
+        },
+        "request_id": "send-1",
+    })
+
+    assert response == {
+        "request_id": "send-1",
+        "payload": {"accepted": True},
+    }
+    assert len(events) == 1
+    assert events[0][0] == "USER_TEXT"
+
+
+@pytest.mark.asyncio
 async def test_mobile_user_text_preserves_verified_device_context(request_handler):
     events = []
 
@@ -865,4 +1059,98 @@ async def test_mobile_user_text_rejects_spoofed_device_metadata(request_handler)
                 "input_source": "mobile",
                 "source_device_id": "abcdefghijklmnopqrstuvwxyz123456",
             },
+        })
+
+
+# ---------------------------------------------------------------------------
+# TASK_RESUME handler tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_task_resume_calls_orchestrator_resume_workflow(tmp_path, clean_env):
+    """TASK_RESUME message should delegate to orchestrator.resume_workflow."""
+    from services.agent.ai.key_manager import KeyManager
+    from services.agent.ai.capability_registry import CapabilityRegistry
+    from services.agent.ai.provider_registry import ProviderRegistry
+    from services.agent.ai.openai_provider import OpenAIProvider
+    from services.agent.ai.anthropic_provider import AnthropicProvider
+    from services.agent.ai.google_provider import GoogleProvider
+    from services.agent.core.event_bus import EventBus
+    from services.agent.core.task_manager import TaskManager
+
+    resumed = {}
+
+    class FakeOrchestrator:
+        async def resume_workflow(self, task_id, *, force=True, repeat_interrupted_actions=True):
+            resumed["task_id"] = task_id
+            resumed["force"] = force
+            resumed["repeat"] = repeat_interrupted_actions
+
+    key_manager = KeyManager()
+    provider_registry = ProviderRegistry(key_manager)
+    provider_registry.register_provider(OpenAIProvider())
+    provider_registry.register_provider(AnthropicProvider())
+    provider_registry.register_provider(GoogleProvider())
+    handler = DesktopRequestHandler(
+        TaskManager(EventBus()),
+        provider_registry,
+        CapabilityRegistry(),
+        key_manager,
+        tmp_path / "settings.json",
+        orchestrator=FakeOrchestrator(),
+    )
+
+    await handler.dispatch({
+        "type": "TASK_RESUME",
+        "payload": {"task_id": "task-abc123", "repeat_interrupted": False, "force": True},
+    })
+    # asyncio.ensure_future schedules on the running loop — drain it
+    import asyncio
+    await asyncio.sleep(0)
+
+    assert resumed.get("task_id") == "task-abc123"
+    assert resumed.get("force") is True
+    assert resumed.get("repeat") is False
+
+
+@pytest.mark.asyncio
+async def test_task_resume_requires_task_id(request_handler):
+    """TASK_RESUME without task_id should raise ValueError."""
+    with pytest.raises(ValueError, match="TASK_RESUME requires a task_id"):
+        await request_handler.dispatch({
+            "type": "TASK_RESUME",
+            "payload": {},
+        })
+
+
+@pytest.mark.asyncio
+async def test_task_resume_without_orchestrator_raises_runtime_error(tmp_path, clean_env):
+    """TASK_RESUME when orchestrator is None should raise RuntimeError."""
+    from services.agent.ai.key_manager import KeyManager
+    from services.agent.ai.capability_registry import CapabilityRegistry
+    from services.agent.ai.provider_registry import ProviderRegistry
+    from services.agent.ai.openai_provider import OpenAIProvider
+    from services.agent.ai.anthropic_provider import AnthropicProvider
+    from services.agent.ai.google_provider import GoogleProvider
+    from services.agent.core.event_bus import EventBus
+    from services.agent.core.task_manager import TaskManager
+
+    key_manager = KeyManager()
+    provider_registry = ProviderRegistry(key_manager)
+    provider_registry.register_provider(OpenAIProvider())
+    provider_registry.register_provider(AnthropicProvider())
+    provider_registry.register_provider(GoogleProvider())
+    handler = DesktopRequestHandler(
+        TaskManager(EventBus()),
+        provider_registry,
+        CapabilityRegistry(),
+        key_manager,
+        tmp_path / "settings.json",
+        orchestrator=None,  # explicitly no orchestrator
+    )
+
+    with pytest.raises(RuntimeError, match="does not support resume_workflow"):
+        await handler.dispatch({
+            "type": "TASK_RESUME",
+            "payload": {"task_id": "task-xyz"},
         })
