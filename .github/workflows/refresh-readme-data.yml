@@ -1,0 +1,79 @@
+name: Refresh generated README data
+
+on:
+  schedule:
+    - cron: '37 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: refresh-generated-readme-data
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the default branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Prepare a review branch
+        id: branch
+        shell: bash
+        run: |
+          branch="docs/refresh-generated-readme-data"
+          git fetch origin main
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            git fetch origin "$branch"
+            git switch --create "$branch" --track "origin/$branch"
+            git merge --no-edit origin/main
+          else
+            git switch --create "$branch" origin/main
+          fi
+          echo "name=$branch" >> "$GITHUB_OUTPUT"
+
+      - name: Generate the updated README snapshot
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/sync-readme-data.mjs
+
+      - name: Check generated README data and local links
+        run: node scripts/sync-readme-data.mjs --check
+
+      - name: Open or update a documentation pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ steps.branch.outputs.name }}
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md docs/project-data.json
+          if git diff --cached --quiet; then
+            echo "Generated README data is already current."
+            exit 0
+          fi
+          git commit \
+            -m "docs: refresh generated README data" \
+            -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
+          git push --set-upstream origin "$BRANCH"
+
+          number=$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --head "$BRANCH" --json number --jq '.[0].number // empty')
+          title="docs: refresh generated README data"
+          body="Refresh the generated release versions, public asset status, npm latest version, and model-catalog inventory from their configured sources. Please review the generated changes before merging."
+          if [[ -n "$number" ]]; then
+            gh pr edit "$number" --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
+          else
+            gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$BRANCH" --title "$title" --body "$body"
+          fi
