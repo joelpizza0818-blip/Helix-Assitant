@@ -101,9 +101,9 @@ Gallery videos are opened on demand rather than eagerly downloaded on first load
 <!-- HELIX-DATA:download-rows:start -->
 | Product | Platform | Public release / download | Status |
 |---|---|---|---|
-| HELIX Normal | Windows x64 | [v0.7.0](https://github.com/joelpizza0818-blip/Helix-Assitant/releases/tag/v0.7.0) / [Download page](https://helix-assistant.vercel.app/download) | Public release published; no installer asset is attached. Use the authenticated download page. |
-| HELIX Lite | Windows x64 | [lite-v0.7.1](https://github.com/joelpizza0818-blip/Helix-Assitant/releases) | Source lite-v0.7.1; no published public release found. |
-| HELIX Mobile | Android APK | [mobile-v0.7.1](https://github.com/joelpizza0818-blip/Helix-Assitant/releases) | Source mobile-v0.7.1; no published public release found. |
+| HELIX Normal | Windows x64 | [v0.7.1](https://github.com/joelpizza0818-blip/Helix-Assitant/releases/tag/v0.7.1) / [Download page](https://helix-assistant.vercel.app/download) | Public release published; no installer asset is attached. Use the authenticated download page. |
+| HELIX Lite | Windows x64 | [lite-v0.7.1](https://github.com/joelpizza0818-blip/Helix-Assitant/releases/tag/lite-v0.7.1) | Published with Windows installer and SHA-256 sidecar. |
+| HELIX Mobile | Android APK | [mobile-v0.7.1](https://github.com/joelpizza0818-blip/Helix-Assitant/releases/tag/mobile-v0.7.1) | Published with four APK variants and SHA-256 sidecars. |
 | HELIX CLI | Node.js / npm | [npm package](https://www.npmjs.com/package/helix-assistant-cli) | npm latest 0.6.1; repository source is 0.7.1. |
 <!-- HELIX-DATA:download-rows:end -->
 
@@ -236,7 +236,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete testing command list and
 ## Project status
 
 <!-- HELIX-DATA:project-status:start -->
-Normal 0.7.0: published (no installer asset on the public release); Lite 0.7.1: not published; Android 0.7.1: not published; CLI npm latest 0.6.1 (repository source 0.7.1).
+Normal 0.7.1: published (no installer asset on the public release); Lite 0.7.1: published; Android 0.7.1: published; CLI npm latest 0.6.1 (repository source 0.7.1).
 <!-- HELIX-DATA:project-status:end -->
 
 ## License

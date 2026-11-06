@@ -1,6 +1,6 @@
 {
   "sourceVersions": {
-    "normal": "0.7.0",
+    "normal": "0.7.1",
     "lite": "0.7.1",
     "mobile": "0.7.1+10",
     "cli": "0.7.1"
@@ -20,25 +20,37 @@
   },
   "publicReleases": {
     "normal": {
-      "tag": "v0.7.0",
+      "tag": "v0.7.1",
       "published": true,
       "prerelease": false,
-      "url": "https://github.com/joelpizza0818-blip/Helix-Assitant/releases/tag/v0.7.0",
+      "url": "https://github.com/joelpizza0818-blip/Helix-Assitant/releases/tag/v0.7.1",
       "assetNames": []
     },
     "lite": {
       "tag": "lite-v0.7.1",
-      "published": false,
+      "published": true,
       "prerelease": false,
-      "url": "https://github.com/joelpizza0818-blip/Helix-Assitant/releases",
-      "assetNames": []
+      "url": "https://github.com/joelpizza0818-blip/Helix-Assitant/releases/tag/lite-v0.7.1",
+      "assetNames": [
+        "HELIX-Lite-Setup.exe",
+        "HELIX-Lite-Setup.exe.sha256"
+      ]
     },
     "mobile": {
       "tag": "mobile-v0.7.1",
-      "published": false,
+      "published": true,
       "prerelease": false,
-      "url": "https://github.com/joelpizza0818-blip/Helix-Assitant/releases",
-      "assetNames": []
+      "url": "https://github.com/joelpizza0818-blip/Helix-Assitant/releases/tag/mobile-v0.7.1",
+      "assetNames": [
+        "HELIX-Mobile-arm64-v8a.apk",
+        "HELIX-Mobile-arm64-v8a.apk.sha256",
+        "HELIX-Mobile-armeabi-v7a.apk",
+        "HELIX-Mobile-armeabi-v7a.apk.sha256",
+        "HELIX-Mobile-x86_64.apk",
+        "HELIX-Mobile-x86_64.apk.sha256",
+        "HELIX-Mobile.apk",
+        "HELIX-Mobile.apk.sha256"
+      ]
     }
   },
   "npm": {
