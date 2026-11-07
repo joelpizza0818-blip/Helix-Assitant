@@ -493,7 +493,7 @@ test('escapeHtml helper replaces all critical characters reliably', () => {
   );
 });
 
-test('sanitizeUrl helper permits http/https and blocks javascript and dangerous protocols', () => {
+test('sanitizeUrl helper permits safe HTTPS URLs and blocks insecure or dangerous URLs', () => {
   assert.equal(sanitizeUrl(''), 'https://helix-assistant.dev/download');
   assert.equal(sanitizeUrl(undefined), 'https://helix-assistant.dev/download');
   assert.equal(
@@ -502,7 +502,7 @@ test('sanitizeUrl helper permits http/https and blocks javascript and dangerous 
   );
   assert.equal(
     sanitizeUrl('http://insecure.dev/download'),
-    'http://insecure.dev/download'
+    'https://helix-assistant.dev/download'
   );
   assert.equal(
     sanitizeUrl('javascript:alert(1)'),
@@ -514,6 +514,14 @@ test('sanitizeUrl helper permits http/https and blocks javascript and dangerous 
   );
   assert.equal(
     sanitizeUrl('vbscript:msgbox(1)'),
+    'https://helix-assistant.dev/download'
+  );
+  assert.equal(
+    sanitizeUrl('https://user:pass@attacker.example/download'),
+    'https://helix-assistant.dev/download'
+  );
+  assert.equal(
+    sanitizeUrl('https://safe.example/\r\nheader'),
     'https://helix-assistant.dev/download'
   );
 });

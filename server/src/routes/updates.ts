@@ -141,7 +141,7 @@ updatesRouter.post(
       if (!result.success) {
         return res.status(500).json({
           success: false,
-          error: result.error || 'Error sending emails',
+          error: 'Error sending emails',
         });
       }
 
@@ -158,9 +158,10 @@ updatesRouter.post(
           error: error.issues[0]?.message || 'Invalid broadcast parameters',
         });
       }
+      logger.error('[Updates] Broadcast failed.');
       return res.status(500).json({
         success: false,
-        error: error.message || 'Internal error while processing the email broadcast',
+        error: 'Internal error while processing the email broadcast',
       });
     }
   }

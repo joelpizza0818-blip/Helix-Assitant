@@ -57,9 +57,16 @@ export function escapeHtml(str: string): string {
 export function sanitizeUrl(url?: string): string {
   if (!url) return 'https://helix-assistant.dev/download';
   const trimmed = url.trim();
-  // Allow only absolute http and https protocols to prevent javascript: or data: URIs
-  if (/^https?:\/\/[^\s"'>]+$/i.test(trimmed)) {
-    return escapeHtml(trimmed);
+  if (!trimmed || /[\u0000-\u001F\u007F]/.test(trimmed)) {
+    return 'https://helix-assistant.dev/download';
+  }
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol === 'https:' && parsed.hostname && !parsed.username && !parsed.password) {
+      return escapeHtml(parsed.href);
+    }
+  } catch {
+    return 'https://helix-assistant.dev/download';
   }
   return 'https://helix-assistant.dev/download';
 }
@@ -188,11 +195,11 @@ export async function sendVersionUpdateEmail(
       rawMessage: info.message ? info.message.toString() : undefined,
     };
   } catch (error: any) {
-    logger.error('[Mailer] Error sending version update email:', error);
+    logger.error('[Mailer] Error sending version update email.');
     return {
       success: false,
       sentCount: 0,
-      error: error.message || 'Failed to dispatch email',
+      error: 'Failed to dispatch email',
     };
   }
 }

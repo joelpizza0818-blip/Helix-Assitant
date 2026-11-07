@@ -4,6 +4,9 @@ import {
   mergeInstallerHistoryRows,
   type InstallerHistoryRow,
 } from '../_shared/installer-history.ts'
+import { getActiveRankReviewCase, handleRankEscalationAttempt, handleRankReviewRoute } from '../_shared/rank-review.ts'
+import { withSecureCors } from '../_shared/http-security.ts'
+import { isAllowedAnnouncementUrl, isExternalAnnouncementUrl, isHttpsUrl } from '../_shared/url-validation.ts'
 import { canLinkGithubProfileByLogin } from '../_shared/profile-link.ts'
 
 const GITHUB_API = 'https://api.github.com'
@@ -18,17 +21,10 @@ function releaseTag(version: string): string {
   return version.startsWith('v') ? version : `v${version}`
 }
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Cache-Control': 'no-store',
-}
-
 function jsonResponse(status: number, body: Record<string, unknown>): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' },
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
   })
 }
 
@@ -47,7 +43,7 @@ async function authenticateGithubIdentity(
   request: Request,
   admin: ReturnType<typeof getAdminClient>,
 ): Promise<
-  | { login: string; githubId: string; displayName: string; avatarUrl: string | null }
+  | { login: string; githubId: string; authUserId: string | null; displayName: string; avatarUrl: string | null }
   | { response: Response }
 > {
   const authorization = request.headers.get('Authorization')
@@ -65,9 +61,7 @@ async function authenticateGithubIdentity(
     const identityData = githubIdentity?.identity_data
     const login = typeof identityData?.user_name === 'string'
       ? identityData.user_name
-      : typeof authUser.user_metadata.user_name === 'string'
-        ? authUser.user_metadata.user_name
-        : ''
+      : ''
     const githubId = githubIdentity?.id ?? ''
     if (!login || !githubId) {
       return { response: jsonResponse(503, { error: 'GitHub profile data is incomplete.' }) }
@@ -75,6 +69,7 @@ async function authenticateGithubIdentity(
     return {
       login: login.toLowerCase(),
       githubId: String(githubId),
+      authUserId: authUser.id,
       displayName: typeof identityData?.full_name === 'string'
         ? identityData.full_name
         : login,
@@ -117,6 +112,7 @@ async function authenticateGithubIdentity(
   return {
     login: identity.login.toLowerCase(),
     githubId: String(identity.id),
+    authUserId: null,
     displayName: identity.login,
     avatarUrl: null,
   }
@@ -163,19 +159,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
-function isHttpsUrl(value: unknown): value is string {
-  if (typeof value !== 'string' || value.length > 2048) return false
-  try {
-    return new URL(value).protocol === 'https:'
-  } catch {
-    return false
-  }
-}
-
-function isAllowedAnnouncementUrl(value: string): boolean {
-  return value.startsWith('/') ? !value.startsWith('//') : isHttpsUrl(value)
-}
-
 function parseAnnouncementPayload(value: unknown): AnnouncementPayload | null {
   if (
     !isRecord(value)
@@ -206,7 +189,12 @@ function parseAnnouncementPayload(value: unknown): AnnouncementPayload | null {
       || (item.external !== undefined && typeof item.external !== 'boolean')
       || !isAllowedAnnouncementUrl(item.url)
     ) return null
-    links.push({ text: item.text.trim(), url: item.url, external: item.external === true })
+    const url = item.url.trim()
+    links.push({
+      text: item.text.trim(),
+      url,
+      external: isExternalAnnouncementUrl(url),
+    })
   }
 
   return {
@@ -414,9 +402,9 @@ async function syncUserProfile(
       .insert({
         github_login: identity.login,
         github_user_id: identity.githubId,
+        auth_user_id: identity.authUserId,
         display_name: identity.displayName || identity.login,
         avatar_url: identity.avatarUrl,
-        rank: 'user',
       })
       .select('profile_id, github_user_id, github_login, display_name, avatar_url, rank')
       .single()
@@ -437,6 +425,7 @@ async function syncUserProfile(
     .update({
       github_login: identity.login,
       github_user_id: identity.githubId,
+      ...(identity.authUserId ? { auth_user_id: identity.authUserId } : {}),
       display_name: profile.display_name || identity.displayName || identity.login,
       avatar_url: identity.avatarUrl,
       updated_at: new Date().toISOString(),
@@ -668,8 +657,8 @@ function isPolicyBody(value: unknown): value is {
     && value.checkIntervalHours <= 720
 }
 
-Deno.serve(async (request: Request) => {
-  if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
+async function handleRequest(request: Request): Promise<Response> {
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204 })
   if (!['GET', 'POST', 'PUT', 'DELETE'].includes(request.method)) {
     return jsonResponse(405, { error: 'Method not allowed.' })
   }
@@ -704,11 +693,34 @@ Deno.serve(async (request: Request) => {
   const isAdmin = profile.rank === 'admin' || profile.rank === 'master-admin'
   const routeParts = route.split('/').filter(Boolean)
 
+  const escalationAttempt = await handleRankEscalationAttempt(request, route, profile, admin)
+  if (escalationAttempt) return escalationAttempt
+
+  let securityCase
+  try {
+    securityCase = await getActiveRankReviewCase(admin, profile.profileId)
+  } catch (error) {
+    console.error('Could not load rank review status:', error)
+    return jsonResponse(503, { error: 'Could not load rank review status.' })
+  }
+
+  const securityRouteResponse = await handleRankReviewRoute(request, routeParts, profile, admin)
+  if (securityRouteResponse) return securityRouteResponse
+
   if ((route === 'authorization' || route === 'profile') && request.method === 'GET') {
     return jsonResponse(200, {
       success: true,
-      authenticated: isAdmin,
+      authenticated: isAdmin && !securityCase,
       profile,
+      securityCase,
+    })
+  }
+  if (securityCase) {
+    return jsonResponse(423, {
+      error: securityCase.status === 'permanent'
+        ? 'Admin access is permanently banned.'
+        : 'Admin access is suspended pending master-admin review.',
+      securityCase,
     })
   }
   if (route === 'profile' && request.method === 'PUT') {
@@ -785,17 +797,16 @@ Deno.serve(async (request: Request) => {
     ) {
       return jsonResponse(400, { error: 'Only user and admin ranks can be assigned.' })
     }
-    const { data, error } = await admin
-      .from('github_user_roles')
-      .update({ rank: body.rank, updated_at: new Date().toISOString() })
-      .eq('profile_id', targetProfileId)
-      .neq('rank', 'master-admin')
-      .select('profile_id, github_user_id, github_login, display_name, avatar_url, rank')
-      .maybeSingle()
+    const { data: updatedProfiles, error } = await admin.rpc('helix_set_profile_rank', {
+      p_actor_profile_id: profile.profileId,
+      p_target_profile_id: targetProfileId,
+      p_rank: body.rank,
+    })
     if (error) {
       console.error('Could not update user rank:', error.message)
       return jsonResponse(503, { error: 'Could not update the user rank.' })
     }
+    const data = Array.isArray(updatedProfiles) ? updatedProfiles[0] : null
     if (!data) return jsonResponse(404, { error: 'User profile was not found or cannot be changed.' })
     return jsonResponse(200, {
       success: true,
@@ -1481,4 +1492,9 @@ Deno.serve(async (request: Request) => {
   }
 
   return jsonResponse(404, { error: 'Admin route not found.' })
+}
+
+Deno.serve(async (request) => {
+  const response = await handleRequest(request)
+  return withSecureCors(request, response, 'GET, POST, PUT, DELETE, OPTIONS')
 })
