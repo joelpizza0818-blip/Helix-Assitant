@@ -4,6 +4,7 @@ import {
   mergeInstallerHistoryRows,
   type InstallerHistoryRow,
 } from '../_shared/installer-history.ts'
+import { canLinkGithubProfileByLogin } from '../_shared/profile-link.ts'
 
 const GITHUB_API = 'https://api.github.com'
 const LITE_RELEASE_OWNER = 'joelpizza0818-blip'
@@ -380,11 +381,12 @@ function historyRows(releases: GitHubReleaseRecord[], profileId: string): Instal
   return mergeInstallerHistoryRows(rows)
 }
 
+class PrivilegedProfileLinkConflict extends Error {}
+
 async function syncUserProfile(
   admin: ReturnType<typeof getAdminClient>,
   identity: { login: string; githubId: string; displayName: string; avatarUrl: string | null },
 ): Promise<UserProfile | null> {
-  const rank = identity.login.toLowerCase() === 'joelpizza0818-blip' ? 'master-admin' : null
   const byGitHubId = await admin
     .from('github_user_roles')
     .select('profile_id, github_user_id, github_login, display_name, avatar_url, rank')
@@ -401,6 +403,9 @@ async function syncUserProfile(
       .maybeSingle()
     if (byLogin.error) throw new Error(`Could not find HELIX profile: ${byLogin.error.message}`)
     existing = byLogin.data
+    if (existing && !canLinkGithubProfileByLogin(existing, identity.githubId)) {
+      throw new PrivilegedProfileLinkConflict()
+    }
   }
 
   if (byGitHubId.data === null && !existing) {
@@ -411,7 +416,7 @@ async function syncUserProfile(
         github_user_id: identity.githubId,
         display_name: identity.displayName || identity.login,
         avatar_url: identity.avatarUrl,
-        rank: rank ?? 'user',
+        rank: 'user',
       })
       .select('profile_id, github_user_id, github_login, display_name, avatar_url, rank')
       .single()
@@ -434,7 +439,6 @@ async function syncUserProfile(
       github_user_id: identity.githubId,
       display_name: profile.display_name || identity.displayName || identity.login,
       avatar_url: identity.avatarUrl,
-      ...(rank ? { rank } : {}),
       updated_at: new Date().toISOString(),
     })
     .eq('profile_id', profile.profile_id)
@@ -687,6 +691,11 @@ Deno.serve(async (request: Request) => {
     if (!syncedProfile) return jsonResponse(503, { error: 'Could not load the HELIX profile.' })
     profile = syncedProfile
   } catch (error) {
+    if (error instanceof PrivilegedProfileLinkConflict) {
+      return jsonResponse(409, {
+        error: 'This GitHub login is linked to a different or privileged profile. Contact a HELIX administrator to verify account ownership.',
+      })
+    }
     console.error('Could not synchronize HELIX profile:', error)
     return jsonResponse(503, { error: 'Could not synchronize the HELIX profile.' })
   }
