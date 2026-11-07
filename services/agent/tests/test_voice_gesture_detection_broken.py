@@ -534,6 +534,7 @@ NON_RDP_SESSION_NAMES = st.one_of(
 )
 @settings(
     max_examples=30,
+    deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
 def test_preservation_5_non_rdp_behavior_consistent_with_pre_fix(

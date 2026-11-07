@@ -62,6 +62,17 @@ def test_legacy_headless_setting_is_migrated_to_visible_browser(request_handler)
     assert settings["browser_headless"] is False
 
 
+def test_developer_mode_is_disabled_by_default_and_requires_a_boolean(request_handler):
+    settings = request_handler.get_settings()
+
+    assert settings["developer_mode_enabled"] is False
+    with pytest.raises(ValueError, match="developer_mode_enabled must be a boolean"):
+        request_handler._apply_runtime_settings({
+            **settings,
+            "developer_mode_enabled": "enabled",
+        })
+
+
 @pytest.mark.asyncio
 async def test_model_catalog_requires_openrouter_api_key_for_free_models(
     request_handler,

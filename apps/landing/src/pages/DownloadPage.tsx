@@ -2,16 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ResponsiveSiteNavigation } from '../components/ResponsiveSiteNavigation';
 import { InstallerDownloadButton } from '../components/Download/InstallerDownloadButton';
-import { PrivacyModal } from '../components/PrivacyModal/PrivacyModal';
-import { getLatestInstallerVersion, getLatestLiteRelease, mapMobileReleaseDownload, type LiteReleaseDownload, type MobileReleaseDownload } from '../lib/downloads';
+import { getLatestInstallerVersion, mapMobileReleaseDownload, type MobileReleaseDownload } from '../lib/downloads';
 import { fetchPublicInstallers, fetchPublicReleaseHistory, type LandingInstaller } from '../lib/landingContent';
 import './DownloadPage.css';
 
 export const DownloadPage: React.FC = () => {
   const [installerVersion, setInstallerVersion] = useState<string | null>(null);
   const [versionError, setVersionError] = useState(false);
-  const [liteRelease, setLiteRelease] = useState<LiteReleaseDownload | null>(null);
-  const [liteReleaseError, setLiteReleaseError] = useState(false);
   const [mobileRelease, setMobileRelease] = useState<MobileReleaseDownload | null>(null);
   const [mobileReleaseError, setMobileReleaseError] = useState(false);
   const [iosRelease, setIosRelease] = useState<MobileReleaseDownload | null>(null);
@@ -20,7 +17,6 @@ export const DownloadPage: React.FC = () => {
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [catalogInstallers, setCatalogInstallers] = useState<LandingInstaller[]>([]);
   const [catalogError, setCatalogError] = useState<string | null>(null);
-  const [litePrivacyOpen, setLitePrivacyOpen] = useState(false);
   const [selectedOS, setSelectedOS] = useState<'windows' | 'macos' | 'linux'>('windows');
   const [cliCopied, setCliCopied] = useState(false);
 
@@ -40,14 +36,6 @@ export const DownloadPage: React.FC = () => {
         if (controller.signal.aborted) return;
         console.error('Failed to load installer version', err);
         setVersionError(true);
-      });
-
-    getLatestLiteRelease(controller.signal)
-      .then(setLiteRelease)
-      .catch((err: unknown) => {
-        if (controller.signal.aborted) return;
-        console.error('Failed to load Lite release', err);
-        setLiteReleaseError(true);
       });
 
     fetchPublicInstallers(controller.signal)
@@ -83,14 +71,6 @@ export const DownloadPage: React.FC = () => {
     return () => controller.abort();
   }, []);
 
-  const handleLiteDownloadClick = (e: React.MouseEvent) => {
-    const isAccepted = typeof window !== 'undefined' && localStorage.getItem('helix_privacy_accepted') === 'true';
-    if (!isAccepted) {
-      e.preventDefault();
-      setLitePrivacyOpen(true);
-    }
-  };
-
   return (
     <div className="download-page" id="top">
       <ResponsiveSiteNavigation />
@@ -102,7 +82,7 @@ export const DownloadPage: React.FC = () => {
             <span className="download-eyebrow">OFFICIAL DISTRIBUTION · WINDOWS X64</span>
             <h1 className="download-title">Download HELIX for your Desktop</h1>
             <p className="download-lead">
-            HELIX currently publishes Windows x64 desktop installers for Normal and Lite. Both use the local Python agent; AI requests go to the providers configured in the app.
+            HELIX currently publishes its Windows x64 desktop installer. AI requests go to the providers configured in the app.
             </p>
           </div>
 
@@ -242,118 +222,6 @@ export const DownloadPage: React.FC = () => {
               </div>
             </article>
 
-            {/* Edition 2: HELIX Lite */}
-            <article className="download-card download-card--lite">
-              <div className="download-card__header">
-                <div className="download-card__badge-row">
-                  <span className="download-badge download-badge--lite">TAURI · RUST DESKTOP SHELL</span>
-                  <span className="download-version-pill">
-                    {liteRelease ? `v${liteRelease.version}` : liteReleaseError ? 'Unavailable' : 'Loading…'}
-                  </span>
-                </div>
-                <h2 className="download-card__title">HELIX Lite</h2>
-                <p className="download-card__desc">
-                  Tauri and Rust desktop shell sharing the HELIX Python agent. Performance has not been benchmarked across supported configurations.
-                </p>
-              </div>
-
-              <div className="download-specs">
-                <div className="download-spec-item">
-                  <span className="download-spec-label">ARCHITECTURE</span>
-                  <span className="download-spec-val">Tauri v2 + Rust + WebView2 + Python agent</span>
-                </div>
-                <div className="download-spec-item">
-                  <span className="download-spec-label">RAM FOOTPRINT</span>
-                  <span className="download-spec-val">Not benchmarked across configurations</span>
-                </div>
-                <div className="download-spec-item">
-                  <span className="download-spec-label">INSTALLER</span>
-                  <span className="download-spec-val">Windows x64 · see release for current size</span>
-                </div>
-              </div>
-
-              <ul className="download-features-list">
-                <li>
-                  <svg className="download-check-icon download-check-icon--orange" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                  <span>Tauri desktop shell using WebView2</span>
-                </li>
-                <li>
-                  <svg className="download-check-icon download-check-icon--orange" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                  <span>Tauri desktop shell with a shared local Python agent</span>
-                </li>
-                <li>
-                  <svg className="download-check-icon download-check-icon--orange" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                  <span>Shared agent with configurable AI providers; successful responses require a working provider or local endpoint</span>
-                </li>
-                <li>
-                  <svg className="download-check-icon download-check-icon--orange" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                  <span>Immediate download with no prior account registration</span>
-                </li>
-              </ul>
-
-              <div className="download-card__actions">
-                {selectedOS === 'windows' ? (
-                  liteRelease ? (
-                    <>
-                      <a
-                        className="download-action-btn download-action-btn--lite"
-                        href={liteRelease.installerUrl}
-                        onClick={handleLiteDownloadClick}
-                        rel="noreferrer"
-                      >
-                        Download HELIX Lite (.exe) v{liteRelease.version}
-                      </a>
-                      <a
-                        className="download-checksum-link"
-                        href={liteRelease.releaseUrl}
-                        rel="noreferrer"
-                        target="_blank"
-                      >
-                        View release and SHA-256 checksum on GitHub
-                        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: 6 }}>
-                          <line x1="7" y1="17" x2="17" y2="7" />
-                          <polyline points="7 7 17 7 17 17" />
-                        </svg>
-                      </a>
-                      <PrivacyModal
-                        isOpen={litePrivacyOpen}
-                        targetEdition="Lite"
-                        onClose={() => setLitePrivacyOpen(false)}
-                        onConfirm={() => {
-                          window.location.assign(liteRelease.installerUrl);
-                        }}
-                      />
-                    </>
-                  ) : (
-                    <span className="download-note">
-                      {liteReleaseError ? 'Lite download temporarily unavailable.' : 'Fetching latest HELIX Lite version…'}
-                    </span>
-                  )
-                ) : selectedOS === 'macos' ? (
-                  <>
-                    <span className="download-note">
-                      No macOS installer published
-                      {' '}HELIX Lite is currently released for Windows x64 only.
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <span className="download-note">
-                      No Linux installer published
-                      {' '}HELIX Lite is currently released for Windows x64 only.
-                    </span>
-                  </>
-                )}
-              </div>
-            </article>
           </div>
 
           {selectedOS !== 'windows' && (
@@ -372,7 +240,7 @@ export const DownloadPage: React.FC = () => {
                       <article className="download-public-catalog__item" key={item.id}>
                         <div>
                           <span>{item.edition.toUpperCase()}</span>
-                          <h4>HELIX {item.edition === 'lite' ? 'Lite' : 'Normal'} v{item.version}</h4>
+                          <h4>HELIX Normal v{item.version}</h4>
                         </div>
                         <div className="download-public-catalog__links">
                           {item.installerUrl && <a href={item.installerUrl}>Download installer</a>}

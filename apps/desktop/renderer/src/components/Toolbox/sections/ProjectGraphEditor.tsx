@@ -6,6 +6,7 @@ import './ProjectGraphEditor.css'
 interface Props {
   projectId: string | null
   graphType?: 'project' | 'general'
+  onOpenFile?: (relativePath: string) => void
 }
 
 interface GraphPoint {
@@ -222,7 +223,7 @@ function fitCamera(points: Map<string, GraphPoint>): GraphCamera {
 }
 
 const ProjectGraphEditor = forwardRef<ProjectGraphEditorHandle, Props>(function ProjectGraphEditor(
-  { projectId, graphType = 'project' },
+  { projectId, graphType = 'project', onOpenFile },
   ref,
 ) {
   const [graph, setGraph] = useState<ProjectGraph | null>(null)
@@ -672,6 +673,11 @@ const ProjectGraphEditor = forwardRef<ProjectGraphEditorHandle, Props>(function 
                       setSelectedNodeId(node.node_id)
                       setSelectedEdgeId(null)
                     }}
+                    onDoubleClick={() => {
+                      if (node.type === 'file' && node.relative_path) {
+                        onOpenFile?.(node.relative_path)
+                      }
+                    }}
                     onPointerDown={(event) => beginNodeDrag(event, node.node_id)}
                     onPointerEnter={() => setHoveredNodeId(node.node_id)}
                     onPointerLeave={() => {
@@ -681,6 +687,9 @@ const ProjectGraphEditor = forwardRef<ProjectGraphEditorHandle, Props>(function 
                       if (event.key === 'Enter' || event.key === ' ') {
                         setSelectedNodeId(node.node_id)
                         setSelectedEdgeId(null)
+                        if (event.key === 'Enter' && node.type === 'file' && node.relative_path) {
+                          onOpenFile?.(node.relative_path)
+                        }
                       }
                     }}
                   >

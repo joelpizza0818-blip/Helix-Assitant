@@ -304,19 +304,6 @@
   border-color: rgba(255, 255, 255, 0.28);
 }
 
-.scrolly-button--lite {
-  background: rgba(255, 159, 28, 0.08);
-  color: #ffb854;
-  border: 1px solid rgba(255, 159, 28, 0.35);
-  backdrop-filter: blur(8px);
-}
-
-.scrolly-button--lite:hover {
-  background: rgba(255, 159, 28, 0.18);
-  border-color: #ff9f1c;
-  color: #fff;
-}
-
 .scrolly-editions-strip {
   display: flex;
   justify-content: center;
@@ -353,12 +340,6 @@
   background: rgba(255, 159, 28, 0.15);
   color: #ff9f1c;
   border: 1px solid rgba(255, 159, 28, 0.35);
-}
-
-.scrolly-edition-chip__badge--lite {
-  background: rgba(255, 159, 28, 0.14);
-  color: #ff9f1c;
-  border-color: rgba(255, 159, 28, 0.35);
 }
 
 .scrolly-button:focus-visible,

@@ -30,8 +30,6 @@ function isUpdaterStatus(value: unknown): value is UpdaterStatus {
 export default function UpdateSection() {
   const [status, setStatus] = useState<UpdaterStatus>(INITIAL_STATUS)
   const [busy, setBusy] = useState(false)
-  const isTauriLite = '__TAURI_INTERNALS__' in window
-
   useEffect(() => window.helix.onUpdaterStatus((value) => {
     if (isUpdaterStatus(value)) setStatus(value)
   }), [])
@@ -119,9 +117,7 @@ export default function UpdateSection() {
           </button>
         )}
         <p className="text-xs text-muted updates__note">
-          {isTauriLite
-            ? 'HELIX Lite checks only its separate lite-v release channel. The installer is unsigned; verify its SHA-256 release asset. Download and installation require your action.'
-            : 'Updates are checked automatically when HELIX starts. Installation happens only after you choose to restart.'}
+          Updates are checked automatically when HELIX starts. Installation happens only after you choose to restart.
         </p>
       </div>
     </section>

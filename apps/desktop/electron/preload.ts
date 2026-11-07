@@ -78,6 +78,23 @@ contextBridge.exposeInMainWorld('helix', {
     message: string
     output: string
   }> => ipcRenderer.invoke('helix:install-playwright-chromium'),
+  getDeveloperTerminalStatus: () =>
+    ipcRenderer.invoke('helix:developer-terminal-status'),
+  startDeveloperTerminal: (options: {
+    project_id: string
+    shell: 'powershell' | 'cmd' | 'bash'
+    cols: number
+    rows: number
+  }) => ipcRenderer.invoke('helix:developer-terminal-start', options),
+  writeDeveloperTerminal: (sessionId: string, data: string) =>
+    ipcRenderer.invoke('helix:developer-terminal-write', sessionId, data),
+  closeDeveloperTerminal: (sessionId: string) =>
+    ipcRenderer.invoke('helix:developer-terminal-close', sessionId),
+  onDeveloperTerminalData: (fn: (event: { session_id: string; data: string }) => void) =>
+    createEventListener('helix:developer-terminal-data', fn),
+  onDeveloperTerminalExit: (
+    fn: (event: { session_id: string; exit_code: number | null; signal: string | null }) => void,
+  ) => createEventListener('helix:developer-terminal-exit', fn),
 
   testTts: (text?: string): Promise<unknown> =>
     ipcRenderer.invoke('helix:test-tts', text),
@@ -92,6 +109,14 @@ contextBridge.exposeInMainWorld('helix', {
     ipcRenderer.invoke('helix:import-project-folder', folderPath),
   getProjectFiles: (projectId: string): Promise<unknown> =>
     ipcRenderer.invoke('helix:get-project-files', projectId),
+  readProjectFile: (projectId: string, relativePath: string): Promise<unknown> =>
+    ipcRenderer.invoke('helix:read-project-file', projectId, relativePath),
+  writeProjectFile: (
+    projectId: string,
+    relativePath: string,
+    content: string,
+  ): Promise<unknown> =>
+    ipcRenderer.invoke('helix:write-project-file', projectId, relativePath, content),
   createProjectEntry: (
     projectId: string,
     relativePath: string,

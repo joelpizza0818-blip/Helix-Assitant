@@ -15,7 +15,7 @@ export interface LandingAnnouncement {
 }
 
 export type InstallerPlatform = 'windows' | 'linux' | 'macos' | 'android' | 'ios'
-export type InstallerEdition = 'normal' | 'lite' | 'mobile'
+export type InstallerEdition = 'normal' | 'mobile'
 
 export interface LandingInstaller {
   id: string
@@ -56,7 +56,7 @@ interface AnnouncementRow {
 interface InstallerRow {
   id: string
   platform: InstallerPlatform
-  edition: InstallerEdition
+  edition: string
   version: string
   installer_url: string | null
   checksum_url: string | null
@@ -120,7 +120,7 @@ function mapAnnouncement(row: AnnouncementRow): LandingAnnouncement {
   }
 }
 
-function mapInstaller(row: InstallerRow): LandingInstaller {
+function mapInstaller(row: Omit<InstallerRow, 'edition'> & { edition: InstallerEdition }): LandingInstaller {
   return {
     id: row.id,
     platform: row.platform,
@@ -144,12 +144,20 @@ export async function fetchPublicAnnouncements(): Promise<LandingAnnouncement[]>
 
 export async function fetchPublicInstallers(signal?: AbortSignal): Promise<LandingInstaller[]> {
   const rows = await fetchPublicRows<InstallerRow>('installers', 'installers', signal)
-  return rows.map(mapInstaller)
+  return rows
+    .filter((row): row is Omit<InstallerRow, 'edition'> & { edition: InstallerEdition } => (
+      row.edition === 'normal' || row.edition === 'mobile'
+    ))
+    .map(mapInstaller)
 }
 
 export async function fetchPublicReleaseHistory(signal?: AbortSignal): Promise<LandingInstaller[]> {
   const rows = await fetchPublicRows<InstallerRow>('release-history', 'installers', signal)
-  return rows.map(mapInstaller)
+  return rows
+    .filter((row): row is Omit<InstallerRow, 'edition'> & { edition: InstallerEdition } => (
+      row.edition === 'normal' || row.edition === 'mobile'
+    ))
+    .map(mapInstaller)
 }
 
 export async function requestAdmin<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
@@ -198,10 +206,13 @@ export function mapAdminAnnouncement(row: Record<string, unknown>): LandingAnnou
 }
 
 export function mapAdminInstaller(row: Record<string, unknown>): LandingInstaller {
+  if (row.edition !== 'normal' && row.edition !== 'mobile') {
+    throw new Error('Admin service returned an unsupported installer edition.')
+  }
   return mapInstaller({
     id: String(row.id),
     platform: row.platform as InstallerPlatform,
-    edition: row.edition as InstallerEdition,
+    edition: row.edition,
     version: String(row.version),
     installer_url: typeof row.installerUrl === 'string' ? row.installerUrl : null,
     checksum_url: typeof row.checksumUrl === 'string' ? row.checksumUrl : null,

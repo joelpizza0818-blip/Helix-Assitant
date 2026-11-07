@@ -37,10 +37,9 @@ function assertVersion(value, label) {
 }
 
 async function readLocalFacts() {
-  const [normalPackage, litePackage, cliPackage, mobileManifest, catalogText] =
+  const [normalPackage, cliPackage, mobileManifest, catalogText] =
     await Promise.all([
       readFile(path.join(root, 'apps', 'desktop', 'package.json'), 'utf8'),
-      readFile(path.join(root, 'apps', 'desktop-tauri', 'package.json'), 'utf8'),
       readFile(path.join(root, 'apps', 'cli', 'package.json'), 'utf8'),
       readFile(path.join(root, 'movil', 'pubspec.yaml'), 'utf8'),
       readFile(path.join(root, 'config', 'model-catalog.json'), 'utf8'),
@@ -50,7 +49,6 @@ async function readLocalFacts() {
   if (!mobileMatch) throw new Error('Could not read the mobile version from movil/pubspec.yaml.');
 
   const normalVersion = assertVersion(JSON.parse(normalPackage).version, 'Desktop Normal version');
-  const liteVersion = assertVersion(JSON.parse(litePackage).version, 'Desktop Lite version');
   const cliVersion = assertVersion(JSON.parse(cliPackage).version, 'CLI source version');
   const mobileVersion = assertVersion(mobileMatch[1], 'Mobile version');
   const catalog = JSON.parse(catalogText);
@@ -69,7 +67,6 @@ async function readLocalFacts() {
   return {
     sourceVersions: {
       normal: normalVersion,
-      lite: liteVersion,
       mobile: mobileVersion,
       cli: cliVersion,
     },
@@ -119,7 +116,6 @@ async function readPublicData(localFacts) {
   const npmVersion = assertVersion(registryLatest.version, 'npm latest version');
   const tags = {
     normal: `v${localFacts.sourceVersions.normal}`,
-    lite: `lite-v${localFacts.sourceVersions.lite}`,
     mobile: `mobile-v${releaseTag(localFacts.sourceVersions.mobile)}`,
   };
 
@@ -189,7 +185,6 @@ function channelStatus(release, requiredAssets = []) {
 
 function renderDownloadRows(data) {
   const normal = data.publicReleases.normal;
-  const lite = data.publicReleases.lite;
   const mobile = data.publicReleases.mobile;
   const normalHasInstaller = normal.assetNames.some((name) => /\.exe$/i.test(name));
   const normalStatus = !normal.published || normal.prerelease
@@ -197,7 +192,6 @@ function renderDownloadRows(data) {
     : !normalHasInstaller
       ? 'Public release published; no installer asset is attached. Use the authenticated download page.'
       : 'Public release published with a Windows installer; verify its checksum assets.';
-  const liteAssets = ['HELIX-Lite-Setup.exe', 'HELIX-Lite-Setup.exe.sha256'];
   const mobileAssets = [
     'HELIX-Mobile.apk',
     'HELIX-Mobile.apk.sha256',
@@ -208,8 +202,6 @@ function renderDownloadRows(data) {
     'HELIX-Mobile-x86_64.apk',
     'HELIX-Mobile-x86_64.apk.sha256',
   ];
-  const liteStatus = channelStatus(lite, liteAssets) ||
-    'Published with Windows installer and SHA-256 sidecar.';
   const mobileStatus = channelStatus(mobile, mobileAssets) ||
     'Published with four APK variants and SHA-256 sidecars.';
   const npmStatus = data.npm.latestVersion === data.npm.sourceVersion
@@ -220,7 +212,6 @@ function renderDownloadRows(data) {
     '| Product | Platform | Public release / download | Status |',
     '|---|---|---|---|',
     `| HELIX Normal | Windows x64 | ${releaseLink(normal)} / [Download page](${downloadUrl}) | ${escapeCell(normalStatus)} |`,
-    `| HELIX Lite | Windows x64 | ${releaseLink(lite)} | ${escapeCell(liteStatus)} |`,
     `| HELIX Mobile | Android APK | ${releaseLink(mobile)} | ${escapeCell(mobileStatus)} |`,
     `| HELIX CLI | Node.js / npm | [npm package](${npmUrl}) | ${escapeCell(npmStatus)} |`,
   ].join('\n');
@@ -248,7 +239,7 @@ function renderProjectStatus(data) {
   const normalStatus = normalHasInstaller
     ? releaseState(data.publicReleases.normal)
     : `${releaseState(data.publicReleases.normal)} (no installer asset on the public release)`;
-  return `Normal ${data.sourceVersions.normal}: ${normalStatus}; Lite ${data.sourceVersions.lite}: ${releaseState(data.publicReleases.lite)}; Android ${releaseTag(data.sourceVersions.mobile)}: ${releaseState(data.publicReleases.mobile)}; CLI npm latest ${data.npm.latestVersion} (repository source ${data.sourceVersions.cli}).`;
+  return `Desktop ${data.sourceVersions.normal}: ${normalStatus}; Android ${releaseTag(data.sourceVersions.mobile)}: ${releaseState(data.publicReleases.mobile)}; CLI npm latest ${data.npm.latestVersion} (repository source ${data.sourceVersions.cli}).`;
 }
 
 function renderReadme(readme, data) {

@@ -2,19 +2,15 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import './Download.css';
 import { InstallerDownloadButton } from './InstallerDownloadButton';
-import { PrivacyModal } from '../PrivacyModal/PrivacyModal';
-import { getLatestInstallerVersion, getLatestLiteRelease, getLatestMobileRelease, type LiteReleaseDownload, type MobileReleaseDownload } from '../../lib/downloads';
+import { getLatestInstallerVersion, getLatestMobileRelease, type MobileReleaseDownload } from '../../lib/downloads';
 
 export const Download: React.FC<{ requireAuthenticatedDownload?: boolean }> = ({
   requireAuthenticatedDownload = false,
 }) => {
   const [installerVersion, setInstallerVersion] = useState<string | null>(null);
   const [versionError, setVersionError] = useState(false);
-  const [liteRelease, setLiteRelease] = useState<LiteReleaseDownload | null>(null);
-  const [liteReleaseError, setLiteReleaseError] = useState(false);
   const [mobileRelease, setMobileRelease] = useState<MobileReleaseDownload | null>(null);
   const [mobileReleaseError, setMobileReleaseError] = useState(false);
-  const [showLitePrivacyModal, setShowLitePrivacyModal] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -24,13 +20,6 @@ export const Download: React.FC<{ requireAuthenticatedDownload?: boolean }> = ({
         if (controller.signal.aborted) return;
         console.error('Could not load the current Windows installer version.', error);
         setVersionError(true);
-      });
-    getLatestLiteRelease(controller.signal)
-      .then(setLiteRelease)
-      .catch((error: unknown) => {
-        if (controller.signal.aborted) return;
-        console.error('Could not load the current HELIX Lite release.', error);
-        setLiteReleaseError(true);
       });
     getLatestMobileRelease(controller.signal)
       .then(setMobileRelease)
@@ -51,7 +40,7 @@ export const Download: React.FC<{ requireAuthenticatedDownload?: boolean }> = ({
             <span className="section-label">GET HELIX FOR WINDOWS</span>
             <h2 className="download-title">HELIX Desktop for Windows</h2>
             <p className="download-desc">
-              Choose an edition. Only currently published Windows installers are offered here.
+              The current Windows x64 desktop installer is available below.
             </p>
           </div>
 
@@ -62,29 +51,6 @@ export const Download: React.FC<{ requireAuthenticatedDownload?: boolean }> = ({
                 <p>Electron · Windows x64 installer</p>
               </div>
               <span className="release-option-status">Current installer</span>
-            </article>
-            <article className="release-option" aria-disabled="true">
-              <div>
-                <h3>HELIX Normal</h3>
-                <p>Electron · Progressive installation</p>
-              </div>
-              <span className="release-option-status">Not published</span>
-            </article>
-            <article className="release-option release-option-available">
-              <div>
-                <h3>HELIX Lite</h3>
-                <p>Tauri · Windows x64 installer</p>
-              </div>
-              <span className="release-option-status">
-                {liteRelease ? `v${liteRelease.version}` : liteReleaseError ? 'Unavailable' : 'Checking release'}
-              </span>
-            </article>
-            <article className="release-option" aria-disabled="true">
-              <div>
-                <h3>HELIX Lite</h3>
-                <p>Tauri · Progressive installation</p>
-              </div>
-              <span className="release-option-status">Not published</span>
             </article>
           </div>
 
@@ -116,10 +82,6 @@ export const Download: React.FC<{ requireAuthenticatedDownload?: boolean }> = ({
             )}
           </div>
 
-          <p className="release-options-note release-options-warning" role="note">
-            HELIX Lite is a separate, unsigned Windows installer. Windows may warn that the publisher is unknown. Verify the SHA-256 checksum on the Lite release page before running it. Do not use this installer to update HELIX Normal; Electron keeps its own update channel.
-          </p>
-
           <div className="download-actions">
             {requireAuthenticatedDownload ? (
               <InstallerDownloadButton className="btn-primary" >
@@ -129,44 +91,6 @@ export const Download: React.FC<{ requireAuthenticatedDownload?: boolean }> = ({
               <Link className="btn-primary" to="/download">
                 Sign in to download HELIX Normal
               </Link>
-            )}
-            {liteRelease ? (
-              <>
-                <a
-                  className="btn-primary"
-                  href={liteRelease.installerUrl}
-                  onClick={(e) => {
-                    const isAccepted = typeof window !== 'undefined' && localStorage.getItem('helix_privacy_accepted') === 'true';
-                    if (!isAccepted) {
-                      e.preventDefault();
-                      setShowLitePrivacyModal(true);
-                    }
-                  }}
-                  rel="noreferrer"
-                >
-                  Download HELIX Lite v{liteRelease.version} (unsigned)
-                </a>
-                <a
-                  className="release-checksum-link"
-                  href={liteRelease.releaseUrl}
-                  rel="noreferrer"
-                  target="_blank"
-                >
-                  View Lite release and SHA-256 checksum
-                </a>
-                <PrivacyModal
-                  isOpen={showLitePrivacyModal}
-                  targetEdition="Lite"
-                  onClose={() => setShowLitePrivacyModal(false)}
-                  onConfirm={() => {
-                    window.location.assign(liteRelease.installerUrl);
-                  }}
-                />
-              </>
-            ) : (
-              <span className="release-checksum-link" role="status">
-                {liteReleaseError ? 'HELIX Lite download is temporarily unavailable.' : 'Loading HELIX Lite release…'}
-              </span>
             )}
             <span
               className="build-tag"

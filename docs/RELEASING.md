@@ -7,12 +7,12 @@ This guide covers the independent desktop, mobile, CLI, and web channels. A sour
 1. Confirm the intended version in the channel's source manifest and inspect the complete diff.
 2. Check that the release tag is unused and matches the channel format:
    - Desktop Normal: `vX.Y.Z`
-   - Desktop Lite: `lite-vX.Y.Z`
    - Android: `mobile-vX.Y.Z`
    - CLI: npm package version and `latest` dist-tag; it does not share a GitHub release tag.
 3. Run the tests and builds required by the channel, including security/dependency checks in the release workflow.
 4. Confirm required signing keys, repository variables, tokens, and deployment credentials are present in their secret stores. Never put them in the repository or release notes.
-5. Review migration state and prepare any user-facing release notes. Do not treat either as an automatic side effect of publishing.
+5. For Desktop, verify `VITE_API_URL` is configured as the deployed HTTPS Community API base URL and that `/api/health/live` and `/api/community/` respond successfully.
+6. Review migration state and prepare any user-facing release notes. Do not treat either as an automatic side effect of publishing.
 
 For example, verify a GitHub tag/release with `git ls-remote --tags origin "refs/tags/<tag>"` and `gh release view <tag>`. Confirm package publication independently with `npm view helix-assistant-cli dist-tags`.
 
@@ -24,15 +24,6 @@ For example, verify a GitHub tag/release with `git ls-remote --tags origin "refs
 4. The Windows installer is not Authenticode-signed; do not describe it as signed. SmartScreen may show an unknown-publisher warning.
 
 The public source release may contain no installer assets. A published source release alone is not evidence that a user can download the installer.
-
-## Desktop Lite (Tauri, Windows x64)
-
-1. Keep `apps/desktop-tauri/package.json`, `apps/desktop-tauri/src-tauri/tauri.conf.json`, and `apps/desktop-tauri/src-tauri/Cargo.toml` on the same version.
-2. Publish the `lite-vX.Y.Z` tag or dispatch `release-desktop-tauri-lite.yml` with the matching version.
-3. The workflow runs desktop contract tests and type checking, builds the agent runtime and NSIS installer, validates `HELIX_CAPABILITY_PUBLIC_KEY`, and publishes the installer with a SHA-256 sidecar.
-4. Verify the release page, installer asset, checksum, signing state, and any updater metadata independently. The current Lite workflow explicitly marks the installer unsigned.
-
-Lite has an independent release and updater path; do not reuse the Normal tag or describe one channel's assets as the other's.
 
 ## Mobile (Android)
 

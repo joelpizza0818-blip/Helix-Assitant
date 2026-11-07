@@ -26,7 +26,7 @@ HELIX is a local-first desktop agent that works with your operating system, term
 - **Choose an AI provider:** configure supported cloud providers or local model endpoints, with provider-key fallback where configured; credentials and provider access are your responsibility.
 - **Extend HELIX:** add reviewable Markdown skills and opt-in local MCP servers.
 - **Keep useful context:** use local session memory and the Context Compression Layer (CCL) to pack large tool outputs and retrieve their stored originals.
-- **Choose a shell:** HELIX Normal (Electron), Lite (Tauri), the Android mobile companion, or CLI. Official desktop installers are currently available for Windows x64 only.
+- **Choose a client:** HELIX Desktop (Electron), the Android mobile companion, or CLI. Official desktop installers are currently available for Windows x64 only.
 
 <!-- HELIX-DATA:model-summary:start -->
 The repository catalog contains **49 entries** across 8 provider identifiers: `anthropic` (7), `free` (6), `google` (4), `groq` (5), `llama_server` (1), `ollama` (8), `openai` (10), `openrouter` (8). These are configured catalog entries, not a guarantee of provider access or successful live requests. See [config/model-catalog.json](config/model-catalog.json).
@@ -101,10 +101,9 @@ Gallery videos are opened on demand rather than eagerly downloaded on first load
 <!-- HELIX-DATA:download-rows:start -->
 | Product | Platform | Public release / download | Status |
 |---|---|---|---|
-| HELIX Normal | Windows x64 | [v0.7.0](https://github.com/joelpizza0818-blip/Helix-Assitant/releases/tag/v0.7.0) / [Download page](https://helix-assistant.vercel.app/download) | Public release published; no installer asset is attached. Use the authenticated download page. |
-| HELIX Lite | Windows x64 | [lite-v0.7.1](https://github.com/joelpizza0818-blip/Helix-Assitant/releases) | Source lite-v0.7.1; no published public release found. |
-| HELIX Mobile | Android APK | [mobile-v0.7.1](https://github.com/joelpizza0818-blip/Helix-Assitant/releases) | Source mobile-v0.7.1; no published public release found. |
-| HELIX CLI | Node.js / npm | [npm package](https://www.npmjs.com/package/helix-assistant-cli) | npm latest 0.6.1; repository source is 0.7.1. |
+| HELIX Normal | Windows x64 | [v0.7.1](https://github.com/joelpizza0818-blip/Helix-Assitant/releases/tag/v0.7.1) / [Download page](https://helix-assistant.vercel.app/download) | Public release published; no installer asset is attached. Use the authenticated download page. |
+| HELIX Mobile | Android APK | [mobile-v0.8.0](https://github.com/joelpizza0818-blip/Helix-Assitant/releases) | Source mobile-v0.8.0; no published public release found. |
+| HELIX CLI | Node.js / npm | [npm package](https://www.npmjs.com/package/helix-assistant-cli) | npm latest 0.6.1; repository source is 0.8.0. |
 <!-- HELIX-DATA:download-rows:end -->
 
 The Windows desktop installers are not Authenticode-signed, so SmartScreen may show a warning. Verify the SHA-256 published with the artifact before running it. Official desktop installers are currently available for Windows x64 only; Linux and macOS desktop installers are not published.
@@ -133,12 +132,12 @@ helix
 ```
 
 <!-- HELIX-DATA:cli-version:start -->
-npm's current `latest` version is **0.6.1**; the repository source package is **0.7.1**. The `/subagents` and `/browser live` commands require version **0.5.0 or newer**.
+npm's current `latest` version is **0.6.1**; the repository source package is **0.8.0**. The `/subagents` and `/browser live` commands require version **0.5.0 or newer**.
 <!-- HELIX-DATA:cli-version:end -->
 
 ### From source (Windows PowerShell)
 
-The repository's release workflows use Node.js 24 and Python 3.11 for the agent; the minimum supported Node.js version for local development is not declared. Rust and Cargo are needed to build HELIX Lite.
+The repository's release workflows use Node.js 24 and Python 3.11 for the agent; the minimum supported Node.js version for local development is not declared.
 
 ```powershell
 git clone https://github.com/joelpizza0818-blip/Helix-Assitant.git
@@ -151,7 +150,7 @@ npm run dev:desktop
 
 ```mermaid
 flowchart TD
-    U[User] --> UI[Electron / Tauri / CLI]
+    U[User] --> UI[Electron / CLI]
     UI -->|authenticated local WebSocket| A[Python agent]
     M[Mobile companion] -->|configured SSH or relay path| A
     A --> R[Configured model router]
@@ -185,7 +184,6 @@ flowchart LR
 | Folder | Responsibility |
 |---|---|
 | `apps/desktop/` | Electron desktop shell and renderer |
-| `apps/desktop-tauri/` | Tauri desktop Lite shell |
 | `apps/cli/` | npm terminal client |
 | `movil/` | Flutter mobile companion |
 | `services/agent/` | Python agent, tools, providers, permissions, and memory |
@@ -236,7 +234,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete testing command list and
 ## Project status
 
 <!-- HELIX-DATA:project-status:start -->
-Normal 0.7.0: published (no installer asset on the public release); Lite 0.7.1: not published; Android 0.7.1: not published; CLI npm latest 0.6.1 (repository source 0.7.1).
+Desktop 0.7.1: published (no installer asset on the public release); Android 0.8.0: not published; CLI npm latest 0.6.1 (repository source 0.8.0).
 <!-- HELIX-DATA:project-status:end -->
 
 ## License

@@ -56,17 +56,6 @@
           ]
         }
       },
-      "apps/desktop-tauri": {
-        "packageJson": {
-          "dependencies": [
-            "npm:@tauri-apps/api@^2.8.0",
-            "npm:@tauri-apps/cli@^2.8.4",
-            "npm:@tauri-apps/plugin-clipboard-manager@^2.3.0",
-            "npm:@tauri-apps/plugin-deep-link@^2.4.0",
-            "npm:@tauri-apps/plugin-opener@^2.5.0"
-          ]
-        }
-      },
       "apps/landing": {
         "packageJson": {
           "dependencies": [

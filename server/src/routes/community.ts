@@ -1,10 +1,11 @@
 import { NextFunction, Response, Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma';
+import { supabaseAdmin } from '../lib/supabase';
 import { requireAuth } from '../middleware/auth';
 import { AuthenticatedRequest } from '../types';
 import {
-  isCommunityModerator,
+  isCommunityModeratorRank,
   parseCommunitySubmission,
 } from './communityValidation';
 
@@ -13,20 +14,67 @@ const ReviewSchema = z.object({
   reviewNote: z.string().trim().max(1000).optional(),
 }).strict();
 
-function requireModerator(req: AuthenticatedRequest, res: Response): boolean {
-  if (isCommunityModerator(req.user?.email ?? null)) return true;
-  res.status(403).json({
-    success: false,
-    error: {
-      code: 'COMMUNITY_MODERATOR_REQUIRED',
-      message: 'Community moderation is not enabled for this account.',
-    },
-  });
-  return false;
-}
-
 function forwardError(next: NextFunction, error: unknown): void {
   next(error);
+}
+
+async function requireModerator(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<boolean> {
+  if (!req.user?.githubUserId) {
+    res.status(401).json({
+      success: false,
+      error: { code: 'GITHUB_IDENTITY_REQUIRED', message: 'A verified GitHub identity is required.' },
+    });
+    return false;
+  }
+
+  try {
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('github_user_roles')
+      .select('profile_id, rank')
+      .eq('github_user_id', req.user.githubUserId)
+      .maybeSingle();
+    if (profileError) throw profileError;
+
+    if (!profile || !isCommunityModeratorRank(profile.rank)) {
+      res.status(403).json({
+        success: false,
+        error: {
+          code: 'COMMUNITY_MODERATOR_REQUIRED',
+          message: 'A HELIX admin or master-admin rank is required to moderate Community.',
+        },
+      });
+      return false;
+    }
+
+    const { data: activeCase, error: caseError } = await supabaseAdmin
+      .from('github_rank_review_cases')
+      .select('id')
+      .eq('profile_id', profile.profile_id)
+      .in('status', ['pending', 'permanent'])
+      .limit(1)
+      .maybeSingle();
+    if (caseError) throw caseError;
+
+    if (activeCase) {
+      res.status(423).json({
+        success: false,
+        error: {
+          code: 'COMMUNITY_MODERATION_SUSPENDED',
+          message: 'Community moderation is suspended while this security case is active.',
+        },
+      });
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    forwardError(next, error);
+    return false;
+  }
 }
 
 export const communityRouter = Router();
@@ -140,7 +188,7 @@ communityRouter.get(
   '/moderation',
   requireAuth,
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-    if (!requireModerator(req, res)) return;
+    if (!(await requireModerator(req, res, next))) return;
     try {
       const items = await prisma.communityItem.findMany({
         where: { status: 'PENDING' },
@@ -168,7 +216,7 @@ communityRouter.post(
   '/:id/review',
   requireAuth,
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-    if (!requireModerator(req, res)) return;
+    if (!(await requireModerator(req, res, next))) return;
     const id = z.string().uuid().safeParse(req.params.id);
     const review = ReviewSchema.safeParse(req.body);
     if (!id.success || !review.success) {

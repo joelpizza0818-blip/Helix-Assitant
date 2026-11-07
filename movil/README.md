@@ -1,6 +1,6 @@
 # HELIX móvil
 
-Aplicación móvil multiplataforma para controlar una instalación de HELIX Desktop de forma remota. Esta carpeta es un workspace aislado para el desarrollo móvil: no reemplaza `apps/desktop`, `apps/desktop-tauri` ni el agente Python.
+Aplicación móvil multiplataforma para controlar una instalación de HELIX Desktop de forma remota. Esta carpeta es un workspace aislado para el desarrollo móvil: no reemplaza `apps/desktop` ni el agente Python.
 
 ## Estado de la auditoría
 

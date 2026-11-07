@@ -32,9 +32,9 @@ const ANNOUNCEMENT_CATEGORIES: AnnouncementCategory[] = [
 ]
 const INSTALLER_PLATFORMS: InstallerPlatform[] = ['windows', 'linux', 'macos', 'android', 'ios']
 const EDITIONS_BY_PLATFORM: Record<InstallerPlatform, InstallerEdition[]> = {
-  windows: ['normal', 'lite'],
-  linux: ['normal', 'lite'],
-  macos: ['normal', 'lite'],
+  windows: ['normal'],
+  linux: ['normal'],
+  macos: ['normal'],
   android: ['mobile'],
   ios: ['mobile'],
 }
@@ -388,7 +388,7 @@ export function AdminPage() {
                   <div className="admin-section-heading">
                     <div>
                       <h2>Histórico completo de instaladores</h2>
-                      <p>Sincroniza aquí las releases de Normal, Lite y Mobile desde sus repositorios GitHub. Importar solo añade versiones al histórico; selecciona cada canal con activos válidos para publicarlo. Linux y macOS permanecen sin publicar hasta verificar su empaquetado y activos oficiales.</p>
+                      <p>Sincroniza aquí las releases de Desktop y Mobile desde sus repositorios GitHub. Importar solo añade versiones al histórico; selecciona cada canal con activos válidos para publicarlo. Linux y macOS permanecen sin publicar hasta verificar su empaquetado y activos oficiales.</p>
                     </div>
                     <button className="admin-button admin-button--quiet" type="button" disabled={saving} onClick={() => { void importInstallerHistory() }}>
                       Sincronizar historial
@@ -561,5 +561,5 @@ function platformLabel(platform: InstallerPlatform): string {
 }
 
 function editionLabel(edition: InstallerEdition): string {
-  return { normal: 'Normal', lite: 'Lite', mobile: 'Móvil' }[edition]
+  return edition === 'normal' ? 'Normal' : 'Móvil'
 }

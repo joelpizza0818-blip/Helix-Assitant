@@ -66,6 +66,7 @@ const DEFAULT_SETTINGS: HelixSettings = {
   embedding_model: 'text-embedding-3-small',
   memory_similarity_threshold: 0.75,
   execution_memory_ttl: '30_days',
+  developer_mode_enabled: false,
   sound_effects_enabled: true,
   success_sound_preset: 'helix_chime',
   error_sound_preset: 'low_buzz',

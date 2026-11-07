@@ -63,13 +63,6 @@ flutter test
 Pop-Location
 ```
 
-### Tauri bridge (Rust)
-
-```powershell
-cargo fmt --check --manifest-path apps\desktop-tauri\src-tauri\Cargo.toml
-cargo test --manifest-path apps\desktop-tauri\src-tauri\Cargo.toml
-```
-
 The CI multiplatform matrix also runs `python -m pytest services/agent/tests/ services/relay/tests/ -v --tb=short` on Windows and macOS, and runs the same suites in Docker with Xvfb on Linux.
 
 ### Optional load test

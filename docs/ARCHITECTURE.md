@@ -6,7 +6,7 @@ This document describes the current runtime boundaries and contracts. It is an i
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
-│ User interfaces: Electron/React · Tauri/Rust Lite · CLI       │
+│ User interfaces: Electron/React · CLI                          │
 └───────────────────────────────┬──────────────────────────────┘
                                 │ local authenticated WebSocket
                                 │ 127.0.0.1:8765
@@ -27,7 +27,6 @@ The Express/Prisma server, Supabase Edge Functions, and landing are separate ser
 |---|---|---|
 | Electron main/preload | Window lifecycle, tray, IPC allowlist, Python process lifecycle | Native desktop boundary |
 | React renderer | Conversation, tasks, settings and Toolbox UI | No direct Node access |
-| Tauri shell | Lightweight desktop shell and Rust bridge | Native desktop boundary |
 | CLI | Terminal client and interactive commands | User terminal boundary |
 | Python agent | Tasks, planning, model calls, tools and events | Local execution boundary |
 | Permission manager | Risk classification, confirmation and denial | Safety gate before effects |
@@ -35,7 +34,7 @@ The Express/Prisma server, Supabase Edge Functions, and landing are separate ser
 | Perception | Optional voice, screen, camera and gesture signals | Hardware/privacy boundary |
 | Express/Prisma | Accounts, settings, tasks, models and update subscriptions | Network/database boundary |
 
-On Electron Desktop, the optional `gesture_window_sequence_enabled` setting makes the pointing-up gesture open the floating chat, Toolbox settings, and subagent window in that order. The closed-fist gesture hides the last visible window in reverse order. Disabling the setting preserves the existing two-window gesture behavior. This sequence is not supported by the Tauri shell, which does not expose the subagent window.
+On Electron Desktop, the optional `gesture_window_sequence_enabled` setting makes the pointing-up gesture open the floating chat, Toolbox settings, and subagent window in that order. The closed-fist gesture hides the last visible window in reverse order. Disabling the setting preserves the existing two-window gesture behavior.
 
 ## Request lifecycle
 

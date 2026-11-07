@@ -49,7 +49,7 @@ export const PrivacyPage: React.FC = () => {
             <section className="privacy-section">
               <h2>1. Local-First Architecture and Design Philosophy</h2>
               <p>
-                HELIX provides Windows desktop shells built with Electron and Tauri, backed by a local Python agent.
+                HELIX provides a Windows desktop shell built with Electron, backed by a local Python agent.
               </p>
               <p>
                 Agent processing is local, but prompts, images, audio, account, licensing, or update requests may be sent to services selected by the app or configured by you. Data handling depends on those services.

@@ -119,8 +119,234 @@
   gap: 6px;
 }
 
+.project-file-editor__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.72);
+}
+
+.project-file-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(100%, 1100px);
+  height: min(86vh, 900px);
+  padding: 16px;
+  border: 1px solid var(--color-graphite);
+  border-radius: 10px;
+  background: var(--color-void);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+}
+
+.project-file-editor__header,
+.project-file-editor__footer,
+.project-file-editor__footer > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.project-file-editor__header h2,
+.project-file-editor__header p {
+  margin: 0;
+}
+
+.project-file-editor__header h2 {
+  color: var(--color-bone);
+  font-size: 15px;
+}
+
+.project-file-editor__header p {
+  margin-top: 4px;
+  color: var(--color-mist);
+  font-size: 11px;
+}
+
+.project-file-editor__close {
+  padding: 2px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--color-mist);
+  cursor: pointer;
+  font-size: 24px;
+}
+
+.project-file-editor__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.project-file-editor__view-toggle {
+  display: flex;
+  padding: 2px;
+  border: 1px solid var(--color-graphite);
+  border-radius: 6px;
+  background: var(--color-carbon);
+}
+
+.project-file-editor__view-toggle button {
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 4px;
+  color: var(--color-fog);
+  background: transparent;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.project-file-editor__view-toggle button.is-active {
+  color: var(--color-paper);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.project-file-editor__code {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--color-void);
+}
+
+.project-file-editor__code .cm-theme,
+.project-file-editor__code .cm-editor {
+  height: 100%;
+}
+
+.project-file-editor__code .cm-scroller {
+  height: 100%;
+  overflow: auto;
+}
+
+.project-file-editor__code .cm-content,
+.project-file-editor__code .cm-gutter {
+  font-size: inherit;
+}
+
+.project-file-editor__preview {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 24px clamp(20px, 5vw, 64px);
+  color: var(--color-fog);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.project-file-editor__preview > :first-child {
+  margin-top: 0;
+}
+
+.project-file-editor__preview h1,
+.project-file-editor__preview h2,
+.project-file-editor__preview h3,
+.project-file-editor__preview h4 {
+  color: var(--color-paper);
+  line-height: 1.3;
+}
+
+.project-file-editor__preview a {
+  color: var(--color-accent);
+}
+
+.project-file-editor__preview blockquote {
+  margin-left: 0;
+  padding-left: 14px;
+  border-left: 3px solid var(--color-accent);
+  color: var(--color-fog);
+}
+
+.project-file-editor__preview pre,
+.project-file-editor__preview code {
+  font-family: var(--font-mono);
+}
+
+.project-file-editor__preview pre {
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--color-graphite);
+  border-radius: 7px;
+  background: var(--color-carbon);
+  font-size: 11px;
+}
+
+.project-file-editor__preview :not(pre) > code {
+  padding: 2px 4px;
+  border-radius: 4px;
+  color: #ffd18b;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 0.92em;
+}
+
+.project-file-editor__preview .hljs-keyword,
+.project-file-editor__preview .hljs-selector-tag,
+.project-file-editor__preview .hljs-built_in,
+.project-file-editor__preview .hljs-type,
+.project-file-editor__preview .hljs-meta {
+  color: #c792ea;
+}
+
+.project-file-editor__preview .hljs-string,
+.project-file-editor__preview .hljs-attr,
+.project-file-editor__preview .hljs-template-variable {
+  color: #a5d6a7;
+}
+
+.project-file-editor__preview .hljs-title,
+.project-file-editor__preview .hljs-function,
+.project-file-editor__preview .hljs-title.function_,
+.project-file-editor__preview .hljs-title.class_ {
+  color: #82aaff;
+}
+
+.project-file-editor__preview .hljs-comment {
+  color: #858b98;
+  font-style: italic;
+}
+
+.project-file-editor__preview .hljs-number,
+.project-file-editor__preview .hljs-literal {
+  color: #f78c6c;
+}
+
+.project-file-editor__preview .hljs-variable,
+.project-file-editor__preview .hljs-params,
+.project-file-editor__preview .hljs-property {
+  color: #f0c674;
+}
+
+.project-file-editor__preview .hljs-operator,
+.project-file-editor__preview .hljs-punctuation {
+  color: #bfc7d5;
+}
+
+.project-file-editor__preview .hljs-addition {
+  color: #a5d6a7;
+  background: rgba(165, 214, 167, 0.1);
+}
+
+.project-file-editor__preview .hljs-deletion {
+  color: #ef9a9a;
+  background: rgba(239, 154, 154, 0.1);
+}
+
 @media (max-width: 600px) {
   .project-files-panel__create > div .validate-btn {
     flex: 1;
+  }
+
+  .project-file-editor__backdrop {
+    padding: 8px;
+  }
+
+  .project-file-editor {
+    height: 94vh;
+    padding: 10px;
   }
 }

@@ -64,14 +64,6 @@ export function parseCommunitySubmission(value: unknown): CommunitySubmission | 
   };
 }
 
-export function isCommunityModerator(
-  email: string | null,
-  allowedEmails = process.env.HELIX_COMMUNITY_MODERATOR_EMAILS ?? '',
-): boolean {
-  if (!email) return false;
-  const allowlist = allowedEmails
-    .split(',')
-    .map((item) => item.trim().toLowerCase())
-    .filter(Boolean);
-  return allowlist.includes(email.toLowerCase());
+export function isCommunityModeratorRank(rank: unknown): rank is 'admin' | 'master-admin' {
+  return rank === 'admin' || rank === 'master-admin';
 }

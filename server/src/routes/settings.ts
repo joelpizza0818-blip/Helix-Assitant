@@ -21,7 +21,7 @@ const UpdateSettingsSchema = z.object({
     speedPreference: z.enum(['low', 'balanced', 'high']).optional(),
     qualityPreference: z.enum(['low', 'balanced', 'high']).optional(),
     logLevel: z.enum(['DEBUG', 'INFO', 'WARNING', 'ERROR']).optional(),
-    rawJson: z.any().optional(),
+    rawJson: z.unknown().optional(),
   }),
 });
 

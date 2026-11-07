@@ -3,7 +3,10 @@ services:
     name: helix-assistant-api
     runtime: node
     plan: free
-    buildCommand: npm ci && npm run build --workspace=@helix/server
+    buildCommand: >-
+      npm ci --include=dev &&
+      node -e "const fs=require('fs');const p='server/tsconfig.json';const c=JSON.parse(fs.readFileSync(p,'utf8'));c.compilerOptions.module='Node16';c.compilerOptions.moduleResolution='Node16';fs.writeFileSync(p,JSON.stringify(c,null,2))" &&
+      npm run build --workspace=@helix/server
     startCommand: npm run start --workspace=@helix/server
     healthCheckPath: /api/health/live
     envVars:
@@ -19,5 +22,3 @@ services:
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
-      - key: HELIX_COMMUNITY_MODERATOR_EMAILS
-        value: ""

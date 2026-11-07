@@ -1,7 +1,9 @@
 import json
+from types import SimpleNamespace
 
 import pytest
 
+import services.agent.memory.project_memory as project_memory
 from services.agent.memory.project_memory import ProjectMemoryStore
 
 
@@ -284,10 +286,11 @@ def test_project_file_operations_and_link_indexing(tmp_path):
     graph = store.get_project_graph(project["project_id"])
     nodes_by_title = {node["title"]: node for node in graph["nodes"]}
 
-    assert {"README.md", "src/main.py", "src/utils.py", "requests"} <= set(nodes_by_title)
+    assert {"README.md", "main.py", "utils.py", "requests"} <= set(nodes_by_title)
+    assert nodes_by_title["main.py"]["relative_path"] == "src/main.py"
     assert any(
-        edge["source"] == nodes_by_title["src/main.py"]["node_id"]
-        and edge["target"] == nodes_by_title["src/utils.py"]["node_id"]
+        edge["source"] == nodes_by_title["main.py"]["node_id"]
+        and edge["target"] == nodes_by_title["utils.py"]["node_id"]
         and edge["relation"] == "imports"
         for edge in graph["edges"]
     )
@@ -298,7 +301,7 @@ def test_project_file_operations_and_link_indexing(tmp_path):
         and edge["relation"] == "mentions"
         for edge in graph["edges"]
     )
-    assert nodes_by_title["src/main.py"]["origin"] == "file_index"
+    assert nodes_by_title["main.py"]["origin"] == "file_index"
 
 
 def test_project_file_operations_are_rooted_and_import_files_are_copied(tmp_path):
@@ -322,3 +325,60 @@ def test_project_file_operations_are_rooted_and_import_files_are_copied(tmp_path
         store.create_project_entry(project["project_id"], "../outside.txt", "file")
     with pytest.raises(FileExistsError):
         store.import_project_files(project["project_id"], [str(source)], "docs")
+
+
+def test_project_files_can_be_read_and_saved_as_utf8_text(tmp_path):
+    root = tmp_path / "workspace"
+    root.mkdir()
+    source = root / "notes.md"
+    source.write_bytes(b"first line\r\nsecond line\r\n")
+    (root / "binary.dat").write_bytes(b"\xff\x00")
+    store = ProjectMemoryStore(tmp_path / "projects")
+    project = store.import_folder(str(root))
+
+    opened = store.read_project_file(project["project_id"], "notes.md")
+    assert opened == {
+        "relative_path": "notes.md",
+        "content": "first line\r\nsecond line\r\n",
+    }
+
+    result = store.write_project_file(
+        project["project_id"],
+        "notes.md",
+        "updated text\n",
+    )
+    assert result == {"relative_path": "notes.md", "saved": True}
+    assert source.read_bytes() == b"updated text\n"
+
+    with pytest.raises(ValueError, match="stay inside"):
+        store.read_project_file(project["project_id"], "../outside.md")
+    with pytest.raises(ValueError, match="UTF-8 text"):
+        store.read_project_file(project["project_id"], "binary.dat")
+
+
+def test_project_developer_context_is_opt_in_and_contains_git_metadata(tmp_path, monkeypatch):
+    root = tmp_path / "workspace"
+    root.mkdir()
+    (root / "app.py").write_text("print('hello')\n", encoding="utf-8")
+    store = ProjectMemoryStore(tmp_path / "projects")
+    project = store.import_folder(str(root))
+
+    assert store.developer_mode_enabled is False
+    store.configure("30_days", developer_mode_enabled=True)
+    calls = []
+
+    def fake_run(command, **_kwargs):
+        calls.append(command)
+        if "status" in command:
+            return SimpleNamespace(returncode=0, stdout="## main\n M app.py")
+        return SimpleNamespace(returncode=0, stdout="abc123 Add app")
+
+    monkeypatch.setattr(project_memory.subprocess, "run", fake_run)
+    context = store.get_developer_context(project["project_id"])
+
+    assert "Developer Mode is enabled" in context
+    assert "app.py" in context
+    assert "M app.py" in context
+    assert "abc123 Add app" in context
+    assert len(calls) == 2
+    assert calls[0][0:4] == ["git", "-C", str(root.resolve()), "status"]

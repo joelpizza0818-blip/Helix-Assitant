@@ -530,8 +530,8 @@ test('sendVersionUpdateEmail sends version update email with Nodemailer and uses
   const recipients = ['user1@example.invalid', 'user2@example.invalid'];
   const result = await sendVersionUpdateEmail(recipients, {
     version: '0.2.0',
-    title: 'Stagger transitions, HELIX Lite & Privacy Gates',
-    changes: ['New scrollytelling cards', 'HELIX Lite distribution'],
+    title: 'Stagger transitions and Privacy Gates',
+    changes: ['New scrollytelling cards', 'Desktop improvements'],
   });
 
   assert.equal(result.success, true);

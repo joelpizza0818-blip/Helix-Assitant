@@ -43,7 +43,7 @@ export function createModelsRouter({
     });
 
     const configuredProviders: string[] = Array.from(
-      new Set(credentials.map((credential: any) => (credential.provider as string).toLowerCase()))
+      new Set(credentials.map((credential) => credential.provider.toLowerCase()))
     );
     const availableModels: Array<{ id: string; provider: string }> = [];
 

@@ -4,19 +4,20 @@ export interface AuthenticatedUser {
   id: string;
   email: string | null;
   supabaseId: string;
+  githubUserId: string | null;
 }
 
 export interface AuthenticatedRequest extends Request {
   user?: AuthenticatedUser;
 }
 
-export interface ApiResponse<T = any> {
+export interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: {
     code: string;
     message: string;
-    details?: any;
+    details?: unknown;
   };
   meta?: {
     timestamp: string;

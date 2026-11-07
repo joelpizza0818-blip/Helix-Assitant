@@ -27,7 +27,7 @@ export default function TaskStatusBar({
   const result = safeResult(summary?.result ?? null)
 
   const subagents = runningTasks.filter(
-    (t) => t.task_type === 'subagent' || (t as any).is_subagent
+    (t) => t.task_type === 'subagent' || t.is_subagent === true
   )
 
   return (

@@ -77,6 +77,7 @@ async function handleRequest(request: Request): Promise<Response> {
       .from('landing_installer_catalog')
       .select('id, platform, edition, version, installer_url, checksum_url, release_url, is_published, is_prerelease, published_at, release_date, created_at')
       .eq('is_published', true)
+      .neq('edition', 'lite')
       .order(resource === 'release-history' ? 'release_date' : 'published_at', { ascending: false })
       .limit(250)
 

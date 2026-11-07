@@ -108,7 +108,7 @@ export default function CapabilitiesSection() {
           <strong>Progressive capabilities unavailable</strong>
           {snapshot.packs.length === 0 && (
             <p className="toolbox-error" role="alert">
-              This Lite release has no signed capability catalog. Tools requiring an optional pack will wait only until the agent reports the missing capability, then fail explicitly; no pack can be downloaded yet.
+              Tools requiring an optional pack will wait until the agent reports the missing capability, then fail explicitly if it is unavailable.
             </p>
           )}
           {snapshot.packs.filter((pack) => pack.status !== 'installed').map((pack) => (

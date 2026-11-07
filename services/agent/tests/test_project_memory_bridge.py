@@ -65,12 +65,41 @@ async def test_desktop_project_requests_import_and_activate_folder(tmp_path):
         },
         "request_id": "create-folder",
     })
+    await handler.dispatch({
+        "type": "CREATE_PROJECT_ENTRY",
+        "payload": {
+            "project_id": project_id,
+            "relative_path": "docs/edit_me.py",
+            "entry_type": "file",
+        },
+        "request_id": "create-file",
+    })
+    opened_file = await handler.dispatch({
+        "type": "READ_PROJECT_FILE",
+        "payload": {
+            "project_id": project_id,
+            "relative_path": "docs/edit_me.py",
+        },
+        "request_id": "read-file",
+    })
+    saved_file = await handler.dispatch({
+        "type": "WRITE_PROJECT_FILE",
+        "payload": {
+            "project_id": project_id,
+            "relative_path": "docs/edit_me.py",
+            "content": "print('edited')\n",
+        },
+        "request_id": "write-file",
+    })
 
     assert imported["payload"]["active_project_id"] == project_id
     assert activated["payload"]["active_project_id"] == project_id
     assert saved_graph["payload"]["project_id"] == project_id
     assert listed_files["payload"]["entries"] == []
     assert created_folder["payload"]["entries"][0]["path"] == "docs"
+    assert opened_file["payload"]["content"] == ""
+    assert saved_file["payload"]["saved"] is True
+    assert (root / "docs" / "edit_me.py").read_text(encoding="utf-8") == "print('edited')\n"
 
 
 @pytest.mark.asyncio

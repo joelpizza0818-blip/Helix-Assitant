@@ -49,15 +49,19 @@ export const requireAuth = async (
         lastLoginAt: new Date(),
       },
     });
+    const githubIdentity = sbUser.app_metadata?.provider === 'github'
+      ? sbUser.identities?.find((identity) => identity.provider === 'github')
+      : undefined;
 
     req.user = {
       id: dbUser.id,
       email: dbUser.email,
       supabaseId: dbUser.supabaseId,
+      githubUserId: githubIdentity?.id ? String(githubIdentity.id) : null,
     };
 
     next();
-  } catch (err: any) {
+  } catch {
     res.status(500).json({
       success: false,
       error: { code: 'AUTH_INTERNAL_ERROR', message: 'Authentication verification failed' },

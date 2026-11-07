@@ -6,7 +6,6 @@ on:
     paths:
       - 'apps/landing/**'
       - 'apps/desktop/**'
-      - 'apps/desktop-tauri/**'
       - 'apps/cli/**'
       - 'server/**'
       - 'services/relay-worker/**'
@@ -24,7 +23,6 @@ on:
     paths:
       - 'apps/landing/**'
       - 'apps/desktop/**'
-      - 'apps/desktop-tauri/**'
       - 'apps/cli/**'
       - 'server/**'
       - 'services/relay-worker/**'

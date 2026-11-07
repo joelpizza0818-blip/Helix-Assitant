@@ -124,6 +124,7 @@ DEFAULT_SETTINGS = {
     "embedding_model": "text-embedding-3-small",
     "memory_similarity_threshold": 0.75,
     "execution_memory_ttl": "30_days",
+    "developer_mode_enabled": False,
     "tool_verification_enabled": True,
 }
 
@@ -292,6 +293,8 @@ class DesktopRequestHandler:
             "GET_PROJECTS": self._get_projects,
             "IMPORT_PROJECT_FOLDER": lambda: self._import_project_folder(payload),
             "GET_PROJECT_FILES": lambda: self._get_project_files(payload),
+            "READ_PROJECT_FILE": lambda: self._read_project_file(payload),
+            "WRITE_PROJECT_FILE": lambda: self._write_project_file(payload),
             "CREATE_PROJECT_ENTRY": lambda: self._create_project_entry(payload),
             "IMPORT_PROJECT_FILES": lambda: self._import_project_files(payload),
             "SET_ACTIVE_PROJECT": lambda: self._set_active_project(payload),
@@ -1092,9 +1095,15 @@ class DesktopRequestHandler:
             "continuous_screen_vision_enabled",
             "complex_workflows_enabled",
             "gesture_window_sequence_enabled",
+            "developer_mode_enabled",
         ):
             if not isinstance(settings.get(setting, False), bool):
                 raise ValueError(f"{setting} must be a boolean")
+        if self.project_memory_store is not None:
+            self.project_memory_store.configure(
+                settings.get("execution_memory_ttl", "30_days"),
+                developer_mode_enabled=settings.get("developer_mode_enabled", False),
+            )
         if not isinstance(settings.get("activation_phrase_enabled", True), bool):
             raise ValueError("activation_phrase_enabled must be a boolean")
         if settings.get("floating_ui_mode", "full") not in {"full", "suppressed"}:
@@ -1366,6 +1375,33 @@ class DesktopRequestHandler:
         if not isinstance(project_id, str):
             raise ValueError("Project id is required.")
         return self.project_memory_store.list_project_files(project_id)
+
+    async def _read_project_file(self, payload: dict) -> dict:
+        if self.project_memory_store is None:
+            raise RuntimeError("Project memory is not available.")
+        project_id = payload.get("project_id")
+        relative_path = payload.get("relative_path")
+        if not isinstance(project_id, str) or not isinstance(relative_path, str):
+            raise ValueError("Project id and relative file path are required.")
+        return self.project_memory_store.read_project_file(project_id, relative_path)
+
+    async def _write_project_file(self, payload: dict) -> dict:
+        if self.project_memory_store is None:
+            raise RuntimeError("Project memory is not available.")
+        project_id = payload.get("project_id")
+        relative_path = payload.get("relative_path")
+        content = payload.get("content")
+        if (
+            not isinstance(project_id, str)
+            or not isinstance(relative_path, str)
+            or not isinstance(content, str)
+        ):
+            raise ValueError("Project id, relative file path, and text content are required.")
+        return self.project_memory_store.write_project_file(
+            project_id,
+            relative_path,
+            content,
+        )
 
     async def _create_project_entry(self, payload: dict) -> dict:
         if self.project_memory_store is None:
@@ -1882,10 +1918,6 @@ class DesktopRequestHandler:
             endpoint.pop("api_key", None)
         merged = self.get_settings()
         merged.update(incoming)
-        if self.project_memory_store is not None:
-            self.project_memory_store.configure(
-                merged.get("execution_memory_ttl", "30_days")
-            )
         merged["subagents_available"] = True
         merged["custom_endpoints"] = self._redact_custom_endpoint_keys(
             merged.get("custom_endpoints", [])

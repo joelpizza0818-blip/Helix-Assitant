@@ -9,6 +9,7 @@ import ComputerSection from './sections/ComputerSection'
 import SystemSection from './sections/SystemSection'
 import WebSection from './sections/WebSection'
 import MemorySection from './sections/MemorySection'
+import DeveloperModeSection, { type DeveloperCommandSession } from './sections/DeveloperModeSection'
 import SecuritySection from './sections/SecuritySection'
 import StartupSection from './sections/StartupSection'
 import SkillsSection from './sections/SkillsSection'
@@ -33,6 +34,7 @@ import {
   startGitHubOAuth,
   type HelixProfile,
 } from '../../lib/desktopSupabase'
+import type { TaskDefinition } from '../../types/global'
 import './Toolbox.css'
 
 class ToolboxErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: Error | null }> {
@@ -81,6 +83,7 @@ type Section =
   | 'system'
   | 'web'
   | 'memory'
+  | 'developer'
   | 'security'
   | 'startup'
   | 'skills'
@@ -111,6 +114,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'plugins',  category: 'Intelligence', label: 'Plugins',       keywords: 'gmail chatgpt word excel powerpoint browser integrations', icon: <NavIcon d="M8 3v4m8-4v4M3 8h18M5 8v11h14V8M9 13h6" /> },
   { id: 'mcp',      category: 'Intelligence', label: 'MCP Servers',   keywords: 'model context protocol tools servers stdio', icon: <NavIcon d="M12 3v18m-9-9h18M5 5l14 14m0-14L5 19" /> },
   { id: 'memory',   category: 'Intelligence', label: 'Memory & RAG',  keywords: 'context pgvector memory long term history', icon: <NavIcon d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" /> },
+  { id: 'developer', category: 'Development', label: 'Developer Mode', keywords: 'code editor project files markdown preview syntax highlighting advanced settings', icon: <NavIcon d="m8 17-5-5 5-5m8 10 5-5-5-5m-2-7-4 24" /> },
   { id: 'voice',    category: 'Perception', label: 'Voice & Calls', keywords: 'microphone speech whisper wake word edge tts audio', icon: <NavIcon d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" /> },
   { id: 'vision',   category: 'Perception', label: 'Vision & Hands',keywords: 'camera mediapipe gesture screen detection', icon: <NavIcon d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z" /> },
   { id: 'computer', category: 'Perception', label: 'Computer OS',   keywords: 'keyboard mouse screen capture click display', icon: <NavIcon d="M2 3h20v14H2z M8 21h8 M12 17v4" /> },
@@ -122,7 +126,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'browser-companion', category: 'Security & System', label: 'Browser Companion', keywords: 'chrome edge extension bridge', icon: <NavIcon d="M3 4h18v15H3zM3 9h18m-9 10v3m-4 0h8" /> },
   { id: 'capabilities', category: 'Security & System', label: 'Capabilities', keywords: 'packs extensions plugins download', icon: <NavIcon d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6l8-4zm0 5v6m-3 0h6" /> },
   { id: 'profiles', category: 'Operations', label: 'Perfil', keywords: 'github login user rank account', icon: <NavIcon d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2m8-10a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" /> },
-  { id: 'updates', category: 'Operations', label: 'Updates', keywords: 'installer version check update nsis tauri', icon: <NavIcon d="M20 7v5h-5M4 17v-5h5m-3.5-3A7 7 0 0 1 18 6l2 2M4 16l2 2a7 7 0 0 0 12.5-3" /> },
+  { id: 'updates', category: 'Operations', label: 'Updates', keywords: 'installer version check update nsis', icon: <NavIcon d="M20 7v5h-5M4 17v-5h5m-3.5-3A7 7 0 0 1 18 6l2 2M4 16l2 2a7 7 0 0 0 12.5-3" /> },
   { id: 'admin', category: 'Operations', label: 'Admin Logs', keywords: 'logs streaming diagnostics errors buffer ring', icon: <NavIcon d="M12 2l8 4v5c0 5-3.5 9-8 11-4.5-2-8-6-8-11V6l8-4zm0 6v5m0 3h.01" /> },
   { id: 'mobile', category: 'Operations', label: 'Vincular móvil', keywords: 'mobile phone android ios ssh websocket pairing remote control', icon: <NavIcon d="M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm3 17h4" /> },
   { id: 'community', category: 'Community', label: 'Community', keywords: 'marketplace creator public plugins skills publish review', icon: <NavIcon d="M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2m6-10a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm7-3v6m-3-3h6" /> },
@@ -163,6 +167,14 @@ const CATEGORY_METADATA: Record<string, { label: string; icon: React.ReactNode }
       </svg>
     ),
   },
+  Development: {
+    label: 'Development',
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="m8 17-5-5 5-5m8 10 5-5-5-5m-2-7-4 24" />
+      </svg>
+    ),
+  },
   Operations: {
     label: 'Operations',
     icon: (
@@ -187,6 +199,7 @@ const CATEGORY_METADATA: Record<string, { label: string; icon: React.ReactNode }
 
 export default function Toolbox() {
   const [activeSection, setActiveSection] = useState<Section>('ai')
+  const [sidebarVisible, setSidebarVisible] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
 
   const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>(() => {
@@ -222,7 +235,8 @@ export default function Toolbox() {
     if (!result.ok) throw result.error
     return true
   }, [saveSettings])
-  const { providers, models, loadProviders, loadModels } = useAgent()
+  const { providers, models, tasks, sendMessage, loadProviders, loadModels } = useAgent()
+  const [developerCommandHistory, setDeveloperCommandHistory] = useState<DeveloperCommandSession[]>([])
   const isAdmin = profile?.rank === 'admin' || profile?.rank === 'master-admin'
   const isMaster = profile?.rank === 'master-admin'
 
@@ -336,6 +350,19 @@ export default function Toolbox() {
           <span className="toolbox__title">Toolbox & Control Center</span>
         </div>
         <div className="toolbox__header-actions">
+          <button
+            type="button"
+            className="toolbox__sidebar-toggle"
+            aria-controls="toolbox-options-sidebar"
+            aria-expanded={sidebarVisible}
+            onClick={() => setSidebarVisible((visible) => !visible)}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="16" rx="2" />
+              <path d="M9 4v16" />
+            </svg>
+            <span>{sidebarVisible ? 'Hide options' : 'Show options'}</span>
+          </button>
           {profile && <span className="toolbox__profile-indicator">@{profile.githubLogin} · {profile.rank}</span>}
           {isSaving && <span className="toolbox__saving">Saving changes...</span>}
           {!isSaving && isApplied && <span className="toolbox__saving" style={{ color: "var(--green)", border: "1px solid var(--green)", padding: "2px 6px", borderRadius: "4px" }}>Saved</span>}
@@ -344,8 +371,13 @@ export default function Toolbox() {
 
       <div className="toolbox__layout">
         {/* ── Sidebar ────────────────────────────── */}
-        <nav className="toolbox__sidebar">
-                    <div className="toolbox__search-box">
+        <nav
+          id="toolbox-options-sidebar"
+          className={`toolbox__sidebar ${sidebarVisible ? '' : 'toolbox__sidebar--hidden'}`}
+          aria-label="Toolbox options"
+          hidden={!sidebarVisible}
+        >
+          <div className="toolbox__search-box">
             <div className="toolbox__search-wrapper">
               <svg className="toolbox__search-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="11" cy="11" r="8" />
@@ -370,7 +402,7 @@ export default function Toolbox() {
               )}
             </div>
           </div>
-                    {(() => {
+          {(() => {
             const isProviderConnected = providers.some((p) => p.keys.some((k) => k.health === 'healthy'));
             const isSearching = Boolean(searchQuery.trim());
             const q = searchQuery.toLowerCase().trim();
@@ -456,7 +488,7 @@ export default function Toolbox() {
         </nav>
 
         {/* ── Content Area with Real Components ── */}
-        <main className="toolbox__content">
+        <main className={`toolbox__content ${activeSection === 'developer' ? 'toolbox__content--developer' : ''}`}>
           <ToolboxErrorBoundary>
           {isLoading ? (
             <div className="toolbox__loading" role="status" aria-live="polite">
@@ -491,6 +523,16 @@ export default function Toolbox() {
               )}
               {activeSection === 'memory' && (
                 <MemorySection settings={settings} onSave={saveOtherSettings} />
+              )}
+              {activeSection === 'developer' && (
+                <DeveloperModeSection
+                  settings={settings}
+                  onSave={saveSettings}
+                  tasks={tasks}
+                  sendMessage={sendMessage}
+                  commandHistory={developerCommandHistory}
+                  onCommandHistoryChange={setDeveloperCommandHistory}
+                />
               )}
               {activeSection === 'security' && (
                 <SecuritySection settings={settings} onSave={saveOtherSettings} />

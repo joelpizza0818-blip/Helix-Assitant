@@ -42,18 +42,20 @@ class BrowserInputController:
             return page.locator(selector).first
         return page.get_by_text(selector, exact=True).first
 
+    async def _show_virtual_cursor_for_locator(self, locator: Any) -> None:
+        await locator.wait_for(state="visible")
+        box = await locator.bounding_box()
+        if box is None:
+            raise RuntimeError("The browser target has no visible position for the virtual cursor.")
+        cx = int(box["x"] + box["width"] / 2)
+        cy = int(box["y"] + box["height"] / 2)
+        await self._show_virtual_cursor(cx, cy, clicked=True)
+
     async def click(self, selector: str):
         page = self._require_page()
         logger.info("Clicking browser target: %s", selector)
         locator = self.locator_for_selector(selector)
-        try:
-            box = await locator.bounding_box()
-            if box:
-                cx = int(box["x"] + box["width"] / 2)
-                cy = int(box["y"] + box["height"] / 2)
-                await self._show_virtual_cursor(cx, cy, clicked=True)
-        except Exception:
-            pass
+        await self._show_virtual_cursor_for_locator(locator)
         await locator.click()
 
     async def validate_mouse_coordinates(self, x: int, y: int) -> None:
@@ -73,8 +75,16 @@ class BrowserInputController:
         page = self._require_page()
         await page.evaluate(
             """({ x, y, clicked }) => {
-                window.__helixMoveCursor?.(x, y);
-                if (clicked) window.__helixClickCursor?.(x, y);
+                if (typeof window.__helixMoveCursor !== 'function') {
+                    throw new Error('The browser virtual cursor is not installed.');
+                }
+                window.__helixMoveCursor(x, y);
+                if (clicked) {
+                    if (typeof window.__helixClickCursor !== 'function') {
+                        throw new Error('The browser click indicator is not installed.');
+                    }
+                    window.__helixClickCursor(x, y);
+                }
             }""",
             {"x": x, "y": y, "clicked": clicked},
         )
@@ -122,20 +132,15 @@ class BrowserInputController:
     async def click_text(self, text: str):
         page = self._require_page()
         logger.info("Clicking text: %s", text)
-        await page.get_by_text(text).first.click()
+        locator = page.get_by_text(text).first
+        await self._show_virtual_cursor_for_locator(locator)
+        await locator.click()
 
     async def type_text(self, selector: str, text: str) -> str:
         page = self._require_page()
         logger.info("Typing into %s", selector)
         locator = self.locator_for_selector(selector, prefer_css=True)
-        try:
-            box = await locator.bounding_box()
-            if box:
-                cx = int(box["x"] + box["width"] / 2)
-                cy = int(box["y"] + box["height"] / 2)
-                await self._show_virtual_cursor(cx, cy, clicked=True)
-        except Exception:
-            pass
+        await self._show_virtual_cursor_for_locator(locator)
         await locator.click()
         element_type = await locator.evaluate(
             "(element) => element.tagName.toLowerCase()"
@@ -203,6 +208,15 @@ class BrowserInputController:
 
     async def scroll(self, direction: str, amount: int):
         page = self._require_page()
+        viewport = page.viewport_size
+        if viewport is None:
+            viewport = await page.evaluate(
+                "() => ({ width: window.innerWidth, height: window.innerHeight })"
+            )
+        x = viewport["width"] // 2
+        y = viewport["height"] // 2
+        await self._show_virtual_cursor(x, y)
+        await page.mouse.move(x, y, steps=8)
         delta_x = amount if direction == "right" else -amount if direction == "left" else 0
         delta_y = amount if direction == "down" else -amount if direction == "up" else 0
         await page.mouse.wheel(delta_x, delta_y)

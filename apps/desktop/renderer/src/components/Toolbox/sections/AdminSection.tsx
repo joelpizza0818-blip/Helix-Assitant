@@ -17,18 +17,8 @@ interface AdminSectionProps {
 
 interface ProfileListResponse { success: true; profiles: HelixProfile[] }
 interface ReportListResponse { success: true; reports: AdminErrorReport[] }
-interface LiteReleasePolicy {
-  publicVersion: string
-  channel: 'stable'
-  updatedAt?: string
-}
-interface LiteReleasePolicyResponse { success: true; data: LiteReleasePolicy }
-
 export default function AdminSection({ profile, onPendingReportsCount }: AdminSectionProps) {
   const [config, setConfig] = useState<AdminConfig>(emptyConfig)
-  const [litePublicVersion, setLitePublicVersion] = useState('')
-  const [isSavingLitePolicy, setIsSavingLitePolicy] = useState(false)
-  const [litePolicySaved, setLitePolicySaved] = useState(false)
   const [version, setVersion] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [syncStatus, setSyncStatus] = useState<string | null>(null)
@@ -57,8 +47,6 @@ export default function AdminSection({ profile, onPendingReportsCount }: AdminSe
   const [clearingLogs, setClearingLogs] = useState(false)
 
   const isMaster = profile.rank === 'master-admin'
-  const isLiteRuntime = '__TAURI_INTERNALS__' in window
-
   const refreshDirectory = useCallback(async () => {
     if (!isMaster) return
     setLoadingDirectory(true)
@@ -82,25 +70,14 @@ export default function AdminSection({ profile, onPendingReportsCount }: AdminSe
     const load = async () => {
       if (profile.rank === 'admin' || isMaster) {
         try {
-          let loaded: AdminConfig | null = null
-          if (!isLiteRuntime) {
-            const token = await getAccessToken()
-            if (!token) throw new Error('Vuelve a conectar tu perfil de GitHub.')
-            loaded = await window.helix.getAdminConfig(token)
-          }
+          const token = await getAccessToken()
+          if (!token) throw new Error('Vuelve a conectar tu perfil de GitHub.')
+          const loaded = await window.helix.getAdminConfig(token)
           if (!active) return
-          if (loaded) {
-            setConfig(loaded)
-            setSyncStatus(loaded.synced ? 'Política Electron cargada.' : loaded.syncError || 'Usando la política local.')
-          }
+          setConfig(loaded)
+          setSyncStatus(loaded.synced ? 'Política Electron cargada.' : loaded.syncError || 'Usando la política local.')
         } catch (cause) {
           if (active) setError(cause instanceof Error ? cause.message : 'No se pudo cargar la configuración admin.')
-        }
-        try {
-          const liteResult = await adminRequest<LiteReleasePolicyResponse>('lite-policy')
-          if (active) setLitePublicVersion(liteResult.data.publicVersion)
-        } catch (cause) {
-          if (active) setError(cause instanceof Error ? cause.message : 'No se pudo cargar la política HELIX Lite.')
         }
       }
       await refreshDirectory()
@@ -111,7 +88,7 @@ export default function AdminSection({ profile, onPendingReportsCount }: AdminSe
       active = false
       if (timer !== undefined) window.clearInterval(timer)
     }
-  }, [isLiteRuntime, isMaster, profile.rank, refreshDirectory])
+  }, [isMaster, profile.rank, refreshDirectory])
 
   const visibleProfiles = useMemo(() => {
     const query = search.trim().toLocaleLowerCase()
@@ -141,30 +118,6 @@ export default function AdminSection({ profile, onPendingReportsCount }: AdminSe
       setError(cause instanceof Error ? cause.message : 'No se pudo guardar la política.')
     } finally {
       setIsSaving(false)
-    }
-  }
-
-  const saveLitePolicy = async () => {
-    setError(null)
-    setSyncStatus(null)
-    setIsSavingLitePolicy(true)
-    try {
-      const version = litePublicVersion.trim()
-      if (!/^\d+\.\d+\.\d+$/.test(version)) {
-        throw new Error('La versión Lite debe usar el formato mayor.menor.parche, por ejemplo 0.1.11.')
-      }
-      const updated = await adminRequest<LiteReleasePolicyResponse>('lite-policy', {
-        method: 'PUT',
-        body: JSON.stringify({ publicVersion: version }),
-      })
-      setLitePublicVersion(updated.data.publicVersion)
-      setSyncStatus(`Versión pública de HELIX Lite actualizada a ${updated.data.publicVersion}.`)
-      setLitePolicySaved(true)
-      window.setTimeout(() => setLitePolicySaved(false), 1600)
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo publicar la política de HELIX Lite.')
-    } finally {
-      setIsSavingLitePolicy(false)
     }
   }
 
@@ -229,10 +182,7 @@ export default function AdminSection({ profile, onPendingReportsCount }: AdminSe
     setLoadingLogs(true)
     setLogsError(null)
     try {
-      let token = ''
-      if (!isLiteRuntime) {
-        token = (await getAccessToken()) || ''
-      }
+      const token = (await getAccessToken()) || ''
       const res = await window.helix.getAdminLogs(token)
       if (res && res.success) {
         setLogs(res.logs || [])
@@ -244,7 +194,7 @@ export default function AdminSection({ profile, onPendingReportsCount }: AdminSe
     } finally {
       setLoadingLogs(false)
     }
-  }, [isLiteRuntime])
+  }, [])
 
   useEffect(() => {
     void fetchLogs()
@@ -281,10 +231,7 @@ export default function AdminSection({ profile, onPendingReportsCount }: AdminSe
     setClearingLogs(true)
     setLogsError(null)
     try {
-      let token = ''
-      if (!isLiteRuntime) {
-        token = (await getAccessToken()) || ''
-      }
+      const token = (await getAccessToken()) || ''
       await window.helix.clearAdminLogs(token)
       await fetchLogs()
     } catch (cause) {
@@ -292,7 +239,7 @@ export default function AdminSection({ profile, onPendingReportsCount }: AdminSe
     } finally {
       setClearingLogs(false)
     }
-  }, [fetchLogs, isLiteRuntime])
+  }, [fetchLogs])
 
   const copyLogsToClipboard = useCallback(async () => {
     try {
@@ -316,7 +263,7 @@ export default function AdminSection({ profile, onPendingReportsCount }: AdminSe
 
       {isMaster && (
         <>
-          {!isLiteRuntime && <div className="toolbox-card">
+          <div className="toolbox-card">
             <div className="toolbox-card__title">Política de versiones</div>
             <div className="form-row" style={{ marginTop: '12px', marginBottom: '8px' }}>
               <span className="form-label">Actualizaciones automáticas</span>
@@ -342,32 +289,6 @@ export default function AdminSection({ profile, onPendingReportsCount }: AdminSe
             </div>
             <button type="button" className="validate-btn" disabled={isSaving} onClick={() => void savePolicy()}>
               {isSaving ? 'Guardando…' : saved ? 'Guardado' : 'Guardar política'}
-            </button>
-          </div>}
-          <div className="toolbox-card">
-            <div className="toolbox-card__title">Publicación HELIX Lite (Tauri)</div>
-            <p className="text-xs text-muted">
-              Política independiente de HELIX Normal/Electron. Solo se acepta una release Lite estable ya publicada con instalador y checksum.
-            </p>
-            <div className="form-row">
-              <label className="form-label" htmlFor="lite-public-version">Versión pública Lite</label>
-              <input
-                id="lite-public-version"
-                className="form-input"
-                value={litePublicVersion}
-                onChange={(event) => setLitePublicVersion(event.target.value)}
-                placeholder="0.1.11"
-                pattern="\d+\.\d+\.\d+"
-                inputMode="numeric"
-              />
-            </div>
-            <button
-              type="button"
-              className="validate-btn"
-              disabled={isSavingLitePolicy || !litePublicVersion.trim()}
-              onClick={() => void saveLitePolicy()}
-            >
-              {isSavingLitePolicy ? 'Verificando y guardando…' : litePolicySaved ? 'Publicada' : 'Guardar versión Lite'}
             </button>
           </div>
           <div className="toolbox-card">
@@ -401,7 +322,7 @@ export default function AdminSection({ profile, onPendingReportsCount }: AdminSe
               {!visibleProfiles.length && <p className="text-xs text-muted">No se encontraron perfiles.</p>}
             </div>
           </div>
-          {!isLiteRuntime && <div className="toolbox-card">
+          <div className="toolbox-card">
             <div className="toolbox-card__title">Reportes recibidos · {reports.filter((report) => report.status === 'open').length} pendientes</div>
             {reports.map((report) => (
               <article className="helix-admin-report" key={report.id}>
@@ -415,11 +336,11 @@ export default function AdminSection({ profile, onPendingReportsCount }: AdminSe
               </article>
             ))}
             {!reports.length && <p className="text-xs text-muted">Todavía no hay reportes.</p>}
-          </div>}
+          </div>
         </>
       )}
 
-      {!isLiteRuntime && <div className="toolbox-card">
+      <div className="toolbox-card">
         <div className="toolbox-card__title">Copias de seguridad de versiones</div>
         <p className="text-xs text-muted">Registra una versión publicada y verificada como referencia conocida.</p>
         <div className="form-row">
@@ -433,7 +354,7 @@ export default function AdminSection({ profile, onPendingReportsCount }: AdminSe
             {' '}<button type="button" className="validate-btn" disabled={!isMaster} onClick={() => setConfig((current) => ({ ...current, publicVersion: item.version }))}>Seleccionar</button>
           </p>
         ))}
-      </div>}
+      </div>
 
       <div className="toolbox-card">
         <div className="toolbox-card__title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

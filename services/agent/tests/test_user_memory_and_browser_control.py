@@ -746,8 +746,11 @@ class FakeLocator:
         self.page = page
         self.actions = page.locator_actions
 
+    async def wait_for(self, *, state):
+        assert state == "visible"
+
     async def bounding_box(self):
-        return None
+        return {"x": 100, "y": 50, "width": 40, "height": 20}
 
     async def click(self):
         self.actions.append(("click",))
@@ -919,6 +922,7 @@ async def test_browser_session_routes_virtual_mouse_with_viewport_bounds():
     assert ("click", 120, 80, {"button": "left"}) in session._page.mouse.actions
     assert ("wheel", 0, 350) in session._page.mouse.actions
     assert session._page.evaluations[0][1] == {"x": 120, "y": 80, "clicked": False}
+    assert "opacity:1; transform:translate3d(16px,16px,0)" in BrowserSession._VIRTUAL_CURSOR_SCRIPT
     assert "addEventListener('mousemove'" not in BrowserSession._VIRTUAL_CURSOR_SCRIPT
     with pytest.raises(ValueError, match="outside the page viewport"):
         await session.move_mouse(800, 600)

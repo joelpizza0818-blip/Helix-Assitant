@@ -163,7 +163,6 @@ export function useAgent(options: UseAgentOptions = {}): UseAgentReturn {
         } else if (msg.role === 'assistant' && !msg.streaming) {
           setIsLoading(false)
           setAgentStatus('idle')
-          setBrowserProgress(null)
         }
       })
     )

@@ -4,7 +4,6 @@ import { HelixLogo } from '../components/HelixLogo/HelixLogo';
 import { PrivacyModal } from '../components/PrivacyModal/PrivacyModal';
 import { useAuth } from '../hooks/useAuth';
 import { useAdminAccess } from '../hooks/useAdminAccess';
-import { getLatestLiteRelease, type LiteReleaseDownload } from '../lib/downloads';
 import './ScrollytellingLandingPage.css';
 
 const HERO_VIDEO = new URL('../Multimedia/video 1 - helix.mp4', import.meta.url).href;
@@ -407,9 +406,7 @@ function StoriesStack({ sectionRef }: StoriesStackProps) {
 
 export const ScrollytellingLandingPage: React.FC = () => {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [liteRelease, setLiteRelease] = useState<LiteReleaseDownload | null>(null);
   const [privacyModalOpen, setPrivacyModalOpen] = useState(false);
-  const [targetEdition, setTargetEdition] = useState<'Normal' | 'Lite'>('Normal');
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -420,34 +417,13 @@ export const ScrollytellingLandingPage: React.FC = () => {
   const menuToggleRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLElement>(null);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    getLatestLiteRelease(controller.signal)
-      .then(setLiteRelease)
-      .catch(() => {
-        // Fallback gracefully if endpoint unavailable
-      });
-    return () => controller.abort();
-  }, []);
-
-  const triggerDownloadAction = (edition: 'Normal' | 'Lite') => {
+  const triggerDownloadAction = () => {
     const isAccepted = typeof window !== 'undefined' && localStorage.getItem('helix_privacy_accepted') === 'true';
-    const execute = () => {
-      if (edition === 'Normal') {
-        navigate('/download');
-      } else {
-        if (liteRelease?.installerUrl) {
-          window.location.assign(liteRelease.installerUrl);
-        } else {
-          navigate('/download');
-        }
-      }
-    };
+    const execute = () => navigate('/download');
 
     if (isAccepted) {
       execute();
     } else {
-      setTargetEdition(edition);
       setPendingAction(() => execute);
       setPrivacyModalOpen(true);
     }
@@ -534,16 +510,9 @@ export const ScrollytellingLandingPage: React.FC = () => {
             <button
               type="button"
               className="scrolly-menu-btn"
-              onClick={() => { closeMenu(); triggerDownloadAction('Normal'); }}
+              onClick={() => { closeMenu(); triggerDownloadAction(); }}
             >
               Download HELIX Normal
-            </button>
-            <button
-              type="button"
-              className="scrolly-menu-btn"
-              onClick={() => { closeMenu(); triggerDownloadAction('Lite'); }}
-            >
-              Download HELIX Lite
             </button>
           </div>
           <p className="scrolly-menu__note">A Windows desktop agent with optional voice and screen context.</p>
@@ -562,22 +531,12 @@ export const ScrollytellingLandingPage: React.FC = () => {
               <button
                 type="button"
                 className="scrolly-button scrolly-button--primary"
-                onClick={() => triggerDownloadAction('Normal')}
+                onClick={triggerDownloadAction}
               >
                 Download HELIX Normal (Electron)
                 <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <line x1="7" y1="17" x2="17" y2="7" />
                   <polyline points="7 7 17 7 17 17" />
-                </svg>
-              </button>
-              <button
-                type="button"
-                className="scrolly-button scrolly-button--lite"
-                onClick={() => triggerDownloadAction('Lite')}
-              >
-                Download HELIX Lite (Tauri Edition)
-                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
                 </svg>
               </button>
               <a href="#story" className="scrolly-button scrolly-button--quiet">
@@ -593,10 +552,6 @@ export const ScrollytellingLandingPage: React.FC = () => {
               <div className="scrolly-edition-chip">
                 <span className="scrolly-edition-chip__badge">NORMAL</span>
                 <span><strong>Electron</strong> · System Tray · Desktop tools & OCR</span>
-              </div>
-              <div className="scrolly-edition-chip">
-                <span className="scrolly-edition-chip__badge scrolly-edition-chip__badge--lite">LITE</span>
-                <span><strong>Tauri + Rust</strong> · Windows x64 installer · RAM not benchmarked</span>
               </div>
             </div>
           </div>
@@ -637,22 +592,12 @@ export const ScrollytellingLandingPage: React.FC = () => {
             <button
               type="button"
               className="scrolly-button scrolly-button--primary"
-              onClick={() => triggerDownloadAction('Normal')}
+              onClick={triggerDownloadAction}
             >
               Download HELIX Normal
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <line x1="7" y1="17" x2="17" y2="7" />
                 <polyline points="7 7 17 7 17 17" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              className="scrolly-button scrolly-button--lite"
-              onClick={() => triggerDownloadAction('Lite')}
-            >
-              Download HELIX Lite
-              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
               </svg>
             </button>
             <Link to="/register" className="scrolly-button scrolly-button--quiet">
@@ -703,7 +648,6 @@ export const ScrollytellingLandingPage: React.FC = () => {
 
       <PrivacyModal
         isOpen={privacyModalOpen}
-        targetEdition={targetEdition}
         onClose={() => setPrivacyModalOpen(false)}
         onConfirm={handleModalConfirm}
       />

@@ -55,11 +55,28 @@ export interface HelixAPI {
     message: string
     output: string
   }>
+  getDeveloperTerminalStatus: () => Promise<DeveloperTerminalStatus>
+  startDeveloperTerminal: (options: {
+    project_id: string
+    shell: DeveloperTerminalShell
+    cols: number
+    rows: number
+  }) => Promise<{ session_id: string }>
+  writeDeveloperTerminal: (sessionId: string, data: string) => Promise<void>
+  closeDeveloperTerminal: (sessionId: string) => Promise<void>
+  onDeveloperTerminalData: (fn: (event: DeveloperTerminalDataEvent) => void) => () => void
+  onDeveloperTerminalExit: (fn: (event: DeveloperTerminalExitEvent) => void) => () => void
   testTts: (text?: string) => Promise<TtsTestResult>
   getMemoryStatus: () => Promise<MemoryStatus>
   getProjects: () => Promise<ProjectRegistry>
   importProjectFolder: (folderPath: string) => Promise<ProjectRegistry>
   getProjectFiles: (projectId: string) => Promise<ProjectFilesResult>
+  readProjectFile: (projectId: string, relativePath: string) => Promise<ProjectFileContent>
+  writeProjectFile: (
+    projectId: string,
+    relativePath: string,
+    content: string,
+  ) => Promise<{ relative_path: string; saved: boolean }>
   createProjectEntry: (
     projectId: string,
     relativePath: string,
@@ -117,11 +134,11 @@ export interface HelixAPI {
     profileId: string,
     memoryId: string,
   ) => Promise<{ deleted: boolean; memory_id: string }>
-  getLlamaServerStatus?: () => Promise<any>
-  startLlamaServer?: (model?: string) => Promise<any>
-  stopLlamaServer?: () => Promise<any>
-  downloadLlamaServer?: () => Promise<any>
-  downloadGgufModel?: (modelId: string) => Promise<any>
+  getLlamaServerStatus: () => Promise<LlamaServerStatus>
+  startLlamaServer: (model?: string) => Promise<LlamaServerActionResult>
+  stopLlamaServer: () => Promise<LlamaServerActionResult>
+  downloadLlamaServer: () => Promise<LlamaServerDownloadResult>
+  downloadGgufModel: (modelId: string) => Promise<LlamaModelDownloadResult>
   getProviders: () => Promise<ProviderStatus[]>
   getModels: (requirements?: Partial<ModelRequirements>) => Promise<ModelDefinition[]>
   getModelCatalog: () => Promise<ModelCatalog>
@@ -424,6 +441,40 @@ export interface ProviderStatus {
   models_available: number
 }
 
+export interface GgufModelInfo {
+  name: string
+  path: string
+  size_gb: number
+}
+
+export interface LlamaServerStatus {
+  installed: boolean
+  binary_path: string | null
+  running: boolean
+  port: number
+  base_url: string
+  active_model: string | null
+  models_dir: string
+  models: GgufModelInfo[]
+  curated_catalog: Array<Record<string, unknown>>
+}
+
+export interface LlamaServerActionResult {
+  success: boolean
+  status: LlamaServerStatus
+}
+
+export interface LlamaServerDownloadResult {
+  status: string
+  done: boolean
+  error: string | null
+  server_status: LlamaServerStatus
+}
+
+export interface LlamaModelDownloadResult extends LlamaServerDownloadResult {
+  model_id: string
+}
+
 export interface TaskDefinition {
   id: string
   description: string
@@ -444,6 +495,7 @@ export interface TaskDefinition {
   name?: string | null
   function?: string | null
   task_type?: string
+  is_subagent?: boolean
   profile_id?: string
   model_requests?: ModelRequestEvent[]
   progress: number
@@ -776,6 +828,26 @@ export interface HelixSettings {
   embedding_model?: string
   memory_similarity_threshold?: number
   execution_memory_ttl?: 'session' | '30_days' | 'permanent'
+  developer_mode_enabled?: boolean
+}
+
+export type DeveloperTerminalShell = 'powershell' | 'cmd' | 'bash'
+
+export interface DeveloperTerminalStatus {
+  supported: boolean
+  shells: DeveloperTerminalShell[]
+  reason?: string
+}
+
+export interface DeveloperTerminalDataEvent {
+  session_id: string
+  data: string
+}
+
+export interface DeveloperTerminalExitEvent {
+  session_id: string
+  exit_code: number | null
+  signal: string | null
 }
 
 export interface ProjectRegistry {
@@ -799,6 +871,11 @@ export interface ProjectFilesResult {
   entries?: ProjectFileEntry[]
   truncated?: boolean
   canceled?: boolean
+}
+
+export interface ProjectFileContent {
+  relative_path: string
+  content: string
 }
 
 export interface ProjectFileEntry {

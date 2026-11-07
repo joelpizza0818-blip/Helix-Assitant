@@ -10,8 +10,6 @@ import { isAllowedAnnouncementUrl, isExternalAnnouncementUrl, isHttpsUrl } from 
 import { canLinkGithubProfileByLogin } from '../_shared/profile-link.ts'
 
 const GITHUB_API = 'https://api.github.com'
-const LITE_RELEASE_OWNER = 'joelpizza0818-blip'
-const LITE_RELEASE_REPOSITORY = 'Helix-Assitant'
 const MOBILE_RELEASE_OWNER = 'joelpizza0818-blip'
 const MOBILE_RELEASE_REPOSITORY = 'Helix-Assitant'
 const INSTALLER_RELEASE_OWNER = 'joelpizza0818-blip'
@@ -136,7 +134,7 @@ const ANNOUNCEMENT_CATEGORIES = new Set([
   'COMPATIBILITY',
 ])
 const INSTALLER_PLATFORMS = new Set(['windows', 'linux', 'macos', 'android', 'ios'])
-const INSTALLER_EDITIONS = new Set(['normal', 'lite', 'mobile'])
+const INSTALLER_EDITIONS = new Set(['normal', 'mobile'])
 
 interface AnnouncementPayload {
   category: string
@@ -148,7 +146,7 @@ interface AnnouncementPayload {
 
 interface InstallerPayload {
   platform: 'windows' | 'linux' | 'macos' | 'android' | 'ios'
-  edition: 'normal' | 'lite' | 'mobile'
+  edition: 'normal' | 'mobile'
   version: string
   installerUrl: string
   checksumUrl: string
@@ -328,12 +326,10 @@ function historyRows(releases: GitHubReleaseRecord[], profileId: string): Instal
     if (tagUrl.hostname !== 'github.com') continue
     const releaseDate = release.published_at ?? release.created_at
     const normal = release.tag_name.match(/^v(\d+\.\d+\.\d+)$/)
-    const lite = release.tag_name.match(/^lite-v(\d+\.\d+\.\d+)$/)
     const mobile = release.tag_name.match(/^mobile-v(\d+\.\d+\.\d+)$/)
-    const assetsFor = (platform: 'windows' | 'android' | 'ios', edition: 'normal' | 'lite' | 'mobile', version: string) => {
+    const assetsFor = (platform: 'windows' | 'android' | 'ios', edition: 'normal' | 'mobile', version: string) => {
       let installerNames: string[]
       if (edition === 'normal') installerNames = ['HELIX-Setup.exe', `HELIX-Setup-${version}.exe`]
-      else if (edition === 'lite') installerNames = ['HELIX-Lite-Setup.exe']
       else installerNames = platform === 'android'
         ? ['HELIX-Mobile-arm64-v8a.apk', 'HELIX-Mobile.apk']
         : ['HELIX-Mobile.ipa']
@@ -358,7 +354,6 @@ function historyRows(releases: GitHubReleaseRecord[], profileId: string): Instal
     }
 
     if (normal) assetsFor('windows', 'normal', normal[1])
-    else if (lite) assetsFor('windows', 'lite', lite[1])
     else if (mobile) {
       const hasAndroid = findReleaseAsset(release, ['HELIX-Mobile-arm64-v8a.apk', 'HELIX-Mobile.apk']) !== null
       const hasIos = findReleaseAsset(release, ['HELIX-Mobile.ipa']) !== null
@@ -512,59 +507,6 @@ async function verifyRelease(
   }
   if (requiredAssets.size) {
     return { ok: false, error: `Installer release ${tag} is missing required update assets.` }
-  }
-  return { ok: true }
-}
-
-async function verifyLiteRelease(version: string): Promise<{ ok: true } | { ok: false; error: string }> {
-  const tag = `lite-v${version}`
-  let response: Response
-  try {
-    response = await fetch(
-      `${GITHUB_API}/repos/${LITE_RELEASE_OWNER}/${LITE_RELEASE_REPOSITORY}/releases/tags/${encodeURIComponent(tag)}`,
-      {
-        headers: {
-          Accept: 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28',
-          'User-Agent': 'HELIX-Lite-release-admin',
-        },
-        signal: AbortSignal.timeout(8000),
-      },
-    )
-  } catch (error) {
-    console.error('Could not verify the public HELIX Lite release:', error)
-    return { ok: false, error: 'Could not verify the HELIX Lite release right now.' }
-  }
-  if (response.status === 404) return { ok: false, error: `HELIX Lite release ${tag} does not exist.` }
-  if (!response.ok) return { ok: false, error: `HELIX Lite release verification failed (HTTP ${response.status}).` }
-
-  const release: unknown = await response.json().catch(() => null)
-  if (
-    release === null
-    || typeof release !== 'object'
-    || !('tag_name' in release)
-    || release.tag_name !== tag
-    || !('draft' in release)
-    || release.draft !== false
-    || !('prerelease' in release)
-    || release.prerelease !== false
-    || !('assets' in release)
-    || !Array.isArray(release.assets)
-  ) {
-    return { ok: false, error: `HELIX Lite release ${tag} returned invalid or non-stable metadata.` }
-  }
-
-  const requiredAssets = new Set(['HELIX-Lite-Setup.exe', 'HELIX-Lite-Setup.exe.sha256'])
-  for (const asset of release.assets) {
-    if (
-      asset !== null
-      && typeof asset === 'object'
-      && 'name' in asset
-      && typeof asset.name === 'string'
-    ) requiredAssets.delete(asset.name)
-  }
-  if (requiredAssets.size) {
-    return { ok: false, error: `HELIX Lite release ${tag} is missing its installer or SHA-256 checksum.` }
   }
   return { ok: true }
 }
@@ -1081,6 +1023,7 @@ async function handleRequest(request: Request): Promise<Response> {
       const { data, error } = await admin
         .from('landing_installer_catalog')
         .select('*')
+        .neq('edition', 'lite')
         .order('created_at', { ascending: false })
         .limit(2000)
       if (error) {
@@ -1168,6 +1111,9 @@ async function handleRequest(request: Request): Promise<Response> {
           return jsonResponse(503, { error: 'Could not verify the installer before publishing.' })
         }
         if (!installer) return jsonResponse(404, { error: 'Installer entry was not found.' })
+        if (installer.edition === 'lite') {
+          return jsonResponse(410, { error: 'This installer channel is no longer available for publication.' })
+        }
         if (!installer.installer_url || !installer.checksum_url) {
           return jsonResponse(422, { error: 'An installer asset and SHA-256 checksum are required before publication.' })
         }
@@ -1181,10 +1127,6 @@ async function handleRequest(request: Request): Promise<Response> {
         }
         if (installer.platform === 'windows' && installer.edition === 'normal') {
           const verified = await verifyRelease(installer.version, 'stable')
-          if (!verified.ok) return jsonResponse(422, { error: verified.error })
-        }
-        if (installer.platform === 'windows' && installer.edition === 'lite') {
-          const verified = await verifyLiteRelease(installer.version)
           if (!verified.ok) return jsonResponse(422, { error: verified.error })
         }
         if (installer.edition === 'mobile' && (installer.platform === 'android' || installer.platform === 'ios')) {
@@ -1236,7 +1178,7 @@ async function handleRequest(request: Request): Promise<Response> {
         return jsonResponse(503, { error: 'Could not change installer publication state.' })
       }
       if (!current) return jsonResponse(404, { error: 'Installer entry was not found.' })
-      if (current.is_published && current.platform === 'windows' && ['normal', 'lite'].includes(current.edition)) {
+      if (current.is_published && current.platform === 'windows' && current.edition === 'normal') {
         return jsonResponse(409, { error: 'Publish a replacement Windows version before hiding this installer.' })
       }
       const { data, error } = await admin
@@ -1290,65 +1232,6 @@ async function handleRequest(request: Request): Promise<Response> {
     }
 
     return jsonResponse(404, { error: 'Installer route not found.' })
-  }
-
-  if (route === 'lite-policy') {
-    if (!isAdmin) return jsonResponse(403, { error: 'Admin rank required to view HELIX Lite release policy.' })
-    if (request.method === 'GET') {
-      const { data, error } = await admin
-        .from('release_policies')
-        .select('public_version, channel, updated_at')
-        .eq('id', 'lite')
-        .maybeSingle()
-      if (error) {
-        console.error('Could not load HELIX Lite release policy:', error.message)
-        return jsonResponse(503, { error: 'Could not load the HELIX Lite release policy.' })
-      }
-      if (!data) return jsonResponse(503, { error: 'HELIX Lite release policy has not been provisioned.' })
-      return jsonResponse(200, {
-        success: true,
-        data: { publicVersion: data.public_version, channel: data.channel, updatedAt: data.updated_at },
-      })
-    }
-    if (request.method === 'PUT') {
-      if (profile.rank !== 'master-admin') {
-        return jsonResponse(403, { error: 'Master admin rank required to publish HELIX Lite releases.' })
-      }
-      const body: unknown = await request.json().catch(() => null)
-      if (
-        body === null
-        || typeof body !== 'object'
-        || !('publicVersion' in body)
-        || typeof body.publicVersion !== 'string'
-        || !/^\d+\.\d+\.\d+$/.test(body.publicVersion)
-      ) return jsonResponse(400, { error: 'HELIX Lite version must use the format major.minor.patch.' })
-
-      const verified = await verifyLiteRelease(body.publicVersion)
-      if (!verified.ok) return jsonResponse(422, { error: verified.error })
-
-      const { data, error } = await admin
-        .from('release_policies')
-        .upsert({
-          id: 'lite',
-          public_version: body.publicVersion,
-          channel: 'stable',
-          auto_update: true,
-          check_interval_hours: 24,
-          updated_by_user_id: auth.githubId,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'id' })
-        .select('public_version, channel, updated_at')
-        .single()
-      if (error) {
-        console.error('Could not save HELIX Lite release policy:', error.message)
-        return jsonResponse(503, { error: 'Could not save the HELIX Lite release policy.' })
-      }
-      return jsonResponse(200, {
-        success: true,
-        data: { publicVersion: data.public_version, channel: data.channel, updatedAt: data.updated_at },
-      })
-    }
-    return jsonResponse(405, { error: 'Method not allowed.' })
   }
 
   if (!isAdmin) {

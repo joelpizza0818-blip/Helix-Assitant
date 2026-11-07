@@ -97,7 +97,7 @@ updatesRouter.post('/subscribe', async (req: Request, res: Response) => {
       message: 'Subscription request accepted by the update service.',
       totalSubscribers,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({
         success: false,
@@ -151,7 +151,7 @@ updatesRouter.post(
         sentCount: result.sentCount,
         messageId: result.messageId,
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           success: false,
