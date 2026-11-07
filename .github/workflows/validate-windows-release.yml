@@ -1,0 +1,134 @@
+name: Validate Windows release credentials
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_installer:
+        description: Dispatch the existing v0.8.0 installer workflow after all checks pass
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-windows-release
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate stored release access
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify the private installer repository token
+        env:
+          GH_TOKEN: ${{ secrets.INSTALLER_REPO_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo "::error::INSTALLER_REPO_TOKEN is not configured in GitHub Actions secrets."
+            exit 1
+          fi
+
+          repository=$(gh api repos/joelpizza0818-blip/helix-installer-downloads)
+          if ! jq -e '.permissions.push == true' <<<"$repository" >/dev/null; then
+            echo "::error::INSTALLER_REPO_TOKEN cannot write to helix-installer-downloads. Grant Contents: Read and write."
+            exit 1
+          fi
+
+          if ! gh api repos/joelpizza0818-blip/helix-installer-downloads/releases/latest --jq '.tag_name' >/dev/null; then
+            echo "::error::The configured token cannot read the latest private installer release."
+            exit 1
+          fi
+          echo "GitHub installer repository access and write permission verified."
+
+      - name: Verify the Supabase updater and release metadata
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$VITE_SUPABASE_URL" || "$VITE_SUPABASE_URL" != https://* ]]; then
+            echo "::error::VITE_SUPABASE_URL is missing or is not HTTPS."
+            exit 1
+          fi
+          base_url="${VITE_SUPABASE_URL%/}/functions/v1/installer-updates"
+          policy_file="$RUNNER_TEMP/installer-policy.json"
+          metadata_file="$RUNNER_TEMP/installer-latest.yml"
+
+          if ! curl --fail --silent --show-error --max-time 30 "$base_url/policy.json" -o "$policy_file"; then
+            echo "::error::Supabase installer updater policy is unavailable. Check the Edge Function configuration."
+            exit 1
+          fi
+          if ! jq -e '.publicVersion | type == "string" and test("^[0-9]+(\\.[0-9]+){1,3}$")' "$policy_file" >/dev/null; then
+            echo "::error::Supabase returned an invalid installer release policy."
+            exit 1
+          fi
+
+          if ! curl --fail --silent --show-error --max-time 30 "$base_url/latest.yml" -o "$metadata_file"; then
+            echo "::error::Supabase could not resolve the configured private installer metadata. Check GITHUB_INSTALLER_TOKEN in Edge Function secrets."
+            exit 1
+          fi
+          if ! grep -Eq '^version: [0-9]+(\.[0-9]+){1,3}$' "$metadata_file" ||
+             ! grep -Eq '^sha512: [A-Za-z0-9+/=]+$' "$metadata_file"; then
+            echo "::error::Supabase returned invalid latest.yml metadata."
+            exit 1
+          fi
+          echo "Supabase updater and installer metadata verified."
+
+      - name: Verify the Community API release preflight
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$VITE_API_URL" || "$VITE_API_URL" != https://* ]]; then
+            echo "::error::VITE_API_URL is missing or is not HTTPS."
+            exit 1
+          fi
+          api_base="${VITE_API_URL%/}"
+          curl --fail --silent --show-error --max-time 60 "$api_base/api/health/live" >/dev/null
+          catalog=$(curl --fail --silent --show-error --max-time 60 "$api_base/api/community/")
+          if ! jq -e '.success == true and (.data | type == "array")' <<<"$catalog" >/dev/null; then
+            echo "::error::The Community API returned an invalid marketplace response."
+            exit 1
+          fi
+          echo "Community API health and catalog verified."
+
+      - name: Summarize validation
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          PUBLISH_REQUESTED: ${{ inputs.publish_installer }}
+        shell: bash
+        run: |
+          {
+            echo "## Windows release credential validation"
+            echo
+            echo "- Validation: $JOB_STATUS"
+            echo "- Installer dispatch requested: $PUBLISH_REQUESTED"
+            echo "- No credential values are written to the workflow output."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  dispatch:
+    name: Dispatch existing v0.8.0 installer workflow
+    needs: validate
+    if: inputs.publish_installer
+    permissions:
+      actions: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Dispatch installer workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run publish-windows-installer.yml \
+            --repo joelpizza0818-blip/Helix-Assitant \
+            --ref v0.8.0
+          echo "The existing v0.8.0 installer workflow was dispatched. Monitor it at https://github.com/joelpizza0818-blip/Helix-Assitant/actions/workflows/publish-windows-installer.yml"

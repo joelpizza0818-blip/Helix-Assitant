@@ -62,8 +62,8 @@ jobs:
             throw "Configure VITE_API_URL as a public HTTPS Community API base URL in repository variables."
           }
           $apiBase = $env:VITE_API_URL.TrimEnd('/')
-          Invoke-WebRequest -Uri "$apiBase/api/health/live" -TimeoutSec 20 -UseBasicParsing | Out-Null
-          $communityResponse = Invoke-RestMethod -Uri "$apiBase/api/community/" -TimeoutSec 20
+          Invoke-WebRequest -Uri "$apiBase/api/health/live" -TimeoutSec 60 -UseBasicParsing | Out-Null
+          $communityResponse = Invoke-RestMethod -Uri "$apiBase/api/community/" -TimeoutSec 60
           if ($communityResponse.success -ne $true -or $communityResponse.data -isnot [array]) {
             throw "The configured Community API returned an invalid marketplace response."
           }

@@ -16,6 +16,12 @@ This guide covers the independent desktop, mobile, CLI, and web channels. A sour
 
 For example, verify a GitHub tag/release with `git ls-remote --tags origin "refs/tags/<tag>"` and `gh release view <tag>`. Confirm package publication independently with `npm view helix-assistant-cli dist-tags`.
 
+## Windows release credential preflight
+
+Use the manually dispatched **Validate Windows release credentials** workflow before retrying a Windows installer release. It checks the stored `INSTALLER_REPO_TOKEN` against the private installer repository, checks the public Supabase updater endpoints configured by `VITE_SUPABASE_URL` (which depend on `GITHUB_INSTALLER_TOKEN` stored in Supabase Edge Function secrets), and verifies the Community API configured by `VITE_API_URL`. It never accepts token input or prints credential values.
+
+Run it from the `main` branch with `publish_installer` unchecked to validate access only. To explicitly dispatch the existing `publish-windows-installer.yml` workflow for `v0.8.0` after all checks pass, select `publish_installer`. This does not create another source tag or release. The validation job has read-only repository access; only the opt-in dispatch job receives `actions: write`. A failed preflight identifies which secret store or service needs attention; configure secret values only in GitHub Actions Secrets or Supabase Edge Function Secrets.
+
 ## Desktop Normal (Electron, Windows x64)
 
 1. Set the version in `apps/desktop/package.json`; the release workflow runs from `main`, checks a clean checkout and the previous published baseline, then creates the `vX.Y.Z` tag and GitHub source release.
