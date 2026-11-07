@@ -112,7 +112,8 @@ export default function DeveloperTerminal({
     })
     const handleInput = createDeveloperTerminalInputHandler(
       (command) => {
-        if (sessionId) void window.helix.writeDeveloperTerminal(sessionId, command).catch(reportError)
+        const shellInput = shell === 'bash' ? command.replace(/\r\n/g, '\n') : command
+        if (sessionId) void window.helix.writeDeveloperTerminal(sessionId, shellInput).catch(reportError)
       },
       (text) => terminal.write(text),
     )

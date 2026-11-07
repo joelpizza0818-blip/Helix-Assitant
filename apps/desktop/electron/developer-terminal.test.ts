@@ -45,6 +45,7 @@ test('local terminal keeps shell state between commands and streams output', { t
       pendingMarkers.set(marker, { resolve, reject, timer })
     })
   }
+  const lineEnding = shell === 'bash' ? '\n' : '\r\n'
 
   try {
     const initialDirectoryCommand = shell === 'powershell'
@@ -52,7 +53,7 @@ test('local terminal keeps shell state between commands and streams output', { t
       : shell === 'cmd'
         ? 'echo HELIX_INITIAL_CWD=%CD%'
         : 'printf "HELIX_INITIAL_CWD=%s\\n" "$PWD"'
-    child.stdin.write(`${initialDirectoryCommand}\r\n`)
+    child.stdin.write(`${initialDirectoryCommand}${lineEnding}`)
     await waitFor(`HELIX_INITIAL_CWD=${fs.realpathSync.native(os.homedir())}`)
 
     const temporaryDirectory = fs.realpathSync.native(os.tmpdir())
@@ -61,7 +62,7 @@ test('local terminal keeps shell state between commands and streams output', { t
       : shell === 'cmd'
         ? `cd /d "${temporaryDirectory}" & set HELIX_TERMINAL_VALUE=persisted & echo HELIX_FIRST_COMMAND_DONE`
         : `cd '${temporaryDirectory.replace(/'/g, "'\\''")}' && export HELIX_TERMINAL_VALUE=persisted && echo HELIX_FIRST_COMMAND_DONE`
-    child.stdin.write(`${firstCommand}\r\n`)
+    child.stdin.write(`${firstCommand}${lineEnding}`)
     await waitFor('HELIX_FIRST_COMMAND_DONE')
 
     const secondCommand = shell === 'powershell'
@@ -69,7 +70,7 @@ test('local terminal keeps shell state between commands and streams output', { t
       : shell === 'cmd'
         ? 'echo HELIX_STATE=%HELIX_TERMINAL_VALUE% & echo HELIX_CWD=%CD%'
         : 'echo "HELIX_STATE=$HELIX_TERMINAL_VALUE"; printf "HELIX_CWD=%s\\n" "$PWD"'
-    child.stdin.write(`${secondCommand}\r\n`)
+    child.stdin.write(`${secondCommand}${lineEnding}`)
     await waitFor('HELIX_STATE=persisted')
     await waitFor(`HELIX_CWD=${temporaryDirectory}`)
     assert.match(output, /HELIX_STATE=persisted/)
