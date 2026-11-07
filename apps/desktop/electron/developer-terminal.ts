@@ -37,7 +37,7 @@ function getShellExecutables(env: NodeJS.ProcessEnv = process.env): Map<Develope
       ]
     : [
         ['powershell', ['pwsh'], ['-NoLogo', '-NoProfile', '-NoExit', '-Command', '-']],
-        ['bash', ['bash'], ['--login', '--interactive']],
+        ['bash', ['bash'], ['--login']],
       ]
   const available = new Map<DeveloperTerminalShell, ShellExecutable>()
   for (const [shell, candidates, args] of shells) {
