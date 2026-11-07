@@ -1,9 +1,8 @@
 {
   "sourceVersions": {
-    "normal": "0.7.0",
-    "lite": "0.7.1",
-    "mobile": "0.7.1+10",
-    "cli": "0.7.1"
+    "normal": "0.7.1",
+    "mobile": "0.8.0+11",
+    "cli": "0.8.0"
   },
   "modelCatalog": {
     "entries": 49,
@@ -20,21 +19,14 @@
   },
   "publicReleases": {
     "normal": {
-      "tag": "v0.7.0",
+      "tag": "v0.7.1",
       "published": true,
       "prerelease": false,
-      "url": "https://github.com/joelpizza0818-blip/Helix-Assitant/releases/tag/v0.7.0",
-      "assetNames": []
-    },
-    "lite": {
-      "tag": "lite-v0.7.1",
-      "published": false,
-      "prerelease": false,
-      "url": "https://github.com/joelpizza0818-blip/Helix-Assitant/releases",
+      "url": "https://github.com/joelpizza0818-blip/Helix-Assitant/releases/tag/v0.7.1",
       "assetNames": []
     },
     "mobile": {
-      "tag": "mobile-v0.7.1",
+      "tag": "mobile-v0.8.0",
       "published": false,
       "prerelease": false,
       "url": "https://github.com/joelpizza0818-blip/Helix-Assitant/releases",
@@ -42,7 +34,7 @@
     }
   },
   "npm": {
-    "sourceVersion": "0.7.1",
+    "sourceVersion": "0.8.0",
     "latestVersion": "0.6.1",
     "url": "https://www.npmjs.com/package/helix-assistant-cli"
   }

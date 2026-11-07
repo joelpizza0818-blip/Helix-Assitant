@@ -1,15 +1,17 @@
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { Routes, Route, useLocation } from 'react-router-dom';
-import { LoginPage } from './pages/LoginPage';
-import { RegisterPage } from './pages/RegisterPage';
-import { DownloadPage } from './pages/DownloadPage';
-import { FeaturesPage } from './pages/FeaturesPage';
-import { ScrollytellingLandingPage } from './pages/ScrollytellingLandingPage';
-import { PrivacyPage } from './pages/PrivacyPage';
-import { DocsPage } from './pages/DocsPage';
-import { AnnouncementsPage } from './pages/AnnouncementsPage';
-import { AdminPage } from './pages/AdminPage';
+
 import { RequireAuth } from './components/Auth/RequireAuth';
+
+const LoginPage = lazy(() => import('./pages/LoginPage').then(({ LoginPage: page }) => ({ default: page })));
+const RegisterPage = lazy(() => import('./pages/RegisterPage').then(({ RegisterPage: page }) => ({ default: page })));
+const DownloadPage = lazy(() => import('./pages/DownloadPage').then(({ DownloadPage: page }) => ({ default: page })));
+const FeaturesPage = lazy(() => import('./pages/FeaturesPage').then(({ FeaturesPage: page }) => ({ default: page })));
+const ScrollytellingLandingPage = lazy(() => import('./pages/ScrollytellingLandingPage').then(({ ScrollytellingLandingPage: page }) => ({ default: page })));
+const PrivacyPage = lazy(() => import('./pages/PrivacyPage').then(({ PrivacyPage: page }) => ({ default: page })));
+const DocsPage = lazy(() => import('./pages/DocsPage').then(({ DocsPage: page }) => ({ default: page })));
+const AnnouncementsPage = lazy(() => import('./pages/AnnouncementsPage').then(({ AnnouncementsPage: page }) => ({ default: page })));
+const AdminPage = lazy(() => import('./pages/AdminPage').then(({ AdminPage: page }) => ({ default: page })));
 
 function CanonicalManager() {
   const location = useLocation();
@@ -62,19 +64,28 @@ function App() {
   return (
     <>
       <CanonicalManager />
-      <Routes>
-        <Route path="/" element={<ScrollytellingLandingPage />} />
-        <Route path="/landing-candidate" element={<ScrollytellingLandingPage />} />
-        <Route path="/features" element={<FeaturesPage />} />
-        <Route path="/whats-new" element={<FeaturesPage />} />
-        <Route path="/announcements" element={<AnnouncementsPage />} />
-        <Route path="/admin" element={<RequireAuth adminOnly><AdminPage /></RequireAuth>} />
-        <Route path="/privacy" element={<PrivacyPage />} />
-        <Route path="/docs" element={<DocsPage />} />
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/register" element={<RegisterPage />} />
-        <Route path="/download" element={<DownloadPage />} />
-      </Routes>
+      <Suspense fallback={<main className="auth-page"><p className="auth-subtitle">Loading HELIX…</p></main>}>
+        <Routes>
+          <Route path="/" element={<ScrollytellingLandingPage />} />
+          <Route path="/landing-candidate" element={<ScrollytellingLandingPage />} />
+          <Route path="/features" element={<FeaturesPage />} />
+          <Route path="/whats-new" element={<FeaturesPage />} />
+          <Route path="/announcements" element={<AnnouncementsPage />} />
+          <Route
+            path="/admin"
+            element={(
+              <RequireAuth>
+                <AdminPage />
+              </RequireAuth>
+            )}
+          />
+          <Route path="/privacy" element={<PrivacyPage />} />
+          <Route path="/docs" element={<DocsPage />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+          <Route path="/download" element={<DownloadPage />} />
+        </Routes>
+      </Suspense>
     </>
   );
 }

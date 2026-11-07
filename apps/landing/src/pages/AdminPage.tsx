@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
+import {
+  SecurityReviewConversation,
+  type SecurityReviewCase,
+  type SecurityReviewMessage,
+} from '../components/Admin/SecurityReviewConversation'
 import { ResponsiveSiteNavigation } from '../components/ResponsiveSiteNavigation'
 import {
   mapAdminAnnouncement,
@@ -14,7 +19,7 @@ import {
 } from '../lib/landingContent'
 import './AdminPage.css'
 
-type AdminTab = 'announcements' | 'installers' | 'ranks'
+type AdminTab = 'announcements' | 'installers' | 'ranks' | 'security'
 type ApiList<T> = { success: boolean; [key: string]: unknown } & Record<string, unknown>
 
 const ANNOUNCEMENT_CATEGORIES: AnnouncementCategory[] = [
@@ -27,9 +32,9 @@ const ANNOUNCEMENT_CATEGORIES: AnnouncementCategory[] = [
 ]
 const INSTALLER_PLATFORMS: InstallerPlatform[] = ['windows', 'linux', 'macos', 'android', 'ios']
 const EDITIONS_BY_PLATFORM: Record<InstallerPlatform, InstallerEdition[]> = {
-  windows: ['normal', 'lite'],
-  linux: ['normal', 'lite'],
-  macos: ['normal', 'lite'],
+  windows: ['normal'],
+  linux: ['normal'],
+  macos: ['normal'],
   android: ['mobile'],
   ios: ['mobile'],
 }
@@ -66,6 +71,10 @@ export function AdminPage() {
   const [announcements, setAnnouncements] = useState<LandingAnnouncement[]>([])
   const [installers, setInstallers] = useState<LandingInstaller[]>([])
   const [profiles, setProfiles] = useState<AdminProfile[]>([])
+  const [securityCases, setSecurityCases] = useState<SecurityReviewCase[]>([])
+  const [mySecurityCase, setMySecurityCase] = useState<SecurityReviewCase | null>(null)
+  const [securityMessages, setSecurityMessages] = useState<SecurityReviewMessage[]>([])
+  const [selectedSecurityCaseId, setSelectedSecurityCaseId] = useState<string | null>(null)
   const [tab, setTab] = useState<AdminTab>('announcements')
   const [announcementDraft, setAnnouncementDraft] = useState<AnnouncementDraft>(emptyAnnouncement)
   const [loading, setLoading] = useState(true)
@@ -86,11 +95,23 @@ export function AdminPage() {
     let active = true
     async function initialize() {
       try {
-        const authorization = await requestAdmin<{ authenticated: boolean; profile: AdminProfile }>('authorization')
+        const authorization = await requestAdmin<{
+          authenticated: boolean
+          profile: AdminProfile
+          securityCase?: SecurityReviewCase | null
+        }>('authorization')
         if (!active) return
         setProfile(authorization.profile)
+        setMySecurityCase(authorization.securityCase ?? null)
         if (!authorization.authenticated) {
-          setError('Tu cuenta de GitHub no tiene un rango admin. Solicita acceso a un master-admin.')
+          if (authorization.securityCase) {
+            const response = await requestAdmin<ApiList<SecurityReviewMessage>>(
+              `security-cases/${authorization.securityCase.id}/messages`,
+            )
+            if (active) setSecurityMessages(readList<SecurityReviewMessage>(response, 'messages'))
+          } else {
+            setError('Tu cuenta de GitHub no tiene un rango admin. Solicita acceso a un master-admin.')
+          }
           return
         }
         try {
@@ -104,8 +125,14 @@ export function AdminPage() {
         }
         await loadContent()
         if (authorization.profile.rank === 'master-admin') {
-          const response = await requestAdmin<ApiList<AdminProfile>>('profiles')
-          if (active) setProfiles(readList<AdminProfile>(response, 'profiles'))
+          const [profileResponse, caseResponse] = await Promise.all([
+            requestAdmin<ApiList<AdminProfile>>('profiles'),
+            requestAdmin<ApiList<SecurityReviewCase>>('security-cases'),
+          ])
+          if (active) {
+            setProfiles(readList<AdminProfile>(profileResponse, 'profiles'))
+            setSecurityCases(readList<SecurityReviewCase>(caseResponse, 'cases'))
+          }
         }
       } catch (loadError: unknown) {
         if (active) setError(loadError instanceof Error ? loadError.message : 'No se pudo cargar el panel admin.')
@@ -236,6 +263,23 @@ export function AdminPage() {
     }, `Rango actualizado para ${target.githubLogin}.`)
   }
 
+  const loadSecurityMessages = async (caseId: string) => {
+    const response = await requestAdmin<ApiList<SecurityReviewMessage>>(`security-cases/${caseId}/messages`)
+    setSecurityMessages(readList<SecurityReviewMessage>(response, 'messages'))
+  }
+
+  const sendSecurityMessage = async (caseId: string, message: string) => runAction(async () => {
+    await requestAdmin(`security-cases/${caseId}/messages`, 'POST', { message })
+    await loadSecurityMessages(caseId)
+  }, 'Mensaje enviado al master-admin.')
+
+  const decideSecurityCase = (caseId: string, decision: 'dismiss' | 'permanent') => runAction(async () => {
+    await requestAdmin(`security-cases/${caseId}/decision`, 'PUT', { decision })
+    const response = await requestAdmin<ApiList<SecurityReviewCase>>('security-cases')
+    setSecurityCases(readList<SecurityReviewCase>(response, 'cases'))
+    await loadSecurityMessages(caseId)
+  }, decision === 'dismiss' ? 'Suspensión retirada.' : 'Baneo permanente aplicado.')
+
   if (loading) {
     return (
       <div className="admin-page">
@@ -268,6 +312,9 @@ export function AdminPage() {
               <button type="button" role="tab" aria-selected={tab === 'installers'} onClick={() => setTab('installers')}>Instaladores</button>
               {profile.rank === 'master-admin' && (
                 <button type="button" role="tab" aria-selected={tab === 'ranks'} onClick={() => setTab('ranks')}>Rangos admin</button>
+              )}
+              {profile.rank === 'master-admin' && (
+                <button type="button" role="tab" aria-selected={tab === 'security'} onClick={() => setTab('security')}>Revisión de seguridad</button>
               )}
             </div>
 
@@ -341,7 +388,7 @@ export function AdminPage() {
                   <div className="admin-section-heading">
                     <div>
                       <h2>Histórico completo de instaladores</h2>
-                      <p>Sincroniza aquí las releases de Normal, Lite y Mobile desde sus repositorios GitHub. Importar solo añade versiones al histórico; selecciona cada canal con activos válidos para publicarlo. Linux y macOS permanecen sin publicar hasta verificar su empaquetado y activos oficiales.</p>
+                      <p>Sincroniza aquí las releases de Desktop y Mobile desde sus repositorios GitHub. Importar solo añade versiones al histórico; selecciona cada canal con activos válidos para publicarlo. Linux y macOS permanecen sin publicar hasta verificar su empaquetado y activos oficiales.</p>
                     </div>
                     <button className="admin-button admin-button--quiet" type="button" disabled={saving} onClick={() => { void importInstallerHistory() }}>
                       Sincronizar historial
@@ -420,11 +467,87 @@ export function AdminPage() {
                 </div>
               </section>
             )}
+
+            {tab === 'security' && profile.rank === 'master-admin' && (
+              <section className="admin-section">
+                <div className="admin-section-heading">
+                  <div>
+                    <h2>Suspensiones y baneos</h2>
+                    <p>Los intentos de ascenso quedan suspendidos hasta tu decisión. Puedes retirar la suspensión o aplicar/revocar un baneo permanente.</p>
+                  </div>
+                </div>
+                <div className="admin-record-list">
+                  {securityCases.length === 0 && <p className="admin-empty">No hay casos de seguridad registrados.</p>}
+                  {securityCases.map((item) => {
+                    const target = item.github_user_roles
+                    return (
+                      <article className="admin-record" key={item.id}>
+                        <div className="admin-record__copy">
+                          <div className="admin-record__meta">
+                            <span>{target?.display_name || target?.github_login || item.profile_id}</span>
+                            <span className={item.status === 'permanent' ? 'admin-status admin-status--danger' : 'admin-status'}>
+                              {item.status === 'permanent' ? 'Baneo permanente' : item.status === 'pending' ? 'Suspendido · revisión pendiente' : 'Resuelto'}
+                            </span>
+                            <time>{dateLabel(item.created_at)}</time>
+                          </div>
+                          <p>@{target?.github_login ?? 'perfil no disponible'} · intentó asignarse rango {item.attempted_rank}</p>
+                        </div>
+                        <div className="admin-record__actions">
+                          <button
+                            type="button"
+                            className="admin-button"
+                            disabled={saving}
+                            onClick={() => {
+                              setSelectedSecurityCaseId(item.id)
+                              setSecurityMessages([])
+                              setError(null)
+                              void loadSecurityMessages(item.id).catch((loadError: unknown) => {
+                                setError(loadError instanceof Error
+                                  ? loadError.message
+                                  : 'No se pudieron cargar los mensajes del caso.')
+                              })
+                            }}
+                          >
+                            Abrir revisión
+                          </button>
+                        </div>
+                      </article>
+                    )
+                  })}
+                </div>
+                {selectedSecurityCaseId && (() => {
+                  const selectedCase = securityCases.find((item) => item.id === selectedSecurityCaseId)
+                  if (!selectedCase) return null
+                  return (
+                    <SecurityReviewConversation
+                      reviewCase={selectedCase}
+                      messages={securityMessages}
+                      currentProfileId={profile.profileId}
+                      saving={saving}
+                      onSend={(message) => sendSecurityMessage(selectedCase.id, message)}
+                      onDecision={(decision) => { void decideSecurityCase(selectedCase.id, decision) }}
+                    />
+                  )
+                })()}
+              </section>
+            )}
           </>
         ) : (
           <section className="admin-denied">
-            <h2>Acceso reservado a administradores</h2>
-            <p>{error ?? 'Tu rango actual no permite administrar la landing.'}</p>
+            {mySecurityCase && profile ? (
+              <SecurityReviewConversation
+                reviewCase={mySecurityCase}
+                messages={securityMessages}
+                currentProfileId={profile.profileId}
+                saving={saving}
+                onSend={(message) => sendSecurityMessage(mySecurityCase.id, message)}
+              />
+            ) : (
+              <>
+                <h2>Acceso reservado a administradores</h2>
+                <p>{error ?? 'Tu rango actual no permite administrar la landing.'}</p>
+              </>
+            )}
             <Link to="/">Volver a HELIX</Link>
           </section>
         )}
@@ -438,5 +561,5 @@ function platformLabel(platform: InstallerPlatform): string {
 }
 
 function editionLabel(edition: InstallerEdition): string {
-  return { normal: 'Normal', lite: 'Lite', mobile: 'Móvil' }[edition]
+  return edition === 'normal' ? 'Normal' : 'Móvil'
 }

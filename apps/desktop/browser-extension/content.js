@@ -32,8 +32,8 @@ function setHelixControlOverlay(active) {
       :host { all: initial; }
       .frame { position:fixed; inset:0; border:3px solid #ee6018;
         box-shadow:inset 0 0 16px rgba(238,96,24,.9), 0 0 14px rgba(238,96,24,.8); }
-      .cursor { position:fixed; width:24px; height:32px; opacity:0;
-        transform:translate3d(-100px,-100px,0); transition:transform 20ms linear; }
+      .cursor { position:fixed; width:24px; height:32px; opacity:1;
+        transform:translate3d(16px,16px,0); transition:transform 20ms linear; }
       .cursor svg { width:100%; height:100%; filter:drop-shadow(0 1px 2px rgba(0,0,0,.7)); }
       .pulse { position:fixed; width:28px; height:28px; margin:-14px 0 0 -14px;
         border:2px solid #ee6018; border-radius:50%; opacity:0; transform:scale(.35); }

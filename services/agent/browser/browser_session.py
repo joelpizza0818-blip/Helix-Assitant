@@ -25,7 +25,7 @@ class BrowserSession:
                     box-shadow:inset 0 0 14px rgba(238,96,24,.85), 0 0 12px rgba(238,96,24,.75);
                     pointer-events:none; }
                 .cursor { position:fixed; left:0; top:0; width:28px; height:36px;
-                    opacity:0; transform:translate3d(-100px,-100px,0);
+                    opacity:1; transform:translate3d(16px,16px,0);
                     transition:transform 20ms linear; will-change:transform; }
                 .cursor svg { width:100%; height:100%; overflow:visible;
                     filter:drop-shadow(0 1px 2px rgba(0,0,0,.7)); }

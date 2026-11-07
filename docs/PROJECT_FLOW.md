@@ -6,7 +6,7 @@ This document explains how a request moves through HELIX and how source becomes 
 
 ```mermaid
 flowchart LR
-    UI[Electron / Tauri / CLI] --> IPC[Preload, IPC or WebSocket]
+    UI[Electron / CLI] --> IPC[Preload, IPC or WebSocket]
     IPC --> AGENT[Python agent]
     AGENT --> ORCH[Orchestrator]
     ORCH --> ROUTER[Model router]
@@ -77,7 +77,7 @@ npm test
 2. Run encoding, catalog, type, unit, build, Promptfoo, and k6 checks appropriate to the change.
 3. Inspect the final diff and confirm no secrets or generated artifacts are staged.
 4. Apply database migrations from the approved production environment before code paths depend on them.
-5. Create the product and Lite tags from a clean commit.
+5. Create the product tag from a clean commit.
 6. Publish installers, checksums, CLI package, and landing metadata through their workflows.
 7. Run authenticated readiness, download, updater, and controlled SMTP checks.
 8. Record evidence and unresolved limits in the vault.

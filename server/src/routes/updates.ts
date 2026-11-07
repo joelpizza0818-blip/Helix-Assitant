@@ -97,7 +97,7 @@ updatesRouter.post('/subscribe', async (req: Request, res: Response) => {
       message: 'Subscription request accepted by the update service.',
       totalSubscribers,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({
         success: false,
@@ -141,7 +141,7 @@ updatesRouter.post(
       if (!result.success) {
         return res.status(500).json({
           success: false,
-          error: result.error || 'Error sending emails',
+          error: 'Error sending emails',
         });
       }
 
@@ -151,16 +151,17 @@ updatesRouter.post(
         sentCount: result.sentCount,
         messageId: result.messageId,
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           success: false,
           error: error.issues[0]?.message || 'Invalid broadcast parameters',
         });
       }
+      logger.error('[Updates] Broadcast failed.');
       return res.status(500).json({
         success: false,
-        error: error.message || 'Internal error while processing the email broadcast',
+        error: 'Internal error while processing the email broadcast',
       });
     }
   }

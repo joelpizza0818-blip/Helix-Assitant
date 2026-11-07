@@ -3,10 +3,11 @@ import react from '@vitejs/plugin-react'
 import electron from 'vite-plugin-electron'
 import renderer from 'vite-plugin-electron-renderer'
 import { resolve } from 'path'
+import type { ViteDevServer } from 'vite'
 
 const desktopDevHealth = {
   name: 'helix-desktop-dev-health',
-  configureServer(server) {
+  configureServer(server: ViteDevServer) {
     server.middlewares.use('/__helix_desktop_dev_health', (_request, response) => {
       response.statusCode = 200
       response.end(resolve(__dirname, '../..'))
@@ -14,49 +15,43 @@ const desktopDevHealth = {
   }
 }
 
-const desktopRuntimePlugins = process.env.HELIX_DESKTOP_RUNTIME === 'tauri'
-  ? []
-  : [
-      electron([
-        {
-          entry: resolve(__dirname, 'electron/main.ts'),
-          onstart(options) {
-            // Delay startup to ensure Vite HTTP server is fully bound
-            setTimeout(() => options.startup(), 3000)
-          },
-          vite: {
-            build: {
-              outDir: resolve(__dirname, 'dist-electron'),
-              rollupOptions: {
-                external: ['electron', 'ws', 'path', 'child_process', 'fs', 'os']
-              }
-            }
-          }
-        },
-        {
-          entry: resolve(__dirname, 'electron/preload.ts'),
-          onstart(options) {
-            options.reload()
-          },
-          vite: {
-            build: {
-              outDir: resolve(__dirname, 'dist-electron'),
-              rollupOptions: {
-                external: ['electron']
-              }
-            }
-          }
-        }
-      ]),
-      renderer()
-    ]
-
 export default defineConfig({
   envDir: resolve(__dirname, '../..'),
   plugins: [
     desktopDevHealth,
     react(),
-    ...desktopRuntimePlugins
+    electron([
+      {
+        entry: resolve(__dirname, 'electron/main.ts'),
+        onstart(options) {
+          // Delay startup to ensure Vite HTTP server is fully bound
+          setTimeout(() => options.startup(['.', '--no-sandbox'], { cwd: resolve(__dirname) }), 3000)
+        },
+        vite: {
+          build: {
+            outDir: resolve(__dirname, 'dist-electron'),
+            rollupOptions: {
+              external: ['electron', 'ws', 'path', 'child_process', 'fs', 'os']
+            }
+          }
+        }
+      },
+      {
+        entry: resolve(__dirname, 'electron/preload.ts'),
+        onstart(options) {
+          options.reload()
+        },
+        vite: {
+          build: {
+            outDir: resolve(__dirname, 'dist-electron'),
+            rollupOptions: {
+              external: ['electron']
+            }
+          }
+        }
+      }
+    ]),
+    renderer()
   ],
   root: 'renderer',
   build: {

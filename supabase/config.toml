@@ -9,7 +9,7 @@ verify_jwt = false
 [functions.installer-admin]
 verify_jwt = false
 
-[functions.installer-lite-updates]
+[functions.public-content]
 verify_jwt = false
 
 [functions.release-subscribe]

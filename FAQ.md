@@ -10,8 +10,8 @@ boundaries and request flow.
 ## Which operating systems have official desktop installers?
 
 Official desktop installers are currently available for Windows x64 only.
-Agent and relay tests on Linux or macOS do not mean Electron or Tauri desktop
-installers are available for those systems. The Android companion and Node.js
+Agent and relay tests on Linux or macOS do not mean desktop installers are
+available for those systems. The Android companion and Node.js
 CLI are separate distribution channels; see the current [release matrix in the
 README](README.md#download).
 
@@ -71,8 +71,22 @@ for the version currently published.
 
 Start with the [contribution guide](CONTRIBUTING.md). It documents prerequisites,
 development commands, and focused test commands. Some components require
-additional platform tooling, such as Rust and Cargo for the Tauri shell or
-Flutter for mobile.
+additional platform tooling, such as Flutter for mobile.
+
+## What does Developer Mode do?
+
+Developer Mode is an opt-in workspace in the Desktop Toolbox for browsing and
+editing a linked local project. It includes a syntax-aware editor, Markdown
+preview, editor preferences, a terminal command panel, project test suggestions,
+and read-only Git diff review.
+
+The Electron terminal runs a persistent local PowerShell, Command Prompt, or
+Bash process starting in your user home folder. Commands run with your Windows
+account's permissions and are not sandboxed to the selected project; terminal
+input and output are not sent to the HELIX agent. Backspace edits the current
+command before you submit it. Suggested commands are pasted into the shell for
+you to review and execute. The separate AI diff-review action sends the Git
+diff to the configured AI provider.
 
 ## Where can I get help or report a bug?
 

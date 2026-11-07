@@ -15,7 +15,7 @@ export interface LandingAnnouncement {
 }
 
 export type InstallerPlatform = 'windows' | 'linux' | 'macos' | 'android' | 'ios'
-export type InstallerEdition = 'normal' | 'lite' | 'mobile'
+export type InstallerEdition = 'normal' | 'mobile'
 
 export interface LandingInstaller {
   id: string
@@ -56,7 +56,7 @@ interface AnnouncementRow {
 interface InstallerRow {
   id: string
   platform: InstallerPlatform
-  edition: InstallerEdition
+  edition: string
   version: string
   installer_url: string | null
   checksum_url: string | null
@@ -66,6 +66,35 @@ interface InstallerRow {
   published_at: string | null
   release_date: string
   created_at: string
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+async function fetchPublicRows<T>(
+  resource: 'announcements' | 'installers' | 'release-history',
+  key: 'announcements' | 'installers',
+  signal?: AbortSignal,
+): Promise<T[]> {
+  const baseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim().replace(/\/+$/, '')
+  const anonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
+  if (!baseUrl || !anonKey) throw new Error('Public content service is not configured.')
+
+  const response = await fetch(
+    `${baseUrl}/functions/v1/public-content?resource=${encodeURIComponent(resource)}`,
+    {
+      headers: { apikey: anonKey },
+      cache: 'no-store',
+      signal,
+    },
+  )
+  const payload: unknown = await response.json().catch(() => null)
+  if (!response.ok) throw new Error(`Could not load public content (HTTP ${response.status}).`)
+  if (!isRecord(payload) || !Array.isArray(payload[key])) {
+    throw new Error('Public content service returned an invalid response.')
+  }
+  return payload[key] as T[]
 }
 
 function mapAnnouncement(row: AnnouncementRow): LandingAnnouncement {
@@ -91,7 +120,7 @@ function mapAnnouncement(row: AnnouncementRow): LandingAnnouncement {
   }
 }
 
-function mapInstaller(row: InstallerRow): LandingInstaller {
+function mapInstaller(row: Omit<InstallerRow, 'edition'> & { edition: InstallerEdition }): LandingInstaller {
   return {
     id: row.id,
     platform: row.platform,
@@ -109,39 +138,26 @@ function mapInstaller(row: InstallerRow): LandingInstaller {
 }
 
 export async function fetchPublicAnnouncements(): Promise<LandingAnnouncement[]> {
-  const { data, error } = await supabase
-    .from('landing_announcements')
-    .select('id, category, title, summary, content, links, is_published, published_at, created_at')
-    .eq('is_published', true)
-    .order('published_at', { ascending: false })
-  if (error) throw new Error(`Could not load announcements: ${error.message}`)
-  return (data ?? []).map((row) => mapAnnouncement(row as AnnouncementRow))
+  const rows = await fetchPublicRows<AnnouncementRow>('announcements', 'announcements')
+  return rows.map(mapAnnouncement)
 }
 
 export async function fetchPublicInstallers(signal?: AbortSignal): Promise<LandingInstaller[]> {
-  let query = supabase
-    .from('landing_installer_catalog')
-    .select('id, platform, edition, version, installer_url, checksum_url, release_url, is_published, is_prerelease, published_at, release_date, created_at')
-    .eq('is_published', true)
-    .order('published_at', { ascending: false })
-  if (signal) query = query.abortSignal(signal)
-  const { data, error } = await query
-  if (error) throw new Error(`Could not load published installers: ${error.message}`)
-  return (data ?? []).map((row) => mapInstaller(row as InstallerRow))
+  const rows = await fetchPublicRows<InstallerRow>('installers', 'installers', signal)
+  return rows
+    .filter((row): row is Omit<InstallerRow, 'edition'> & { edition: InstallerEdition } => (
+      row.edition === 'normal' || row.edition === 'mobile'
+    ))
+    .map(mapInstaller)
 }
 
 export async function fetchPublicReleaseHistory(signal?: AbortSignal): Promise<LandingInstaller[]> {
-  let query = supabase
-    .from('landing_installer_catalog')
-    .select('id, platform, edition, version, installer_url, checksum_url, release_url, is_published, is_prerelease, published_at, release_date, created_at')
-    .eq('is_prerelease', false)
-    .not('installer_url', 'is', null)
-    .not('checksum_url', 'is', null)
-    .order('release_date', { ascending: false })
-  if (signal) query = query.abortSignal(signal)
-  const { data, error } = await query
-  if (error) throw new Error(`Could not load published release history: ${error.message}`)
-  return (data ?? []).map((row) => mapInstaller(row as InstallerRow))
+  const rows = await fetchPublicRows<InstallerRow>('release-history', 'installers', signal)
+  return rows
+    .filter((row): row is Omit<InstallerRow, 'edition'> & { edition: InstallerEdition } => (
+      row.edition === 'normal' || row.edition === 'mobile'
+    ))
+    .map(mapInstaller)
 }
 
 export async function requestAdmin<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
@@ -190,10 +206,13 @@ export function mapAdminAnnouncement(row: Record<string, unknown>): LandingAnnou
 }
 
 export function mapAdminInstaller(row: Record<string, unknown>): LandingInstaller {
+  if (row.edition !== 'normal' && row.edition !== 'mobile') {
+    throw new Error('Admin service returned an unsupported installer edition.')
+  }
   return mapInstaller({
     id: String(row.id),
     platform: row.platform as InstallerPlatform,
-    edition: row.edition as InstallerEdition,
+    edition: row.edition,
     version: String(row.version),
     installer_url: typeof row.installerUrl === 'string' ? row.installerUrl : null,
     checksum_url: typeof row.checksumUrl === 'string' ? row.checksumUrl : null,

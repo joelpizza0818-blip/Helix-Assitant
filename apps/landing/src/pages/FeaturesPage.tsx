@@ -14,7 +14,7 @@ interface Release {
   date: string;
   title: string;
   summary: string;
-  editions: ('Normal' | 'Lite' | 'CLI' | 'Mobile')[];
+  editions: ('Normal' | 'CLI' | 'Mobile')[];
   changes: string[];
   platform?: InstallerPlatform;
   installerUrl?: string;
@@ -27,7 +27,7 @@ function platformLabel(platform: InstallerPlatform): string {
 }
 
 function releaseFromInstaller(installer: LandingInstaller): Release {
-  const edition = { normal: 'Normal', lite: 'Lite', mobile: 'Mobile' }[installer.edition] as Release['editions'][number]
+  const edition = installer.edition === 'normal' ? 'Normal' : 'Mobile'
   const platform = platformLabel(installer.platform)
   return {
     version: installer.version,
@@ -101,7 +101,7 @@ const DEFAULT_RELEASES: Release[] = [
       'Corrección del manejo de caracteres no ASCII en respuestas JSON de MCP.',
       'Mejoras en el arranque del agente Python y en la configuración de dependencias.',
       'Instalador Windows x64 publicado con checksum SHA-256 verificado.',
-      'La publicación del canal Lite y del paquete CLI debe verificarse de forma independiente.',
+      'La publicación del paquete CLI se verifica de forma independiente.',
     ],
   },
   {
@@ -109,9 +109,9 @@ const DEFAULT_RELEASES: Release[] = [
     date: 'October 2026',
     title: 'HELIX v0.2.12 — Proveedores y releases separados',
     summary: 'Se corrigió la conversión de nombres de herramientas para Google y se mejoró la clasificación de errores de cuota, facturación y disponibilidad.',
-    editions: ['Normal', 'Lite', 'CLI'],
+    editions: ['Normal', 'CLI'],
     changes: [
-      'Normal y Lite cuentan con releases externas verificadas.',
+      'La release de escritorio cuenta con assets externos verificados.',
       'helix-assistant-cli@0.2.12 quedó publicado como latest en npm.',
       'La conversación real con Google recibió 429 por cuota agotada; no se presenta como una prueba exitosa del proveedor.',
     ],
@@ -121,26 +121,13 @@ const DEFAULT_RELEASES: Release[] = [
     date: 'October 2026',
     title: 'HELIX v0.2.4 — Percepción & Admin Logs',
     summary: 'Se incorporaron los modelos locales de voz y gestos al runtime empaquetado y se añadieron registros administrativos en desktop.',
-    editions: ['Normal', 'Lite', 'CLI'],
+    editions: ['Normal', 'CLI'],
     changes: [
       'Empaquetado integral y resolución dinámica de modelos de IA (MediaPipe HandLandmarker y OpenWakeWord).',
       'Nuevo subsistema de Registros del Sistema (Admin Logs) con consola interactiva en tiempo real para administradores.',
       'Buffer circular de 2000 líneas en Electron y persistencia rotativa a agent.log y helix.log.',
       'Blindaje de codificación y compatibilidad multiplataforma en terminales para helix-assistant-cli (PowerShell, CMD, Bash).',
       'Corrección de permisos multimedia en Electron para entornos empaquetados Windows (orígenes Chromium locales).',
-    ],
-  },
-  {
-    version: '0.2.2',
-    tag: 'LITE CHANNEL HISTORY',
-    date: 'October 2026',
-    title: 'HELIX Lite v0.2.2 (Tauri)',
-    summary: 'Release del canal Lite para Windows x64 con verificación de integridad y degradación ante sesiones remotas sin hardware disponible.',
-    editions: ['Lite'],
-    changes: [
-      'Canal de release independiente para instalador Windows x64 NSIS con arquitectura Rust/Tauri ultraligera.',
-      'Degradación elegante ante sesiones remotas de Windows (RDP/ICA) en motores de visión y voz.',
-      'Verificación de integridad con distribución de sumas de comprobación SHA-256 oficiales.',
     ],
   },
   {
@@ -267,7 +254,7 @@ export function FeaturesPage() {
             <span className="features-eyebrow">VERSION HISTORY & PATCHES</span>
             <h1>What's New in HELIX</h1>
             <p>
-              Published versions across HELIX Desktop, Mobile, Lite, and other supported channels.
+              Published versions across HELIX Desktop, Mobile, and other supported channels.
             </p>
             {releaseError && <p className="features-release-error" role="alert">{releaseError}</p>}
             {!releaseError && releases.length === 0 && <p className="features-release-empty">No installer versions have been selected for public distribution yet.</p>}

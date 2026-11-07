@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  isCommunityModerator,
+  isCommunityModeratorRank,
   parseCommunitySubmission,
 } from '../src/routes/communityValidation';
 
@@ -88,10 +88,9 @@ test('Community agent submissions accept a bounded declarative profile only', ()
   );
 });
 
-test('Community moderation is deny-by-default and uses a case-insensitive allowlist', () => {
-  assert.equal(isCommunityModerator('reviewer@example.com', ''), false);
-  assert.equal(
-    isCommunityModerator('Reviewer@Example.com', 'other@example.com, reviewer@example.com'),
-    true,
-  );
+test('Community moderation follows HELIX admin ranks only', () => {
+  assert.equal(isCommunityModeratorRank('master-admin'), true);
+  assert.equal(isCommunityModeratorRank('admin'), true);
+  assert.equal(isCommunityModeratorRank('user'), false);
+  assert.equal(isCommunityModeratorRank(null), false);
 });

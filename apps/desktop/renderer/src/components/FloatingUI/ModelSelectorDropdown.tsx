@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import type { HelixSettings } from '../../types/global'
+import type { HelixSettings, LlamaServerStatus } from '../../types/global'
 import {
   checkOllamaRunning,
   getInstalledOllamaModels,
@@ -256,7 +256,7 @@ export default function ModelSelectorDropdown({ settings, onSave }: Props) {
   const [downloadStatus, setDownloadStatus] = useState<string>('')
   const [catalog, setCatalog] = useState<ModelCatalog | null>(null)
   const [catalogError, setCatalogError] = useState<string | null>(null)
-  const [llamaStatus, setLlamaStatus] = useState<{ running: boolean; models?: Array<{ name: string; path: string }> } | null>(null)
+  const [llamaStatus, setLlamaStatus] = useState<LlamaServerStatus | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   // Active model resolution
@@ -285,9 +285,13 @@ export default function ModelSelectorDropdown({ settings, onSave }: Props) {
         .map((m) => m.id.toLowerCase())
       setInstalledOllamaModels(installedNames)
 
-      void (window as any).helix?.getLlamaServerStatus?.().then((st: any) => {
-        if (mounted && st) setLlamaStatus(st)
-      }).catch(() => {})
+      void window.helix.getLlamaServerStatus()
+        .then((status) => {
+          if (mounted) setLlamaStatus(status)
+        })
+        .catch((error: unknown) => {
+          console.warn('Could not load llama-server status.', error)
+        })
     }).catch(() => {
       if (mounted) {
         setCatalogError('No se pudo cargar el catálogo de modelos. Algunos estados pueden no estar actualizados.')
@@ -339,10 +343,10 @@ export default function ModelSelectorDropdown({ settings, onSave }: Props) {
     if (model.provider === 'llama_server') {
       try {
         setDownloadStatus('Iniciando llama-server...')
-        await (window as any).helix?.downloadLlamaServer?.()
+        await window.helix.downloadLlamaServer()
         setDownloadStatus('Descargando modelo GGUF...')
         setDownloadProgress(35)
-        const res = await (window as any).helix?.downloadGgufModel?.('qwen2.5-coder-1.5b')
+        const res = await window.helix.downloadGgufModel('qwen2.5-coder-1.5b')
         setDownloadProgress(100)
         if (res?.done) {
           setInstalledOllamaModels((prev) => [...prev, model.id.toLowerCase()])
@@ -351,8 +355,8 @@ export default function ModelSelectorDropdown({ settings, onSave }: Props) {
         } else {
           setDownloadStatus(res?.error || 'Error al descargar')
         }
-      } catch (err: any) {
-        setDownloadStatus('Error: ' + String(err?.message || err))
+      } catch (err: unknown) {
+        setDownloadStatus('Error: ' + (err instanceof Error ? err.message : String(err)))
       } finally {
         setTimeout(() => {
           setDownloadingModel(null)

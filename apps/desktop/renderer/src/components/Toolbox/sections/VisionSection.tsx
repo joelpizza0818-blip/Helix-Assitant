@@ -112,15 +112,13 @@ const CORE_GESTURES = [
 export default function VisionSection({ settings, onSave }: Props) {
   const supportsGestureWindowSequence = typeof window.helix?.openAgentPanel === 'function'
   const [sensitivityDraft, setSensitivityDraft] = useState(settings.gesture_sensitivity)
-  const [activeMappings, setActiveMappings] = useState<Record<string, { action: string; customCommand?: string }>>(
-    settings.gesture_mappings || {
-      GESTURE_CONFIRM: { action: 'CONFIRM' },
-      GESTURE_REJECT: { action: 'REJECT' },
-      GESTURE_SEARCH: { action: 'SEARCH' },
-      GESTURE_STOP: { action: 'STOP' },
-      GESTURE_CLOSE: { action: 'CLOSE' },
-      GESTURE_OPEN: { action: 'OPEN' }
-    }
+  const [activeMappings, setActiveMappings] = useState<NonNullable<HelixSettings['gesture_mappings']>>(
+    settings.gesture_mappings ?? Object.fromEntries(
+      CORE_GESTURES.map(({ id, name, defaultAction }) => [
+        id,
+        { action: defaultAction, label: name },
+      ]),
+    ),
   )
 
   const [testGestureState, setTestGestureState] = useState<string | null>(null)
@@ -259,7 +257,7 @@ export default function VisionSection({ settings, onSave }: Props) {
       }
     }
     setActiveMappings(updated)
-    await onSave({ gesture_mappings: updated as any })
+    await onSave({ gesture_mappings: updated })
   }
 
   const handleCustomCommandChange = async (gestureId: string, cmd: string) => {
@@ -271,7 +269,7 @@ export default function VisionSection({ settings, onSave }: Props) {
       }
     }
     setActiveMappings(updated)
-    await onSave({ gesture_mappings: updated as any })
+    await onSave({ gesture_mappings: updated })
   }
 
   const handleSimulateGesture = (name: string) => {

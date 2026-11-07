@@ -271,6 +271,11 @@
   color: #9bdfa9;
 }
 
+.admin-status--danger {
+  border-color: rgba(212, 84, 74, 0.45);
+  color: #ff9a90;
+}
+
 .admin-empty {
   margin: 8px 0;
   color: #888;

@@ -6,7 +6,7 @@ interface PrivacyModalProps {
   isOpen: boolean;
   onClose: () => void;
   onConfirm: () => void;
-  targetEdition?: 'Normal' | 'Lite';
+  targetEdition?: 'Normal';
 }
 
 export const PrivacyModal: React.FC<PrivacyModalProps> = ({

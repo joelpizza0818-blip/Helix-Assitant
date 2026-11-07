@@ -5,6 +5,8 @@ import './ProjectFilesPanel.css'
 
 interface Props {
   projectId: string | null
+  selectedFilePath: string | null
+  onOpenFile: (relativePath: string) => void
 }
 
 function getEntries(result: ProjectFilesResult): ProjectFileEntry[] {
@@ -14,10 +16,9 @@ function getEntries(result: ProjectFilesResult): ProjectFileEntry[] {
   return result.entries
 }
 
-export default function ProjectFilesPanel({ projectId }: Props) {
+export default function ProjectFilesPanel({ projectId, selectedFilePath, onOpenFile }: Props) {
   const [entries, setEntries] = useState<ProjectFileEntry[]>([])
   const [selectedDirectory, setSelectedDirectory] = useState('')
-  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null)
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
   const [entryName, setEntryName] = useState('')
   const [truncated, setTruncated] = useState(false)
@@ -27,7 +28,6 @@ export default function ProjectFilesPanel({ projectId }: Props) {
   useEffect(() => {
     let active = true
     setSelectedDirectory('')
-    setSelectedFilePath(null)
     setExpandedFolders(new Set())
     setEntries([])
     setTruncated(false)
@@ -107,7 +107,7 @@ export default function ProjectFilesPanel({ projectId }: Props) {
           title={entry.path}
           onClick={() => {
             if (entry.type === 'folder') toggleFolder(entry)
-            else setSelectedFilePath(entry.path)
+            else onOpenFile(entry.path)
           }}
           aria-expanded={entry.type === 'folder' ? expanded : undefined}
         >

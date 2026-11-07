@@ -4,11 +4,12 @@ import {
   mergeInstallerHistoryRows,
   type InstallerHistoryRow,
 } from '../_shared/installer-history.ts'
+import { getActiveRankReviewCase, handleRankEscalationAttempt, handleRankReviewRoute } from '../_shared/rank-review.ts'
+import { withSecureCors } from '../_shared/http-security.ts'
+import { isAllowedAnnouncementUrl, isExternalAnnouncementUrl, isHttpsUrl } from '../_shared/url-validation.ts'
 import { canLinkGithubProfileByLogin } from '../_shared/profile-link.ts'
 
 const GITHUB_API = 'https://api.github.com'
-const LITE_RELEASE_OWNER = 'joelpizza0818-blip'
-const LITE_RELEASE_REPOSITORY = 'Helix-Assitant'
 const MOBILE_RELEASE_OWNER = 'joelpizza0818-blip'
 const MOBILE_RELEASE_REPOSITORY = 'Helix-Assitant'
 const INSTALLER_RELEASE_OWNER = 'joelpizza0818-blip'
@@ -18,17 +19,10 @@ function releaseTag(version: string): string {
   return version.startsWith('v') ? version : `v${version}`
 }
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Cache-Control': 'no-store',
-}
-
 function jsonResponse(status: number, body: Record<string, unknown>): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' },
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
   })
 }
 
@@ -47,7 +41,7 @@ async function authenticateGithubIdentity(
   request: Request,
   admin: ReturnType<typeof getAdminClient>,
 ): Promise<
-  | { login: string; githubId: string; displayName: string; avatarUrl: string | null }
+  | { login: string; githubId: string; authUserId: string | null; displayName: string; avatarUrl: string | null }
   | { response: Response }
 > {
   const authorization = request.headers.get('Authorization')
@@ -65,9 +59,7 @@ async function authenticateGithubIdentity(
     const identityData = githubIdentity?.identity_data
     const login = typeof identityData?.user_name === 'string'
       ? identityData.user_name
-      : typeof authUser.user_metadata.user_name === 'string'
-        ? authUser.user_metadata.user_name
-        : ''
+      : ''
     const githubId = githubIdentity?.id ?? ''
     if (!login || !githubId) {
       return { response: jsonResponse(503, { error: 'GitHub profile data is incomplete.' }) }
@@ -75,6 +67,7 @@ async function authenticateGithubIdentity(
     return {
       login: login.toLowerCase(),
       githubId: String(githubId),
+      authUserId: authUser.id,
       displayName: typeof identityData?.full_name === 'string'
         ? identityData.full_name
         : login,
@@ -117,6 +110,7 @@ async function authenticateGithubIdentity(
   return {
     login: identity.login.toLowerCase(),
     githubId: String(identity.id),
+    authUserId: null,
     displayName: identity.login,
     avatarUrl: null,
   }
@@ -140,7 +134,7 @@ const ANNOUNCEMENT_CATEGORIES = new Set([
   'COMPATIBILITY',
 ])
 const INSTALLER_PLATFORMS = new Set(['windows', 'linux', 'macos', 'android', 'ios'])
-const INSTALLER_EDITIONS = new Set(['normal', 'lite', 'mobile'])
+const INSTALLER_EDITIONS = new Set(['normal', 'mobile'])
 
 interface AnnouncementPayload {
   category: string
@@ -152,7 +146,7 @@ interface AnnouncementPayload {
 
 interface InstallerPayload {
   platform: 'windows' | 'linux' | 'macos' | 'android' | 'ios'
-  edition: 'normal' | 'lite' | 'mobile'
+  edition: 'normal' | 'mobile'
   version: string
   installerUrl: string
   checksumUrl: string
@@ -161,19 +155,6 @@ interface InstallerPayload {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
-}
-
-function isHttpsUrl(value: unknown): value is string {
-  if (typeof value !== 'string' || value.length > 2048) return false
-  try {
-    return new URL(value).protocol === 'https:'
-  } catch {
-    return false
-  }
-}
-
-function isAllowedAnnouncementUrl(value: string): boolean {
-  return value.startsWith('/') ? !value.startsWith('//') : isHttpsUrl(value)
 }
 
 function parseAnnouncementPayload(value: unknown): AnnouncementPayload | null {
@@ -206,7 +187,12 @@ function parseAnnouncementPayload(value: unknown): AnnouncementPayload | null {
       || (item.external !== undefined && typeof item.external !== 'boolean')
       || !isAllowedAnnouncementUrl(item.url)
     ) return null
-    links.push({ text: item.text.trim(), url: item.url, external: item.external === true })
+    const url = item.url.trim()
+    links.push({
+      text: item.text.trim(),
+      url,
+      external: isExternalAnnouncementUrl(url),
+    })
   }
 
   return {
@@ -340,12 +326,10 @@ function historyRows(releases: GitHubReleaseRecord[], profileId: string): Instal
     if (tagUrl.hostname !== 'github.com') continue
     const releaseDate = release.published_at ?? release.created_at
     const normal = release.tag_name.match(/^v(\d+\.\d+\.\d+)$/)
-    const lite = release.tag_name.match(/^lite-v(\d+\.\d+\.\d+)$/)
     const mobile = release.tag_name.match(/^mobile-v(\d+\.\d+\.\d+)$/)
-    const assetsFor = (platform: 'windows' | 'android' | 'ios', edition: 'normal' | 'lite' | 'mobile', version: string) => {
+    const assetsFor = (platform: 'windows' | 'android' | 'ios', edition: 'normal' | 'mobile', version: string) => {
       let installerNames: string[]
       if (edition === 'normal') installerNames = ['HELIX-Setup.exe', `HELIX-Setup-${version}.exe`]
-      else if (edition === 'lite') installerNames = ['HELIX-Lite-Setup.exe']
       else installerNames = platform === 'android'
         ? ['HELIX-Mobile-arm64-v8a.apk', 'HELIX-Mobile.apk']
         : ['HELIX-Mobile.ipa']
@@ -370,7 +354,6 @@ function historyRows(releases: GitHubReleaseRecord[], profileId: string): Instal
     }
 
     if (normal) assetsFor('windows', 'normal', normal[1])
-    else if (lite) assetsFor('windows', 'lite', lite[1])
     else if (mobile) {
       const hasAndroid = findReleaseAsset(release, ['HELIX-Mobile-arm64-v8a.apk', 'HELIX-Mobile.apk']) !== null
       const hasIos = findReleaseAsset(release, ['HELIX-Mobile.ipa']) !== null
@@ -414,9 +397,9 @@ async function syncUserProfile(
       .insert({
         github_login: identity.login,
         github_user_id: identity.githubId,
+        auth_user_id: identity.authUserId,
         display_name: identity.displayName || identity.login,
         avatar_url: identity.avatarUrl,
-        rank: 'user',
       })
       .select('profile_id, github_user_id, github_login, display_name, avatar_url, rank')
       .single()
@@ -437,6 +420,7 @@ async function syncUserProfile(
     .update({
       github_login: identity.login,
       github_user_id: identity.githubId,
+      ...(identity.authUserId ? { auth_user_id: identity.authUserId } : {}),
       display_name: profile.display_name || identity.displayName || identity.login,
       avatar_url: identity.avatarUrl,
       updated_at: new Date().toISOString(),
@@ -523,59 +507,6 @@ async function verifyRelease(
   }
   if (requiredAssets.size) {
     return { ok: false, error: `Installer release ${tag} is missing required update assets.` }
-  }
-  return { ok: true }
-}
-
-async function verifyLiteRelease(version: string): Promise<{ ok: true } | { ok: false; error: string }> {
-  const tag = `lite-v${version}`
-  let response: Response
-  try {
-    response = await fetch(
-      `${GITHUB_API}/repos/${LITE_RELEASE_OWNER}/${LITE_RELEASE_REPOSITORY}/releases/tags/${encodeURIComponent(tag)}`,
-      {
-        headers: {
-          Accept: 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28',
-          'User-Agent': 'HELIX-Lite-release-admin',
-        },
-        signal: AbortSignal.timeout(8000),
-      },
-    )
-  } catch (error) {
-    console.error('Could not verify the public HELIX Lite release:', error)
-    return { ok: false, error: 'Could not verify the HELIX Lite release right now.' }
-  }
-  if (response.status === 404) return { ok: false, error: `HELIX Lite release ${tag} does not exist.` }
-  if (!response.ok) return { ok: false, error: `HELIX Lite release verification failed (HTTP ${response.status}).` }
-
-  const release: unknown = await response.json().catch(() => null)
-  if (
-    release === null
-    || typeof release !== 'object'
-    || !('tag_name' in release)
-    || release.tag_name !== tag
-    || !('draft' in release)
-    || release.draft !== false
-    || !('prerelease' in release)
-    || release.prerelease !== false
-    || !('assets' in release)
-    || !Array.isArray(release.assets)
-  ) {
-    return { ok: false, error: `HELIX Lite release ${tag} returned invalid or non-stable metadata.` }
-  }
-
-  const requiredAssets = new Set(['HELIX-Lite-Setup.exe', 'HELIX-Lite-Setup.exe.sha256'])
-  for (const asset of release.assets) {
-    if (
-      asset !== null
-      && typeof asset === 'object'
-      && 'name' in asset
-      && typeof asset.name === 'string'
-    ) requiredAssets.delete(asset.name)
-  }
-  if (requiredAssets.size) {
-    return { ok: false, error: `HELIX Lite release ${tag} is missing its installer or SHA-256 checksum.` }
   }
   return { ok: true }
 }
@@ -668,8 +599,8 @@ function isPolicyBody(value: unknown): value is {
     && value.checkIntervalHours <= 720
 }
 
-Deno.serve(async (request: Request) => {
-  if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
+async function handleRequest(request: Request): Promise<Response> {
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204 })
   if (!['GET', 'POST', 'PUT', 'DELETE'].includes(request.method)) {
     return jsonResponse(405, { error: 'Method not allowed.' })
   }
@@ -704,11 +635,34 @@ Deno.serve(async (request: Request) => {
   const isAdmin = profile.rank === 'admin' || profile.rank === 'master-admin'
   const routeParts = route.split('/').filter(Boolean)
 
+  const escalationAttempt = await handleRankEscalationAttempt(request, route, profile, admin)
+  if (escalationAttempt) return escalationAttempt
+
+  let securityCase
+  try {
+    securityCase = await getActiveRankReviewCase(admin, profile.profileId)
+  } catch (error) {
+    console.error('Could not load rank review status:', error)
+    return jsonResponse(503, { error: 'Could not load rank review status.' })
+  }
+
+  const securityRouteResponse = await handleRankReviewRoute(request, routeParts, profile, admin)
+  if (securityRouteResponse) return securityRouteResponse
+
   if ((route === 'authorization' || route === 'profile') && request.method === 'GET') {
     return jsonResponse(200, {
       success: true,
-      authenticated: isAdmin,
+      authenticated: isAdmin && !securityCase,
       profile,
+      securityCase,
+    })
+  }
+  if (securityCase) {
+    return jsonResponse(423, {
+      error: securityCase.status === 'permanent'
+        ? 'Admin access is permanently banned.'
+        : 'Admin access is suspended pending master-admin review.',
+      securityCase,
     })
   }
   if (route === 'profile' && request.method === 'PUT') {
@@ -785,17 +739,16 @@ Deno.serve(async (request: Request) => {
     ) {
       return jsonResponse(400, { error: 'Only user and admin ranks can be assigned.' })
     }
-    const { data, error } = await admin
-      .from('github_user_roles')
-      .update({ rank: body.rank, updated_at: new Date().toISOString() })
-      .eq('profile_id', targetProfileId)
-      .neq('rank', 'master-admin')
-      .select('profile_id, github_user_id, github_login, display_name, avatar_url, rank')
-      .maybeSingle()
+    const { data: updatedProfiles, error } = await admin.rpc('helix_set_profile_rank', {
+      p_actor_profile_id: profile.profileId,
+      p_target_profile_id: targetProfileId,
+      p_rank: body.rank,
+    })
     if (error) {
       console.error('Could not update user rank:', error.message)
       return jsonResponse(503, { error: 'Could not update the user rank.' })
     }
+    const data = Array.isArray(updatedProfiles) ? updatedProfiles[0] : null
     if (!data) return jsonResponse(404, { error: 'User profile was not found or cannot be changed.' })
     return jsonResponse(200, {
       success: true,
@@ -1070,6 +1023,7 @@ Deno.serve(async (request: Request) => {
       const { data, error } = await admin
         .from('landing_installer_catalog')
         .select('*')
+        .neq('edition', 'lite')
         .order('created_at', { ascending: false })
         .limit(2000)
       if (error) {
@@ -1157,6 +1111,9 @@ Deno.serve(async (request: Request) => {
           return jsonResponse(503, { error: 'Could not verify the installer before publishing.' })
         }
         if (!installer) return jsonResponse(404, { error: 'Installer entry was not found.' })
+        if (installer.edition === 'lite') {
+          return jsonResponse(410, { error: 'This installer channel is no longer available for publication.' })
+        }
         if (!installer.installer_url || !installer.checksum_url) {
           return jsonResponse(422, { error: 'An installer asset and SHA-256 checksum are required before publication.' })
         }
@@ -1170,10 +1127,6 @@ Deno.serve(async (request: Request) => {
         }
         if (installer.platform === 'windows' && installer.edition === 'normal') {
           const verified = await verifyRelease(installer.version, 'stable')
-          if (!verified.ok) return jsonResponse(422, { error: verified.error })
-        }
-        if (installer.platform === 'windows' && installer.edition === 'lite') {
-          const verified = await verifyLiteRelease(installer.version)
           if (!verified.ok) return jsonResponse(422, { error: verified.error })
         }
         if (installer.edition === 'mobile' && (installer.platform === 'android' || installer.platform === 'ios')) {
@@ -1225,7 +1178,7 @@ Deno.serve(async (request: Request) => {
         return jsonResponse(503, { error: 'Could not change installer publication state.' })
       }
       if (!current) return jsonResponse(404, { error: 'Installer entry was not found.' })
-      if (current.is_published && current.platform === 'windows' && ['normal', 'lite'].includes(current.edition)) {
+      if (current.is_published && current.platform === 'windows' && current.edition === 'normal') {
         return jsonResponse(409, { error: 'Publish a replacement Windows version before hiding this installer.' })
       }
       const { data, error } = await admin
@@ -1279,65 +1232,6 @@ Deno.serve(async (request: Request) => {
     }
 
     return jsonResponse(404, { error: 'Installer route not found.' })
-  }
-
-  if (route === 'lite-policy') {
-    if (!isAdmin) return jsonResponse(403, { error: 'Admin rank required to view HELIX Lite release policy.' })
-    if (request.method === 'GET') {
-      const { data, error } = await admin
-        .from('release_policies')
-        .select('public_version, channel, updated_at')
-        .eq('id', 'lite')
-        .maybeSingle()
-      if (error) {
-        console.error('Could not load HELIX Lite release policy:', error.message)
-        return jsonResponse(503, { error: 'Could not load the HELIX Lite release policy.' })
-      }
-      if (!data) return jsonResponse(503, { error: 'HELIX Lite release policy has not been provisioned.' })
-      return jsonResponse(200, {
-        success: true,
-        data: { publicVersion: data.public_version, channel: data.channel, updatedAt: data.updated_at },
-      })
-    }
-    if (request.method === 'PUT') {
-      if (profile.rank !== 'master-admin') {
-        return jsonResponse(403, { error: 'Master admin rank required to publish HELIX Lite releases.' })
-      }
-      const body: unknown = await request.json().catch(() => null)
-      if (
-        body === null
-        || typeof body !== 'object'
-        || !('publicVersion' in body)
-        || typeof body.publicVersion !== 'string'
-        || !/^\d+\.\d+\.\d+$/.test(body.publicVersion)
-      ) return jsonResponse(400, { error: 'HELIX Lite version must use the format major.minor.patch.' })
-
-      const verified = await verifyLiteRelease(body.publicVersion)
-      if (!verified.ok) return jsonResponse(422, { error: verified.error })
-
-      const { data, error } = await admin
-        .from('release_policies')
-        .upsert({
-          id: 'lite',
-          public_version: body.publicVersion,
-          channel: 'stable',
-          auto_update: true,
-          check_interval_hours: 24,
-          updated_by_user_id: auth.githubId,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'id' })
-        .select('public_version, channel, updated_at')
-        .single()
-      if (error) {
-        console.error('Could not save HELIX Lite release policy:', error.message)
-        return jsonResponse(503, { error: 'Could not save the HELIX Lite release policy.' })
-      }
-      return jsonResponse(200, {
-        success: true,
-        data: { publicVersion: data.public_version, channel: data.channel, updatedAt: data.updated_at },
-      })
-    }
-    return jsonResponse(405, { error: 'Method not allowed.' })
   }
 
   if (!isAdmin) {
@@ -1481,4 +1375,9 @@ Deno.serve(async (request: Request) => {
   }
 
   return jsonResponse(404, { error: 'Admin route not found.' })
+}
+
+Deno.serve(async (request) => {
+  const response = await handleRequest(request)
+  return withSecureCors(request, response, 'GET, POST, PUT, DELETE, OPTIONS')
 })

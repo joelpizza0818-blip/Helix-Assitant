@@ -38,6 +38,8 @@ jobs:
       - name: Verify release baseline
         id: baseline
         shell: bash
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
         run: |
           if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
             echo "::error::Start a new release from the main branch."
@@ -46,6 +48,23 @@ jobs:
           if [[ -n "$(git status --porcelain)" ]]; then
             echo "::error::The checked-out source tree is not clean."
             git status --short
+            exit 1
+          fi
+          if [[ -z "$VITE_API_URL" || "$VITE_API_URL" != https://* || "$VITE_API_URL" == *localhost* || "$VITE_API_URL" == *127.0.0.1* ]]; then
+            echo "::error::Configure VITE_API_URL as the public HTTPS Community API base URL in repository variables."
+            exit 1
+          fi
+          api_base="${VITE_API_URL%/}"
+          if ! curl --fail --silent --show-error --max-time 20 "$api_base/api/health/live" >/dev/null; then
+            echo "::error::The configured Community API failed its live health check."
+            exit 1
+          fi
+          community_response=$(curl --fail --silent --show-error --max-time 20 "$api_base/api/community/") || {
+            echo "::error::The configured Community API marketplace endpoint is unavailable."
+            exit 1
+          }
+          if ! jq -e '.success == true and (.data | type == "array")' <<<"$community_response" >/dev/null; then
+            echo "::error::The configured Community API returned an invalid marketplace response."
             exit 1
           fi
           version=$(node -p "require('./apps/desktop/package.json').version")
@@ -89,6 +108,11 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
+      - name: Refresh generated version data before committing
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: npm run docs:sync
+
       - name: Commit version and create tag
         shell: bash
         env:
@@ -97,7 +121,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add apps/desktop/package.json package-lock.json
+          git add apps/desktop/package.json package-lock.json README.md docs/project-data.json
           git commit -m "chore(release): HELIX $VERSION"
           git tag -a "$TAG" -m "HELIX $VERSION"
           git push origin HEAD:main
@@ -110,6 +134,17 @@ jobs:
         run: |
           commit=$(git rev-parse "$TAG^{commit}")
           gh release create "$TAG" --target "$commit" --title "HELIX $VERSION" --generate-notes
+
+      - name: Refresh generated data with the published release state
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          npm run docs:sync
+          git add README.md docs/project-data.json
+          if ! git diff --cached --quiet; then
+            git commit -m "docs(release): refresh published version status"
+            git push origin HEAD:main
+          fi
 
       - name: Start installer build and wait for publication
         id: installer

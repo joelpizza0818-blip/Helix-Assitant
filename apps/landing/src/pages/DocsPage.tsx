@@ -28,7 +28,7 @@ export const DocsPage: React.FC = () => {
               className={`docs-nav-item ${activeSection === 'install' ? 'is-active' : ''}`}
               onClick={() => setActiveSection('install')}
             >
-              2. Installation (Normal vs Lite)
+              2. Installation
             </button>
             <button
               type="button"
@@ -70,13 +70,6 @@ export const DocsPage: React.FC = () => {
           <div className="docs-sidebar__box">
             <span className="docs-box-tag">BENCHMARK STATUS</span>
             <p>Memory use has not been benchmarked across supported configurations.</p>
-            <Link to="/download" className="docs-box-link">
-              Get HELIX Lite
-              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ marginLeft: 6 }}>
-                <line x1="5" y1="12" x2="19" y2="12" />
-                <polyline points="12 5 19 12 12 19" />
-              </svg>
-            </Link>
           </div>
         </aside>
 
@@ -92,7 +85,7 @@ export const DocsPage: React.FC = () => {
               <div className="docs-callout">
                 <h4>Architecture Components</h4>
                 <ul>
-                  <li><strong>Desktop Shell (Electron or Tauri):</strong> Desktop interface with tray, floating panel, and keyboard controls that vary by edition.</li>
+                  <li><strong>Desktop Shell (Electron):</strong> Desktop interface with tray, floating panel, and keyboard controls.</li>
                   <li><strong>Agent Core (Python):</strong> Coordinates model requests, supported local tools, OCR, and working memory.</li>
                   <li><strong>Local IPC:</strong> Authenticated local inter-process communication between the desktop interface and the agent.</li>
                 </ul>
@@ -108,30 +101,20 @@ export const DocsPage: React.FC = () => {
           {activeSection === 'install' && (
             <article className="docs-article">
               <span className="docs-badge">SECTION 2</span>
-              <h1>Installation: HELIX Normal vs HELIX Lite</h1>
+              <h1>Installation: HELIX Desktop</h1>
               <p className="docs-lead">
-                HELIX currently publishes Windows x64 installers for two desktop shells. Hardware and performance differences have not been benchmarked across configurations.
+                HELIX currently publishes a Windows x64 desktop installer. Hardware and performance have not been benchmarked across configurations.
               </p>
 
               <div className="docs-comparison-table">
                 <div className="comparison-col">
-                  <h3>HELIX Normal (Electron)</h3>
+                  <h3>HELIX Desktop (Electron)</h3>
                   <span className="comparison-tag">Electron desktop shell</span>
                   <ul>
                     <li>Integrated shell based on Chromium/Node.js</li>
                     <li>Uses the shared local Python agent</li>
                     <li>Uses the separate Electron update channel</li>
                     <li>Memory use varies by workload and is not benchmarked</li>
-                  </ul>
-                </div>
-                <div className="comparison-col is-featured">
-                  <h3>HELIX Lite (Tauri)</h3>
-                  <span className="comparison-tag">Tauri desktop shell</span>
-                  <ul>
-                    <li>Shell built in Rust with native Windows WebView2</li>
-                    <li>Uses the shared local Python agent</li>
-                    <li>Installer size and memory use vary by release and workload; not benchmarked here</li>
-                    <li>Feature parity with Normal is not guaranteed</li>
                   </ul>
                 </div>
               </div>
@@ -238,23 +221,16 @@ export const DocsPage: React.FC = () => {
               <h1>Diagnostics & Frequently Asked Questions</h1>
               
               <div className="docs-faq-item">
-                <h3>Does Windows SmartScreen show a warning when installing HELIX Lite?</h3>
-                <p>
-                  HELIX Lite installers are unsigned, so Windows may show an unknown-publisher warning. Verify the SHA-256 checksum on the release page before running an installer.
-                </p>
-              </div>
-
-              <div className="docs-faq-item">
                 <h3>Where are the agent log files stored?</h3>
                 <p>
-                  Log locations depend on the installed edition and configuration. Inspect local logs before sharing them because they may contain sensitive diagnostics.
+                  Log locations depend on the configuration. Inspect local logs before sharing them because they may contain sensitive diagnostics.
                 </p>
               </div>
 
               <div className="docs-faq-item">
-                <h3>Can I switch between HELIX Normal and HELIX Lite?</h3>
+                <h3>Which platforms have desktop installers?</h3>
                 <p>
-                  The editions use separate installers and update channels. Configuration migration and memory differences have not been validated; back up settings and credentials before switching editions.
+                  The published desktop installer currently targets Windows 10 and 11 (64-bit). Linux and macOS desktop installers are not published.
                 </p>
               </div>
             </article>

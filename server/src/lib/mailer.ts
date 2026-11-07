@@ -57,9 +57,16 @@ export function escapeHtml(str: string): string {
 export function sanitizeUrl(url?: string): string {
   if (!url) return 'https://helix-assistant.dev/download';
   const trimmed = url.trim();
-  // Allow only absolute http and https protocols to prevent javascript: or data: URIs
-  if (/^https?:\/\/[^\s"'>]+$/i.test(trimmed)) {
-    return escapeHtml(trimmed);
+  if (!trimmed || /[\u0000-\u001F\u007F]/.test(trimmed)) {
+    return 'https://helix-assistant.dev/download';
+  }
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol === 'https:' && parsed.hostname && !parsed.username && !parsed.password) {
+      return escapeHtml(parsed.href);
+    }
+  } catch {
+    return 'https://helix-assistant.dev/download';
   }
   return 'https://helix-assistant.dev/download';
 }
@@ -114,12 +121,12 @@ export function generateVersionUpdateHtml(payload: VersionUpdatePayload): string
           <tr>
             <td style="padding: 32px 36px;">
               <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.6; color: #cccccc;">
-                We have released a new version of the HELIX desktop agent with performance improvements, HELIX Lite support, and updates to the control engine.
+                We have released a new version of the HELIX desktop agent with improvements and updates to the control engine.
               </p>
 
               <div style="background: rgba(255, 159, 28, 0.04); border-left: 3px solid #ff9f1c; padding: 14px 18px; margin-bottom: 24px; border-radius: 4px;">
                 <div style="font-weight: 600; font-size: 13px; color: #ffffff; margin-bottom: 4px;">Highlights:</div>
-                <div style="font-size: 13px; color: #bbbbbb;">Available for both HELIX Normal (Electron) and HELIX Lite (Tauri · 15MB).</div>
+                <div style="font-size: 13px; color: #bbbbbb;">Available for Windows x64.</div>
               </div>
 
               <h2 style="font-size: 15px; color: #ffffff; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 14px;">
@@ -187,12 +194,12 @@ export async function sendVersionUpdateEmail(
       sentCount: recipients.length,
       rawMessage: info.message ? info.message.toString() : undefined,
     };
-  } catch (error: any) {
-    logger.error('[Mailer] Error sending version update email:', error);
+  } catch {
+    logger.error('[Mailer] Error sending version update email.');
     return {
       success: false,
       sentCount: 0,
-      error: error.message || 'Failed to dispatch email',
+      error: 'Failed to dispatch email',
     };
   }
 }

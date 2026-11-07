@@ -1013,8 +1013,8 @@ function setupIPC(): void {
           // retry
         }
       }
-    } catch (err: any) {
-      console.warn('[Main] Silent Ollama install skipped:', err?.message)
+    } catch (err: unknown) {
+      console.warn('[Main] Silent Ollama install skipped:', err instanceof Error ? err.message : err)
     }
 
     return { ok: false, status: 'not_installed' }
@@ -1453,7 +1453,7 @@ ipcMain.on('helix:open-external', (_event, url: string) => {
 export { floatingWindow, toolboxWindow, agentsWindow, ipcBridge }
 
 
-process.on('uncaughtException', (error: any) => {
+process.on('uncaughtException', (error) => {
   if (error?.message?.includes('Object has been destroyed')) {
     console.warn('[Main] Suppressed destroyed window access:', error.message)
     return

@@ -1,5 +1,13 @@
 import React, { useState } from 'react'
-import type { ProviderStatus, ModelDefinition, HelixSettings, ProviderID, KeySlot, KeyHealth } from '../../../types/global'
+import type {
+  HelixSettings,
+  KeyHealth,
+  KeySlot,
+  LlamaServerStatus,
+  ModelDefinition,
+  ProviderID,
+  ProviderStatus,
+} from '../../../types/global'
 import '../Toolbox.css'
 
 interface Props {
@@ -58,20 +66,12 @@ export default function AISection({ providers, models, settings, onSave, onRefre
   const [customApiKey, setCustomApiKey] = useState('')
 
   // Llama Server (llama.cpp) state
-  const [llamaStatus, setLlamaStatus] = useState<{
-    installed: boolean
-    running: boolean
-    binary_path?: string
-    models?: Array<{ name: string; path: string; size_gb: number }>
-    models_dir?: string
-    active_model?: string
-  } | null>(null)
+  const [llamaStatus, setLlamaStatus] = useState<LlamaServerStatus | null>(null)
   const [llamaLoading, setLlamaLoading] = useState(false)
 
   const refreshLlamaStatus = async () => {
     try {
-      const res: any = await (window as any).helix?.getLlamaServerStatus?.()
-      if (res) setLlamaStatus(res)
+      setLlamaStatus(await window.helix.getLlamaServerStatus())
     } catch (err) {
       console.warn('[AISection] Failed to get Llama Server status:', err)
     }
@@ -89,10 +89,10 @@ export default function AISection({ providers, models, settings, onSave, onRefre
     setDownloadingLlama(true)
     setDownloadStatusMsg('Descargando llama-server portátil (~25 MB)...')
     try {
-      const res: any = await (window as any).helix?.downloadLlamaServer?.()
-      if (res?.server_status) setLlamaStatus(res.server_status)
-      setDownloadStatusMsg(res?.done ? '¡llama-server instalado!' : (res?.error || 'Error al descargar'))
-    } catch (e: any) {
+      const result = await window.helix.downloadLlamaServer()
+      setLlamaStatus(result.server_status)
+      setDownloadStatusMsg(result.done ? '¡llama-server instalado!' : (result.error || 'Error al descargar'))
+    } catch (e: unknown) {
       setDownloadStatusMsg('Error: ' + String(e))
     } finally {
       setDownloadingLlama(false)
@@ -104,10 +104,10 @@ export default function AISection({ providers, models, settings, onSave, onRefre
     setDownloadingModelId(modelId)
     setDownloadStatusMsg(`Descargando ${modelId} desde Hugging Face...`)
     try {
-      const res: any = await (window as any).helix?.downloadGgufModel?.(modelId)
-      if (res?.server_status) setLlamaStatus(res.server_status)
-      setDownloadStatusMsg(res?.done ? '¡Modelo GGUF listo!' : (res?.error || 'Error al descargar'))
-    } catch (e: any) {
+      const result = await window.helix.downloadGgufModel(modelId)
+      setLlamaStatus(result.server_status)
+      setDownloadStatusMsg(result.done ? '¡Modelo GGUF listo!' : (result.error || 'Error al descargar'))
+    } catch (e: unknown) {
       setDownloadStatusMsg('Error: ' + String(e))
     } finally {
       setDownloadingModelId(null)
@@ -119,12 +119,14 @@ export default function AISection({ providers, models, settings, onSave, onRefre
     setLlamaLoading(true)
     try {
       if (llamaStatus?.running) {
-        const res: any = await (window as any).helix?.stopLlamaServer?.()
-        if (res?.status) setLlamaStatus(res.status)
-      } else if (modelPath || (llamaStatus?.models && llamaStatus.models.length > 0)) {
-        const target = modelPath || llamaStatus!.models![0].path
-        const res: any = await (window as any).helix?.startLlamaServer?.(target)
-        if (res?.status) setLlamaStatus(res.status)
+        const result = await window.helix.stopLlamaServer()
+        setLlamaStatus(result.status)
+      } else {
+        const target = modelPath ?? llamaStatus?.models[0]?.path
+        if (target) {
+          const result = await window.helix.startLlamaServer(target)
+          setLlamaStatus(result.status)
+        }
       }
     } catch (err) {
       console.warn('[AISection] Failed to toggle Llama Server:', err)
@@ -157,6 +159,14 @@ export default function AISection({ providers, models, settings, onSave, onRefre
     streaming: true,
     text: true
   })
+  const editableCapabilities: Array<{ key: keyof typeof newModelCaps; label: string }> = [
+    { key: 'vision', label: 'Vision' },
+    { key: 'tool_calling', label: 'Tool Calling' },
+    { key: 'coding', label: 'Code Execution' },
+    { key: 'reasoning', label: 'Reasoning' },
+    { key: 'computer_use', label: 'Computer Use' },
+    { key: 'structured_output', label: 'JSON Schema' },
+  ]
 
   const getProviderStatus = (providerId: ProviderID) =>
     providers.find((p) => p.id === providerId)
@@ -821,18 +831,11 @@ export default function AISection({ providers, models, settings, onSave, onRefre
               <div className="form-row" style={{ marginBottom: 16 }}>
                 <label className="form-label">Capabilities</label>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, width: '100%' }}>
-                  {[
-                    { key: 'vision', label: 'Vision' },
-                    { key: 'tool_calling', label: 'Tool Calling' },
-                    { key: 'coding', label: 'Code Execution' },
-                    { key: 'reasoning', label: 'Reasoning' },
-                    { key: 'computer_use', label: 'Computer Use' },
-                    { key: 'structured_output', label: 'JSON Schema' }
-                  ].map(({ key, label }) => (
+                  {editableCapabilities.map(({ key, label }) => (
                     <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--bone)', cursor: 'pointer' }}>
                       <input
                         type="checkbox"
-                        checked={(newModelCaps as any)[key]}
+                        checked={newModelCaps[key]}
                         onChange={(e) => setNewModelCaps((prev) => ({ ...prev, [key]: e.target.checked }))}
                       />
                       {label}

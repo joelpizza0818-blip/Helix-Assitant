@@ -1,8 +1,10 @@
-import React, { useEffect, useState, useRef } from 'react'
+import { lazy, Suspense, useEffect, useState, useRef } from 'react'
 import type { HelixSettings, MemoryStatus, ProjectRegistry } from '../../../types/global'
 import ProjectGraphEditor, { type ProjectGraphEditorHandle } from './ProjectGraphEditor'
 import ProjectFilesPanel from './ProjectFilesPanel'
 import '../Toolbox.css'
+
+const ProjectFileEditor = lazy(() => import('./ProjectFileEditor'))
 
 interface UserMemoryProfile {
   summary: string
@@ -23,6 +25,8 @@ export default function MemorySection({ settings, onSave }: Props) {
     projects: [],
   })
   const projectGraphEditorRef = useRef<ProjectGraphEditorHandle>(null)
+  const [selectedProjectFilePath, setSelectedProjectFilePath] = useState<string | null>(null)
+  const [editingProjectFilePath, setEditingProjectFilePath] = useState<string | null>(null)
   const [projectFolderPath, setProjectFolderPath] = useState('')
   const [projectBusy, setProjectBusy] = useState(false)
   const [profile, setProfile] = useState<UserMemoryProfile>({ summary: '', user_notes: '', updated_at: '' })
@@ -39,9 +43,14 @@ export default function MemorySection({ settings, onSave }: Props) {
   const [notesSaved, setNotesSaved] = useState(false)
   const saveNotesTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  useEffect(() => {
+    setSelectedProjectFilePath(null)
+    setEditingProjectFilePath(null)
+  }, [projectRegistry.active_project_id])
+
   const refreshProfile = async () => {
     try {
-      const p = await (window.helix as any).getUserMemoryProfile() as UserMemoryProfile
+      const p = await window.helix.getUserMemoryProfile()
       setProfile(p)
       // Keep draft in sync only if user isn't actively editing
       setUserNotesDraft(prev => prev === profile.user_notes ? p.user_notes : prev)
@@ -56,7 +65,7 @@ export default function MemorySection({ settings, onSave }: Props) {
       try {
         const status = await window.helix.getMemoryStatus()
         if (active) setMemoryStatus(status as MemoryStatus)
-        const p = await (window.helix as any).getUserMemoryProfile() as UserMemoryProfile
+        const p = await window.helix.getUserMemoryProfile()
         if (active) {
           setProfile(p)
           setUserNotesDraft(p.user_notes)
@@ -119,7 +128,7 @@ export default function MemorySection({ settings, onSave }: Props) {
     setSavingSummary(true)
     setMaintenanceError(null)
     try {
-      await (window.helix as any).updateUserMemorySummary(summaryDraft)
+      await window.helix.updateUserMemorySummary(summaryDraft)
       setEditingSummary(false)
       await refreshProfile()
     } catch (error) {
@@ -139,7 +148,7 @@ export default function MemorySection({ settings, onSave }: Props) {
   const autoSaveNotes = async (notes: string) => {
     setSavingNotes(true)
     try {
-      await (window.helix as any).updateUserNotes(notes)
+      await window.helix.updateUserNotes(notes)
       setNotesSaved(true)
       setTimeout(() => setNotesSaved(false), 2000)
     } catch {
@@ -154,7 +163,7 @@ export default function MemorySection({ settings, onSave }: Props) {
     if (!window.confirm('¿Borrar todo lo que Helix recuerda sobre ti? Esta acción no se puede deshacer.')) return
     setMaintenanceError(null)
     try {
-      await (window.helix as any).clearUserMemory()
+      await window.helix.clearUserMemory()
       setProfile({ summary: '', user_notes: '', updated_at: '' })
       setUserNotesDraft('')
     } catch (error) {
@@ -249,9 +258,16 @@ export default function MemorySection({ settings, onSave }: Props) {
           <span className="toolbox-card__title">Project workspace</span>
         </div>
         <p className="text-xs text-muted" style={{ marginBottom: 10 }}>
-          Create files and folders in the linked project, or import selected files into the selected folder.
+          Click a file to edit it here; save with the button or Ctrl+S. Double-click a file node in the project graph to open the same editor.
         </p>
-        <ProjectFilesPanel projectId={projectRegistry.active_project_id} />
+        <ProjectFilesPanel
+          projectId={projectRegistry.active_project_id}
+          selectedFilePath={selectedProjectFilePath}
+          onOpenFile={(relativePath) => {
+            setSelectedProjectFilePath(relativePath)
+            setEditingProjectFilePath(relativePath)
+          }}
+        />
       </div>
 
       <div className="toolbox-card" style={{ marginBottom: 16 }}>
@@ -259,13 +275,26 @@ export default function MemorySection({ settings, onSave }: Props) {
           <span className="toolbox-card__title">Project knowledge graph</span>
         </div>
         <p className="text-xs text-muted" style={{ marginBottom: 10 }}>
-          View nodes and relationships, then select an item to edit its content, connections, or appearance.
+          View nodes and relationships, then select an item to edit it. Double-click a file node to edit its project file.
         </p>
         <ProjectGraphEditor
           ref={projectGraphEditorRef}
           projectId={projectRegistry.active_project_id}
+          onOpenFile={(relativePath) => {
+            setSelectedProjectFilePath(relativePath)
+            setEditingProjectFilePath(relativePath)
+          }}
         />
       </div>
+      {editingProjectFilePath && projectRegistry.active_project_id && (
+        <Suspense fallback={<p className="text-xs text-muted" role="status">Loading code editor…</p>}>
+          <ProjectFileEditor
+            projectId={projectRegistry.active_project_id}
+            relativePath={editingProjectFilePath}
+            onClose={() => setEditingProjectFilePath(null)}
+          />
+        </Suspense>
+      )}
 
       <div className="toolbox-card" style={{ marginBottom: 16 }}>
         <div className="toolbox-card__header">

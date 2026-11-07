@@ -1,6 +1,15 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import type { ChildProcessWithoutNullStreams } from 'child_process'
+import { randomUUID } from 'crypto'
+import fs from 'fs/promises'
+import os from 'os'
 import WebSocket from 'ws'
 import type { BrowserPageSnapshot } from './browser-extension-bridge'
+import {
+  getAvailableDeveloperTerminalShells,
+  startDeveloperTerminalProcess,
+  type DeveloperTerminalShell,
+} from './developer-terminal'
 import { websocketAuthHeaders } from './websocket-auth'
 import {
   getLastGestureWindowToClose,
@@ -25,6 +34,19 @@ const RECONNECT_DELAY_MS = 3000
 const MOBILE_DEVICE_ID_PATTERN = /^[A-Za-z0-9_-]{20,64}$/
 const CONFIRMATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const MOBILE_CONFIRMATION_TTL_MS = 5 * 60 * 1000
+const DEVELOPER_TERMINAL_SHELLS: DeveloperTerminalShell[] = ['powershell', 'cmd', 'bash']
+const MAX_TERMINAL_INPUT_BYTES = 64 * 1024
+
+interface DeveloperTerminalSession {
+  id: string
+  owner: Electron.WebContents
+  process: ChildProcessWithoutNullStreams
+}
+
+function isDeveloperTerminalShell(value: unknown): value is DeveloperTerminalShell {
+  return typeof value === 'string'
+    && DEVELOPER_TERMINAL_SHELLS.includes(value as DeveloperTerminalShell)
+}
 
 export class IPCBridge {
   private ws: WebSocket | null = null
@@ -52,6 +74,7 @@ export class IPCBridge {
     string,
     { deviceId: string; expiresAt: number }
   >()
+  private readonly developerTerminalSessions = new Map<string, DeveloperTerminalSession>()
 
   setToolboxWindow(window: BrowserWindow | null): void {
     this.toolboxWindow = window
@@ -75,6 +98,9 @@ export class IPCBridge {
     this.toolboxWindow = toolboxWindow
     this.confirmationWindow = confirmationWindow
     this.agentsWindow = agentsWindow
+    toolboxWindow.webContents.once('destroyed', () => {
+      this._closeDeveloperTerminalsForOwner(toolboxWindow.webContents)
+    })
     confirmationWindow.webContents.on('did-finish-load', () => {
       this.sendActiveConfirmation()
     })
@@ -102,6 +128,108 @@ export class IPCBridge {
         { type: 'USER_TEXT', payload, timestamp: new Date().toISOString() },
         10000,
       )
+    })
+
+    ipcMain.handle('helix:developer-terminal-status', (event) => {
+      this._assertToolboxSender(event.sender)
+      const shells = getAvailableDeveloperTerminalShells()
+      return {
+        supported: shells.length > 0,
+        shells,
+        ...(shells.length > 0 ? {} : { reason: 'No supported local shell was found on PATH.' }),
+      }
+    })
+
+    ipcMain.handle('helix:developer-terminal-start', async (event, incoming: unknown) => {
+      this._assertToolboxSender(event.sender)
+      if (!isRecord(incoming) || typeof incoming.project_id !== 'string' || !isDeveloperTerminalShell(incoming.shell)) {
+        throw new TypeError('Terminal startup options are invalid.')
+      }
+      const cols = this._clampTerminalDimension(incoming.cols, 20, 500, 'columns')
+      const rows = this._clampTerminalDimension(incoming.rows, 5, 200, 'rows')
+
+      const settings = await this._request({ type: 'GET_SETTINGS', payload: {} })
+      if (!isRecord(settings) || settings.developer_mode_enabled !== true) {
+        throw new Error('Enable Developer Mode before starting its terminal.')
+      }
+      const registry = await this._request({ type: 'GET_PROJECTS', payload: {} })
+      if (
+        !isRecord(registry)
+        || registry.active_project_id !== incoming.project_id
+        || !Array.isArray(registry.projects)
+      ) {
+        throw new Error('Select the project before starting its terminal.')
+      }
+      const project = registry.projects.find((item) => (
+        isRecord(item)
+        && item.project_id === incoming.project_id
+        && typeof item.root_path === 'string'
+      ))
+      if (!isRecord(project) || typeof project.root_path !== 'string') {
+        throw new Error('The active project is not registered.')
+      }
+      const rootPath = await fs.realpath(project.root_path)
+      const rootStat = await fs.stat(rootPath)
+      if (!rootStat.isDirectory()) throw new Error('The active project root is not a directory.')
+      const ownerSessionCount = [...this.developerTerminalSessions.values()]
+        .filter((session) => session.owner === event.sender)
+        .length
+      if (ownerSessionCount >= 4) throw new Error('Too many local terminal sessions are already open.')
+
+      const homePath = await fs.realpath(os.homedir())
+      const homeStat = await fs.stat(homePath)
+      if (!homeStat.isDirectory()) throw new Error('The current user home directory is not available.')
+      const terminal = startDeveloperTerminalProcess(incoming.shell, homePath, cols, rows)
+      const sessionId = randomUUID()
+      const session: DeveloperTerminalSession = {
+        id: sessionId,
+        owner: event.sender,
+        process: terminal,
+      }
+      this.developerTerminalSessions.set(sessionId, session)
+      let exited = false
+      const sendExit = (exitCode: number | null, signal: string | null) => {
+        if (exited) return
+        exited = true
+        if (this.developerTerminalSessions.get(sessionId) !== session) return
+        this.developerTerminalSessions.delete(sessionId)
+        if (!session.owner.isDestroyed()) {
+          session.owner.send('helix:developer-terminal-exit', {
+            session_id: sessionId,
+            exit_code: exitCode,
+            signal,
+          })
+        }
+      }
+      const sendData = (data: string) => {
+        if (this.developerTerminalSessions.get(sessionId) !== session || session.owner.isDestroyed()) return
+        session.owner.send('helix:developer-terminal-data', { session_id: sessionId, data })
+      }
+      terminal.stdout.setEncoding('utf8')
+      terminal.stderr.setEncoding('utf8')
+      terminal.stdout.on('data', sendData)
+      terminal.stderr.on('data', sendData)
+      terminal.once('error', (error) => {
+        sendData(`\r\n${error.message}\r\n`)
+        sendExit(null, null)
+      })
+      terminal.once('exit', (code, signal) => sendExit(code, signal))
+      return { session_id: sessionId }
+    })
+
+    ipcMain.handle('helix:developer-terminal-write', (event, sessionId: unknown, data: unknown) => {
+      const session = this._getDeveloperTerminalSession(event.sender, sessionId)
+      if (typeof data !== 'string' || Buffer.byteLength(data, 'utf8') > MAX_TERMINAL_INPUT_BYTES) {
+        throw new TypeError('Terminal input must be text no larger than 64 KiB.')
+      }
+      if (!session.process.stdin.writable) throw new Error('The local shell input stream is closed.')
+      session.process.stdin.write(data)
+    })
+
+    ipcMain.handle('helix:developer-terminal-close', (event, sessionId: unknown) => {
+      const session = this._getDeveloperTerminalSession(event.sender, sessionId)
+      this.developerTerminalSessions.delete(session.id)
+      session.process.kill()
     })
 
     ipcMain.on('helix:cancel-task', (_event, taskId: string) => {
@@ -291,6 +419,25 @@ export class IPCBridge {
       return this._request({
         type: 'GET_PROJECT_FILES',
         payload: { project_id: projectId },
+      })
+    })
+
+    ipcMain.handle('helix:read-project-file', async (_event, projectId: string, relativePath: string) => {
+      return this._request({
+        type: 'READ_PROJECT_FILE',
+        payload: { project_id: projectId, relative_path: relativePath },
+      })
+    })
+
+    ipcMain.handle('helix:write-project-file', async (
+      _event,
+      projectId: string,
+      relativePath: string,
+      content: string,
+    ) => {
+      return this._request({
+        type: 'WRITE_PROJECT_FILE',
+        payload: { project_id: projectId, relative_path: relativePath, content },
       })
     })
 
@@ -703,6 +850,10 @@ export class IPCBridge {
   }
 
   close(): void {
+    for (const session of this.developerTerminalSessions.values()) {
+      this.developerTerminalSessions.delete(session.id)
+      session.process.kill()
+    }
     for (const timeout of this.requestTimeouts.values()) clearTimeout(timeout)
     this.requestTimeouts.clear()
     this.requestDeadlines.clear()
@@ -718,6 +869,35 @@ export class IPCBridge {
     this.ws = null
     ws?.removeAllListeners()
     ws?.close()
+  }
+
+  private _assertToolboxSender(sender: Electron.WebContents): void {
+    if (sender !== this.toolboxWindow?.webContents || sender.isDestroyed()) {
+      throw new Error('Developer terminal requests are only available from the HELIX Toolbox.')
+    }
+  }
+
+  private _getDeveloperTerminalSession(sender: Electron.WebContents, sessionId: unknown): DeveloperTerminalSession {
+    this._assertToolboxSender(sender)
+    if (typeof sessionId !== 'string') throw new TypeError('Terminal session ID is invalid.')
+    const session = this.developerTerminalSessions.get(sessionId)
+    if (!session || session.owner !== sender) throw new Error('Terminal session is unavailable.')
+    return session
+  }
+
+  private _clampTerminalDimension(value: unknown, minimum: number, maximum: number, label: string): number {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      throw new TypeError(`Terminal ${label} must be a finite number.`)
+    }
+    return Math.max(minimum, Math.min(maximum, Math.floor(value)))
+  }
+
+  private _closeDeveloperTerminalsForOwner(owner: Electron.WebContents): void {
+    for (const session of this.developerTerminalSessions.values()) {
+      if (session.owner !== owner) continue
+      this.developerTerminalSessions.delete(session.id)
+      session.process.kill()
+    }
   }
 
   private _connect(): Promise<void> {

@@ -593,14 +593,25 @@ export default function FloatingUI() {
                   ? `${browserProgress.status === 'running' ? 'Browser' : `Browser ${browserProgress.status}`}: ${browserProgress.action}`
                   : activeProgressMessage}
               </span>
-              {browserFrame && (
-                <img
-                  className="browser-live-frame"
-                  src={browserFrame}
-                  alt="Live snapshot of the HELIX-controlled browser"
-                />
-              )}
             </div>
+          )}
+          {browserFrame && (
+            <section className="browser-live-viewer" aria-label="HELIX browser activity">
+              <div className="browser-live-viewer__header" aria-live="polite">
+                <strong>Browser activity</strong>
+                {browserProgress && (
+                  <span>
+                    {browserProgress.status === 'running' ? 'Working' : browserProgress.status}
+                    {`: ${browserProgress.action}`}
+                  </span>
+                )}
+              </div>
+              <img
+                className="browser-live-frame"
+                src={browserFrame}
+                alt="Latest view of the HELIX-controlled browser, including its virtual cursor"
+              />
+            </section>
           )}
           <div ref={messagesEndRef} />
         </div>

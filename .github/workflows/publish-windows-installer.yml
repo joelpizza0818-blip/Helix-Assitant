@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   build-and-publish:
-    if: github.event_name != 'release' || (!github.event.release.prerelease && !startsWith(github.event.release.tag_name, 'lite-'))
+    if: github.event_name != 'release' || (!github.event.release.prerelease && startsWith(github.event.release.tag_name, 'v'))
     runs-on: windows-latest
     timeout-minutes: 180
     steps:
@@ -42,6 +42,7 @@ jobs:
           INSTALLER_REPO_TOKEN: ${{ secrets.INSTALLER_REPO_TOKEN }}
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
           HELIX_CAPABILITY_PUBLIC_KEY: ${{ vars.HELIX_CAPABILITY_PUBLIC_KEY }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:INSTALLER_REPO_TOKEN)) {
@@ -49,6 +50,22 @@ jobs:
           }
           if ([string]::IsNullOrWhiteSpace($env:VITE_SUPABASE_URL) -or [string]::IsNullOrWhiteSpace($env:VITE_SUPABASE_ANON_KEY)) {
             throw "Configure the VITE_SUPABASE_URL repository variable and VITE_SUPABASE_ANON_KEY repository secret for desktop GitHub OAuth."
+          }
+          $apiUri = $null
+          if ([string]::IsNullOrWhiteSpace($env:VITE_API_URL) -or
+              -not [Uri]::TryCreate($env:VITE_API_URL, [UriKind]::Absolute, [ref]$apiUri) -or
+              $apiUri.Scheme -ne "https" -or
+              $apiUri.IsLoopback -or
+              $apiUri.UserInfo -or
+              $apiUri.Query -or
+              $apiUri.Fragment) {
+            throw "Configure VITE_API_URL as a public HTTPS Community API base URL in repository variables."
+          }
+          $apiBase = $env:VITE_API_URL.TrimEnd('/')
+          Invoke-WebRequest -Uri "$apiBase/api/health/live" -TimeoutSec 20 -UseBasicParsing | Out-Null
+          $communityResponse = Invoke-RestMethod -Uri "$apiBase/api/community/" -TimeoutSec 20
+          if ($communityResponse.success -ne $true -or $communityResponse.data -isnot [array]) {
+            throw "The configured Community API returned an invalid marketplace response."
           }
           $capabilityPublicKey = [Convert]::FromBase64String($env:HELIX_CAPABILITY_PUBLIC_KEY)
           if ([string]::IsNullOrWhiteSpace($env:HELIX_CAPABILITY_PUBLIC_KEY) -or
@@ -114,6 +131,7 @@ jobs:
         env:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
           HELIX_CAPABILITY_PUBLIC_KEY: ${{ vars.HELIX_CAPABILITY_PUBLIC_KEY }}
         run: npm run build:windows
 

@@ -2,20 +2,18 @@ import winston from 'winston';
 
 const redactSensitive = winston.format((info) => {
   const SENSITIVE_KEYS = ['password', 'token', 'apiKey', 'key', 'secret', 'authorization'];
-  const redact = (obj: any): any => {
-    if (!obj || typeof obj !== 'object') return obj;
-    if (Array.isArray(obj)) return obj.map(redact);
-    const copy = { ...obj };
-    for (const k of Object.keys(copy)) {
-      if (SENSITIVE_KEYS.some((sk) => k.toLowerCase().includes(sk))) {
-        copy[k] = '[REDACTED]';
-      } else if (typeof copy[k] === 'object') {
-        copy[k] = redact(copy[k]);
-      }
+  const redact = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(redact);
+    if (value === null || typeof value !== 'object') return value;
+    const copy: Record<string, unknown> = {};
+    for (const [key, nestedValue] of Object.entries(value)) {
+      copy[key] = SENSITIVE_KEYS.some((sensitiveKey) => key.toLowerCase().includes(sensitiveKey))
+        ? '[REDACTED]'
+        : redact(nestedValue);
     }
     return copy;
   };
-  return redact(info);
+  return redact(info) as typeof info;
 });
 
 export const logger = winston.createLogger({
