@@ -101,7 +101,7 @@ Gallery videos are opened on demand rather than eagerly downloaded on first load
 <!-- HELIX-DATA:download-rows:start -->
 | Product | Platform | Public release / download | Status |
 |---|---|---|---|
-| HELIX Normal | Windows x64 | [v0.7.1](https://github.com/joelpizza0818-blip/Helix-Assitant/releases/tag/v0.7.1) / [Download page](https://helix-assistant.vercel.app/download) | Public release published; no installer asset is attached. Use the authenticated download page. |
+| HELIX Normal | Windows x64 | [v0.8.0](https://github.com/joelpizza0818-blip/Helix-Assitant/releases) / [Download page](https://helix-assistant.vercel.app/download) | Source v0.8.0; no published public release found. |
 | HELIX Mobile | Android APK | [mobile-v0.8.0](https://github.com/joelpizza0818-blip/Helix-Assitant/releases) | Source mobile-v0.8.0; no published public release found. |
 | HELIX CLI | Node.js / npm | [npm package](https://www.npmjs.com/package/helix-assistant-cli) | npm latest 0.6.1; repository source is 0.8.0. |
 <!-- HELIX-DATA:download-rows:end -->
@@ -234,7 +234,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete testing command list and
 ## Project status
 
 <!-- HELIX-DATA:project-status:start -->
-Desktop 0.7.1: published (no installer asset on the public release); Android 0.8.0: not published; CLI npm latest 0.6.1 (repository source 0.8.0).
+Desktop 0.8.0: not published (no installer asset on the public release); Android 0.8.0: not published; CLI npm latest 0.6.1 (repository source 0.8.0).
 <!-- HELIX-DATA:project-status:end -->
 
 ## License
