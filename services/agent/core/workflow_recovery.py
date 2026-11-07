@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+from types import SimpleNamespace
 from typing import Any
 
 try:
