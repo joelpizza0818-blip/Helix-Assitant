@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { HelixLogo } from '../components/HelixLogo/HelixLogo';
 import { PrivacyModal } from '../components/PrivacyModal/PrivacyModal';
+import { useAuth } from '../hooks/useAuth';
+import { useAdminAccess } from '../hooks/useAdminAccess';
 import { getLatestLiteRelease, type LiteReleaseDownload } from '../lib/downloads';
 import './ScrollytellingLandingPage.css';
 
@@ -410,6 +412,8 @@ export const ScrollytellingLandingPage: React.FC = () => {
   const [targetEdition, setTargetEdition] = useState<'Normal' | 'Lite'>('Normal');
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const { access: adminAccess } = useAdminAccess(Boolean(user));
 
   const storiesRef = useRef<HTMLElement>(null);
   const galleryRef = useRef<HTMLElement>(null);
@@ -521,7 +525,9 @@ export const ScrollytellingLandingPage: React.FC = () => {
           <Link to="/announcements" onClick={closeMenu}>Announcements <span>05</span></Link>
           <Link to="/docs" onClick={closeMenu}>Documentation <span>06</span></Link>
           <Link to="/privacy" onClick={closeMenu}>Privacy Policy <span>07</span></Link>
-          <Link to="/admin" onClick={closeMenu}>Admin panel <span>08</span></Link>
+          {adminAccess.status === 'allowed' && (
+            <Link to="/admin" onClick={closeMenu}>Admin panel <span>08</span></Link>
+          )}
           <div className="scrolly-menu__account">
             <Link to="/login" onClick={closeMenu}>Log in</Link>
             <Link to="/register" onClick={closeMenu}>Create an account</Link>
