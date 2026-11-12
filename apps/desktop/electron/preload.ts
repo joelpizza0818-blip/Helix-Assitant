@@ -80,6 +80,8 @@ contextBridge.exposeInMainWorld('helix', {
   }> => ipcRenderer.invoke('helix:install-playwright-chromium'),
   getDeveloperTerminalStatus: () =>
     ipcRenderer.invoke('helix:developer-terminal-status'),
+  getHyperVPreflight: () =>
+    ipcRenderer.invoke('helix:get-hyperv-preflight'),
   startDeveloperTerminal: (options: {
     project_id: string
     shell: 'powershell' | 'cmd' | 'bash'

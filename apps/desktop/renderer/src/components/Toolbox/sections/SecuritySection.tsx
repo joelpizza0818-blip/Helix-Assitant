@@ -1,5 +1,5 @@
-import React, { useState } from 'react'
-import type { HelixSettings } from '../../../types/global'
+import React, { useEffect, useState } from 'react'
+import type { HelixSettings, HyperVPreflight } from '../../../types/global'
 import '../Toolbox.css'
 
 interface Props {
@@ -19,6 +19,25 @@ const PERMISSION_LEVELS = [
 export default function SecuritySection({ settings, onSave }: Props) {
   const [newPath, setNewPath] = useState('')
   const [newApp, setNewApp] = useState('')
+  const [hyperVPreflight, setHyperVPreflight] = useState<HyperVPreflight | null>(null)
+  const [hyperVError, setHyperVError] = useState<string | null>(null)
+  const [isCheckingHyperV, setIsCheckingHyperV] = useState(false)
+
+  const checkHyperV = async () => {
+    setIsCheckingHyperV(true)
+    setHyperVError(null)
+    try {
+      setHyperVPreflight(await window.helix.getHyperVPreflight())
+    } catch (error) {
+      setHyperVError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setIsCheckingHyperV(false)
+    }
+  }
+
+  useEffect(() => {
+    void checkHyperV()
+  }, [])
 
   const handleAddPath = () => {
     if (!newPath.trim()) return
@@ -53,6 +72,50 @@ export default function SecuritySection({ settings, onSave }: Props) {
 
       <div className="toolbox-card">
         <div className="toolbox-card__header">
+          <span className="toolbox-card__title">Isolated desktop (Hyper-V)</span>
+          <button
+            type="button"
+            className="validate-btn"
+            disabled={isCheckingHyperV}
+            onClick={() => void checkHyperV()}
+          >
+            {isCheckingHyperV ? 'Checking…' : 'Check compatibility'}
+          </button>
+        </div>
+        <p className="text-xs text-muted" style={{ marginBottom: 12 }}>
+          The isolated desktop requires a persistent Hyper-V virtual machine. HELIX will not enable Windows features or capture the host desktop as a fallback.
+        </p>
+        {hyperVError && (
+          <p className="text-xs" role="alert" style={{ color: 'var(--red)' }}>
+            Could not check Hyper-V: {hyperVError}
+          </p>
+        )}
+        {hyperVPreflight && (
+          <div aria-live="polite">
+            <p className="text-sm" style={{ color: hyperVPreflight.ready ? 'var(--green)' : 'var(--orange)' }}>
+              {hyperVPreflight.ready
+                ? 'Hyper-V is ready for virtual desktop provisioning.'
+                : 'Hyper-V is not ready for virtual desktop provisioning.'}
+            </p>
+            <p className="text-xs text-muted">
+              Windows edition: {hyperVPreflight.edition ?? 'not detected'} · Feature: {hyperVPreflight.featureState}
+            </p>
+            {hyperVPreflight.blockers.length > 0 && (
+              <ul className="text-xs text-muted" style={{ margin: '8px 0 0', paddingLeft: 18 }}>
+                {hyperVPreflight.blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}
+              </ul>
+            )}
+            {hyperVPreflight.featureCheckError && (
+              <p className="text-xs text-muted" style={{ marginTop: 8 }}>
+                Windows feature check: {hyperVPreflight.featureCheckError}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="toolbox-card">
+        <div className="toolbox-card__header">
           <span className="toolbox-card__title">Confirmation Policy</span>
         </div>
         <p className="text-xs text-muted" style={{ marginBottom: 12 }}>
@@ -69,7 +132,7 @@ export default function SecuritySection({ settings, onSave }: Props) {
             permissions_mode: event.target.value as HelixSettings['permissions_mode']
           })}
         >
-          <option value="ALWAYS_ASK">Always Ask — confirm every tool action</option>
+          <option value="ALWAYS_ASK">Always Ask — confirm non-routine actions</option>
           <option value="AUTO_APPROVE">Auto Approve — gate system and critical actions</option>
           <option value="SMART_APPROVAL">Smart Approval — gate modifications and risky context</option>
         </select>
@@ -92,8 +155,9 @@ export default function SecuritySection({ settings, onSave }: Props) {
         </select>
         <p className="text-xs text-muted" style={{ marginTop: 8 }}>
           This limit applies to Smart Approval. Auto Approve permits non-system and non-critical actions;
-          Always Ask confirms every action. Shell commands, dangerous operations, and protected resources
-          still require confirmation.
+          Always Ask confirms non-routine actions. Routine mouse, keyboard, and browser navigation
+          are allowed without repeated prompts. Shell commands, dangerous operations, and protected
+          resources still require confirmation.
         </p>
       </div>
 

@@ -186,8 +186,16 @@ class PermissionManager:
             requires = True
             reason = f"Explicit interactive confirmation is mandatory for {level.name} level operations in all approval modes."
         elif self.mode is PermissionMode.ALWAYS_ASK:
-            requires = True
-            reason = "Always Ask mode requires approval for every tool action."
+            routine_interaction = (
+                level.value <= PermissionLevel.LOW_RISK.value
+                and self.is_routine_interaction(tool_name, params)
+            )
+            requires = not routine_interaction
+            reason = (
+                "Routine browser and input navigation is allowed without repeated prompts."
+                if routine_interaction
+                else "Always Ask mode requires approval for non-routine tool actions."
+            )
         elif self.mode is PermissionMode.AUTO_APPROVE:
             requires = False
             reason = "Auto Approve permits non-system actions; system and critical actions remain gated."
@@ -199,6 +207,70 @@ class PermissionManager:
                 else "Smart Approval permits actions up to the configured approval ceiling."
             )
         return RiskEvaluation(level, requires, reason)
+
+    @staticmethod
+    def is_routine_interaction(tool_name: str, params: dict | None = None) -> bool:
+        """Identify low-risk UI navigation that should not prompt on every step."""
+        params = params or {}
+        if not isinstance(params, dict):
+            return False
+        search_targets = (
+            "search", "query", "find", "filter", "búsqueda", "busqueda",
+        )
+
+        if tool_name == "mouse_tool":
+            return params.get("operation") in {
+                "move", "scroll", "get_position", "click", "double_click",
+                "right_click", "drag",
+            }
+        if tool_name == "browser_control":
+            action = params.get("action")
+            if action == "press_key":
+                key = params.get("key")
+                if not isinstance(key, str):
+                    return False
+                normalized_key = key.casefold()
+                if normalized_key == "enter":
+                    target = params.get("target_description")
+                    return isinstance(target, str) and any(
+                        term in target.casefold()
+                        for term in search_targets
+                    )
+                return normalized_key in {
+                    "tab", "escape", "esc", "up", "down", "left", "right",
+                    "home", "end",
+                }
+            return action in {
+                "navigate", "click", "move_mouse", "click_at", "double_click_at",
+                "drag", "type", "scroll", "scroll_at", "screenshot",
+                "get_content", "go_back", "refresh",
+            }
+        if tool_name in {
+            "computer.click_element",
+            "computer.click_text",
+            "computer.click_at",
+        }:
+            return True
+        if tool_name == "keyboard.press_key":
+            key = params.get("key")
+            if not isinstance(key, str):
+                return False
+            normalized_key = key.casefold()
+            if normalized_key == "enter":
+                target = params.get("target_description")
+                return isinstance(target, str) and any(
+                    term in target.casefold()
+                    for term in search_targets
+                )
+            return normalized_key in {
+                "tab", "esc", "up", "down", "left", "right", "home", "end",
+            }
+        if tool_name == "keyboard.hotkey":
+            shortcut = params.get("shortcut")
+            return isinstance(shortcut, str) and shortcut.casefold() in {
+                "alt+tab", "ctrl+f",
+            }
+        return False
 
     @staticmethod
     def _parse_level(level: PermissionLevel | str | None) -> PermissionLevel | None:

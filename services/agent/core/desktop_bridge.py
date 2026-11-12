@@ -496,6 +496,15 @@ class DesktopRequestHandler:
                 raise ValueError("TASK_CANCEL requires a task_id")
             await self.task_manager.cancel(task_id)
         elif message_type == "TASK_CANCEL_ALL":
+            desktop_tool = None
+            if self.react_loop is not None:
+                registry = getattr(self.react_loop, "tool_registry", None)
+                getter = getattr(registry, "get_tool", None)
+                if callable(getter):
+                    desktop_tool = getter("computer.desktop_control")
+            cancel_desktop = getattr(desktop_tool, "cancel_active", None)
+            if callable(cancel_desktop):
+                cancel_desktop()
             for task in await self.task_manager.get_running_tasks():
                 await self.task_manager.cancel(task.id)
         elif message_type == "TASK_RESUME":

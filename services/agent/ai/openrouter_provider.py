@@ -40,14 +40,14 @@ class OpenRouterProvider(OpenAIProvider):
         return "OpenRouter"
 
     def _client(self, api_key: str, base_url: str | None = None):
-        client = super()._client(api_key=api_key, base_url=base_url or self._base_url)
-        # OpenRouter standard headers for ranking and client identification
-        client.default_headers = {
-            **getattr(client, "default_headers", {}),
-            "HTTP-Referer": "https://helix.assistant",
-            "X-Title": "Helix Assistant",
-        }
-        return client
+        return super()._client(
+            api_key=api_key,
+            base_url=base_url or self._base_url,
+            default_headers={
+                "HTTP-Referer": "https://helix.assistant",
+                "X-Title": "Helix Assistant",
+            },
+        )
 
     async def chat(self, messages: List[ChatMessage], model: str, **kwargs) -> ChatResponse:
         return await super().chat(messages=messages, model=model, base_url=self._base_url, **kwargs)

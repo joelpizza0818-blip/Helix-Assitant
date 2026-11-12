@@ -17,7 +17,9 @@ from services.agent.ai.model_router import RouteCandidate, TaskRequirements
 from services.agent.ai.provider_registry import ProviderRegistry
 from services.agent.core.orchestrator import (
     _append_requested_screen_observation,
+    _should_control_desktop,
     _should_observe_screen,
+    _requires_desktop_control_tool,
 )
 from services.agent.core.react_loop import ReActLoop
 from services.agent.core.desktop_bridge import DesktopRequestHandler
@@ -32,6 +34,7 @@ from services.agent.tools.keyboard_tool import KeyboardTool
 from services.agent.perception.screen_engine import ScreenEngine
 from services.agent.tools.computer_tool import ComputerTool
 from services.agent.tools.screenshot_tool import ScreenshotTool
+from services.agent.tools.desktop_control_tool import DesktopControlTool
 
 
 @pytest.fixture
@@ -56,6 +59,13 @@ def _make_loop(
     tool_name="computer.observe_screen",
     description="What is on my screen?",
     event_bus=None,
+    tool_arguments=None,
+    confirmation_calls=None,
+    tool_sequence=None,
+    extra_tool_schemas=None,
+    schemas_seen=None,
+    messages_seen=None,
+    tools_by_name=None,
 ):
     candidate = RouteCandidate(
         provider_id="mock-provider",
@@ -64,24 +74,43 @@ def _make_loop(
         score=1,
         fallback_available=False,
     )
+    sequence = tool_sequence or [(tool_name, tool_arguments or {})]
+    responses = [
+        ToolCallResponse(
+            tool_calls=[
+                ToolCall(
+                    id=f"capture-{index}",
+                    name=name,
+                    arguments=arguments,
+                )
+            ],
+            content="",
+            model=candidate.model_id,
+            provider=candidate.provider_id,
+        )
+        for index, (name, arguments) in enumerate(sequence, start=1)
+    ]
+    responses.append(
+        ChatResponse(
+            content="Done.",
+            model=candidate.model_id,
+            provider=candidate.provider_id,
+            usage=None,
+            finish_reason="stop",
+        )
+    )
+    async def call_model(_messages, tools, *_args, **_kwargs):
+        if messages_seen is not None:
+            messages_seen.append([
+                (message.role, message.content)
+                for message in _messages
+            ])
+        if schemas_seen is not None:
+            schemas_seen.append([schema["name"] for schema in tools])
+        return responses.pop(0)
+
     provider = SimpleNamespace(
-        tool_call=AsyncMock(side_effect=[
-            ToolCallResponse(
-                tool_calls=[
-                    ToolCall(id="capture-1", name=tool_name, arguments={})
-                ],
-                content="",
-                model=candidate.model_id,
-                provider=candidate.provider_id,
-            ),
-            ChatResponse(
-                content="Done.",
-                model=candidate.model_id,
-                provider=candidate.provider_id,
-                usage=None,
-                finish_reason="stop",
-            ),
-        ]),
+        tool_call=AsyncMock(side_effect=call_model),
         chat=AsyncMock(),
     )
     requirements_seen = []
@@ -91,14 +120,20 @@ def _make_loop(
             requirements_seen.append(requirements.vision)
             return await call(candidate, context)
 
-    schemas = [{
-        "name": tool_name,
-        "description": "Perform the requested screen operation.",
-        "parameters": {"type": "object", "properties": {}},
-    }]
+    schema_names = dict.fromkeys(name for name, _arguments in sequence)
+    schemas = [
+        {
+            "name": name,
+            "description": "Perform the requested screen operation.",
+            "parameters": {"type": "object", "properties": {}},
+        }
+        for name in schema_names
+    ]
+    schemas.extend(extra_tool_schemas or [])
+
     tool_registry = SimpleNamespace(
         get_tool_schemas=lambda **_kwargs: schemas,
-        get_tool=lambda _name: capture_tool,
+        get_tool=lambda name: (tools_by_name or {}).get(name, capture_tool),
     )
     event_bus = event_bus or SimpleNamespace(publish=AsyncMock())
     loop = ReActLoop(
@@ -121,6 +156,15 @@ def _make_loop(
     loop.screen_context_enabled = enabled
     loop.continuous_screen_vision_enabled = continuous_enabled
     loop.model_decides_screen_vision_enabled = model_decides_enabled
+
+    async def confirm_desktop_control(*_args, **_kwargs):
+        if confirmation_calls is not None:
+            confirmation_calls.append(True)
+        return True
+
+    loop._request_tool_confirmation = AsyncMock(
+        side_effect=confirm_desktop_control
+    )
     response = asyncio.run(loop.execute(
         [ChatMessage(role="user", content=description)],
         screen_request_active=request_active,
@@ -222,6 +266,35 @@ def test_screen_context_requires_setting_and_relevant_request():
     assert not _should_observe_screen(False, "What is on my screen?")
     assert not _should_observe_screen(True, "Tell me a joke")
     assert _should_observe_screen(True, "Take a screenshot of the desktop")
+    assert _should_control_desktop(
+        True,
+        "I want you to open Word and type this text",
+    )
+    assert not _should_control_desktop(True, "Tell me a joke")
+    assert _requires_desktop_control_tool(
+        True,
+        "Open Notepad and type a test sentence",
+    )
+    assert _requires_desktop_control_tool(
+        True,
+        "Use desktop control to inspect the open Explorer window",
+    )
+    assert _requires_desktop_control_tool(
+        True,
+        "Click Save on my screen",
+    )
+    assert _requires_desktop_control_tool(
+        True,
+        "Quiero usar computer use para escribir en el Bloc de notas",
+    )
+    assert _requires_desktop_control_tool(
+        True,
+        "Quiero que uses computer use para abrir el Bloc de notas",
+    )
+    assert _requires_desktop_control_tool(
+        True,
+        "Controla el escritorio y abre Configuración",
+    )
 
 
 def test_continuous_screen_vision_allows_model_selected_screen_capture():
@@ -244,7 +317,7 @@ def test_continuous_screen_vision_allows_model_selected_screen_capture():
     capture_tool.execute.assert_awaited_once()
 
 
-def test_continuous_screen_vision_allows_requested_desktop_actions():
+def test_desktop_action_uses_only_desktop_control_not_shell_tools():
     async def execute(_params):
         assert screen_observation_is_allowed()
         return SimpleNamespace(
@@ -254,23 +327,224 @@ def test_continuous_screen_vision_allows_requested_desktop_actions():
         )
 
     action_tool = SimpleNamespace(
-        name="computer.click_element",
-        description="Click a visible control.",
+        name="computer.desktop_control",
+        description="Control the desktop on explicit request.",
         permission_level="LOW_RISK",
         requires_confirmation=False,
         validate_params=lambda _args: True,
         execute=AsyncMock(side_effect=execute),
     )
+    schemas_seen = []
+    messages_seen = []
     _make_loop(
         enabled=False,
         request_active=True,
         continuous_enabled=True,
         capture_tool=action_tool,
-        tool_name="computer.click_element",
+        tool_sequence=[
+            (
+                "computer.desktop_control",
+                {"action": "observe_ui", "window_handle": 42},
+            ),
+            (
+                "computer.desktop_control",
+                {
+                    "action": "click_element",
+                    "window_handle": 42,
+                    "element_id": "save-1",
+                    "target_description": "Save button",
+                },
+            ),
+        ],
+        extra_tool_schemas=[
+            {
+                "name": "powershell_tool",
+                "description": "Run a PowerShell command.",
+                "parameters": {"type": "object", "properties": {}},
+            },
+            {
+                "name": "filesystem_tool",
+                "description": "Read or write files.",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        ],
+        schemas_seen=schemas_seen,
+        messages_seen=messages_seen,
         description="Click Save on my screen.",
     )
 
-    action_tool.execute.assert_awaited_once()
+    assert action_tool.execute.await_count == 3
+    assert action_tool.execute.await_args_list[0].args[0] == {
+        "action": "list_windows",
+    }
+    assert len(schemas_seen) >= 2
+    assert all(
+        names == ["computer.desktop_control"]
+        for names in schemas_seen
+    )
+    preflight_message = next(
+        content
+        for role, content in messages_seen[0]
+        if role == "user"
+        and isinstance(content, str)
+        and content.startswith("Computer-use preflight completed")
+    )
+    assert "HELIX GUI remains on the user's current desktop" in preflight_message
+    assert "Do not repeat list_windows" in preflight_message
+    assert "harness will assign its new window" in preflight_message
+
+
+def test_desktop_control_preflight_failure_stops_without_calling_model():
+    action_tool = SimpleNamespace(
+        name="computer.desktop_control",
+        description="Control the desktop on explicit request.",
+        permission_level="LOW_RISK",
+        requires_confirmation=False,
+        validate_params=lambda _args: True,
+        execute=AsyncMock(return_value=SimpleNamespace(
+            success=False,
+            output=None,
+            error="Desktop session unavailable.",
+        )),
+    )
+
+    with pytest.raises(RuntimeError, match="Desktop-control preflight failed"):
+        _make_loop(
+            enabled=False,
+            request_active=True,
+            capture_tool=action_tool,
+            tool_name="computer.desktop_control",
+            description="Open Notepad and type a test sentence.",
+        )
+
+    action_tool.execute.assert_awaited_once_with({
+        "action": "list_windows",
+    })
+
+
+def test_desktop_control_ignores_general_screen_setting_but_requires_explicit_request():
+    async def execute(_params):
+        assert screen_observation_is_allowed()
+        return SimpleNamespace(
+            success=True,
+            output={"action": "click", "screenshot_bytes": b"verified-frame"},
+            error=None,
+        )
+
+    action_tool = SimpleNamespace(
+        name="computer.desktop_control",
+        description="Control the desktop on explicit request.",
+        permission_level="LOW_RISK",
+        requires_confirmation=False,
+        validate_params=lambda _args: True,
+        execute=AsyncMock(side_effect=execute),
+    )
+
+    confirmation_calls = []
+    _make_loop(
+        enabled=False,
+        request_active=True,
+        capture_tool=action_tool,
+        tool_name="computer.desktop_control",
+        description="Open Notepad and type a test sentence.",
+        confirmation_calls=confirmation_calls,
+    )
+    assert action_tool.execute.await_count == 2
+    assert action_tool.execute.await_args_list[0].args[0] == {
+        "action": "list_windows",
+    }
+    assert confirmation_calls == [True]
+
+    action_tool.execute.reset_mock()
+    _make_loop(
+        enabled=False,
+        request_active=False,
+        capture_tool=action_tool,
+        tool_name="computer.desktop_control",
+        description="Tell me a joke.",
+    )
+    action_tool.execute.assert_not_awaited()
+
+
+def test_desktop_control_rejects_coordinate_fallback_before_uia_attempt():
+    action_tool = SimpleNamespace(
+        name="computer.desktop_control",
+        description="Control the desktop on explicit request.",
+        permission_level="LOW_RISK",
+        requires_confirmation=False,
+        validate_params=lambda _args: True,
+        execute=AsyncMock(),
+    )
+    _make_loop(
+        enabled=False,
+        request_active=True,
+        capture_tool=action_tool,
+        tool_name="computer.desktop_control",
+        description="Open Notepad and type a test sentence.",
+        tool_arguments={
+            "action": "click",
+            "window_handle": 42,
+            "x": 20,
+            "y": 30,
+            "target_description": "Notepad document",
+        },
+    )
+
+    action_tool.execute.assert_awaited_once_with({
+        "action": "list_windows",
+    })
+
+
+def test_desktop_request_offers_browser_control_for_web_pages():
+    desktop_tool = SimpleNamespace(
+        name="computer.desktop_control",
+        description="Native desktop UIA controls.",
+        permission_level="LOW_RISK",
+        requires_confirmation=False,
+        validate_params=lambda _args: True,
+        execute=AsyncMock(return_value=SimpleNamespace(
+            success=True,
+            output={"action": "list_windows", "result": []},
+            error=None,
+            safe_to_retry=True,
+        )),
+    )
+    browser_tool = SimpleNamespace(
+        name="browser_control",
+        description="Page-scoped browser controls.",
+        permission_level="LOW_RISK",
+        requires_confirmation=False,
+        validate_params=lambda _args: True,
+        execute=AsyncMock(return_value=SimpleNamespace(
+            success=True,
+            output={"action": "snapshot"},
+            error=None,
+            safe_to_retry=True,
+        )),
+    )
+    schemas_seen = []
+
+    _make_loop(
+        enabled=False,
+        request_active=True,
+        capture_tool=desktop_tool,
+        tool_name="browser_control",
+        tool_arguments={"action": "snapshot"},
+        description="Open Chrome and then click the search field.",
+        extra_tool_schemas=[
+            {"name": "computer.desktop_control"},
+            {"name": "browser_control"},
+        ],
+        schemas_seen=schemas_seen,
+        tools_by_name={
+            "computer.desktop_control": desktop_tool,
+            "browser_control": browser_tool,
+        },
+    )
+
+    assert "computer.desktop_control" in schemas_seen[0]
+    assert "browser_control" in schemas_seen[0]
+    browser_tool.execute.assert_awaited_once_with({"action": "snapshot"})
 
 
 @pytest.mark.parametrize(

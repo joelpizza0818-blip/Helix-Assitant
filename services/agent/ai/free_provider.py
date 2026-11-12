@@ -62,14 +62,14 @@ class FreeModelProvider(OpenAIProvider):
         if not key_to_use:
             raise RuntimeError("An OpenRouter API key is required to use free-tier models.")
         url_to_use = base_url or self._base_url
-        client = super()._client(api_key=key_to_use, base_url=url_to_use)
-        # OpenRouter expects HTTP-Referer and X-Title for free model routing
-        client.default_headers = {
-            **getattr(client, "default_headers", {}),
-            "HTTP-Referer": "https://helix.assistant",
-            "X-Title": "Helix Assistant",
-        }
-        return client
+        return super()._client(
+            api_key=key_to_use,
+            base_url=url_to_use,
+            default_headers={
+                "HTTP-Referer": "https://helix.assistant",
+                "X-Title": "Helix Assistant",
+            },
+        )
 
     async def chat(self, messages: List[ChatMessage], model: str, **kwargs) -> ChatResponse:
         models_to_try = [model] + [m for m in DEFAULT_FREE_MODELS if m != model]

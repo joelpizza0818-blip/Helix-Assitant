@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import os
+import subprocess
 from dataclasses import dataclass
 from typing import List, Optional, Union
 
@@ -50,15 +52,28 @@ class ApplicationTool:
         return self._os_adapter
 
     async def open_application(
-        self, app_name_or_path: str, args: List[str] = None
+        self,
+        app_name_or_path: str,
+        args: List[str] = None,
+        *,
+        activate: bool = True,
     ) -> AppLaunchResult:
-        """Launches an application."""
+        """Launch an application, optionally requesting a non-activating window."""
         logger.info(f"Opening application: {app_name_or_path} with args {args}")
         try:
             cmd = [app_name_or_path]
             if args:
                 cmd.extend(args)
-            proc = await asyncio.create_subprocess_exec(*cmd)
+            launch_options = {}
+            if os.name == "nt" and not activate:
+                startup_info = subprocess.STARTUPINFO()
+                startup_info.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startup_info.wShowWindow = 4
+                launch_options["startupinfo"] = startup_info
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                **launch_options,
+            )
             return AppLaunchResult(pid=proc.pid, success=True, error=None)
         except Exception as e:
             logger.error(f"Failed to open application: {e}")

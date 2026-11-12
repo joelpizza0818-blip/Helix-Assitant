@@ -104,4 +104,12 @@ def test_native_desktop_actions_escalate_consequential_targets():
         {"target_description": "Open menu"}
     ) == "LOW_RISK"
     assert KeyboardTool().permission_level_for({"key": "enter"}) == "EXECUTE"
+    assert KeyboardTool().permission_level_for({
+        "key": "enter",
+        "target_description": "Search field",
+    }) == "LOW_RISK"
+    assert KeyboardTool().permission_level_for({
+        "key": "enter",
+        "target_description": "Password field",
+    }) == "EXECUTE"
     assert KeyboardTool().permission_level_for({"key": "tab"}) == "LOW_RISK"

@@ -61,6 +61,7 @@ let floatingWindow: BrowserWindow | null = null
 let toolboxWindow: BrowserWindow | null = null
 let confirmationWindow: BrowserWindow | null = null
 let agentsWindow: BrowserWindow | null = null
+let desktopControlIndicatorWindow: BrowserWindow | null = null
 let trayManager: TrayManager | null = null
 let pythonManager: PythonManager | null = null
 let ipcBridge: IPCBridge | null = null
@@ -74,6 +75,90 @@ let isQuitting = false
 let shutdownComplete = false
 let adminAuthenticated = false
 let pendingOAuthCallback: string | null = null
+let emergencyStopShortcut = 'Control+Shift+Escape'
+let emergencyStopShortcutAvailable = false
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => {
+    switch (character) {
+      case '&': return '&amp;'
+      case '<': return '&lt;'
+      case '>': return '&gt;'
+      case '"': return '&quot;'
+      case "'": return '&#39;'
+      default: return character
+    }
+  })
+}
+
+function setDesktopControlIndicator(active: boolean): void {
+  if (!active) {
+    if (desktopControlIndicatorWindow && !desktopControlIndicatorWindow.isDestroyed()) {
+      desktopControlIndicatorWindow.close()
+    }
+    desktopControlIndicatorWindow = null
+    return
+  }
+
+  if (desktopControlIndicatorWindow && !desktopControlIndicatorWindow.isDestroyed()) {
+    return
+  }
+
+  const { workArea } = screen.getPrimaryDisplay()
+  const width = 340
+  const height = 48
+  const indicator = new BrowserWindow({
+    width,
+    height,
+    x: workArea.x + workArea.width - width - 18,
+    y: workArea.y + workArea.height - height - 18,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    movable: false,
+    focusable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    show: false,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  })
+  desktopControlIndicatorWindow = indicator
+  indicator.setVisibleOnAllWorkspaces(true)
+  indicator.setAlwaysOnTop(true, 'floating')
+  indicator.setIgnoreMouseEvents(true)
+  indicator.on('closed', () => {
+    if (desktopControlIndicatorWindow === indicator) {
+      desktopControlIndicatorWindow = null
+    }
+  })
+
+  const html = `<!doctype html><meta charset="utf-8"><style>
+    *{box-sizing:border-box}body{margin:0;font:13px Segoe UI, sans-serif;color:#fff}
+    .banner{height:48px;display:flex;align-items:center;gap:10px;padding:0 14px;
+      border:1px solid #ee6018;border-radius:8px;background:rgba(29,26,24,.97);
+      box-shadow:0 4px 18px rgba(0,0,0,.38)}
+    .dot{width:9px;height:9px;border-radius:50%;background:#ee6018;
+      box-shadow:0 0 8px #ee6018;flex:none}
+    .text{font-weight:600}.hint{margin-left:auto;color:#eee;font-size:11px}
+  </style><div class="banner"><span class="dot"></span>
+    <span class="text">HELIX controla el escritorio</span>
+    <span class="hint">${emergencyStopShortcutAvailable
+      ? `Detener: ${escapeHtml(emergencyStopShortcut)}`
+      : 'Atajo de emergencia no disponible'}</span></div>`
+  void indicator.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+    .then(() => indicator.showInactive())
+    .catch((error: unknown) => {
+      console.error('[Main] Could not display desktop-control indicator:', error)
+      if (desktopControlIndicatorWindow === indicator) {
+        desktopControlIndicatorWindow = null
+      }
+      if (!indicator.isDestroyed()) indicator.close()
+    })
+}
 
 const MAX_LOG_BUFFER_LINES = 2000
 const recentLogBuffer: string[] = []
@@ -618,6 +703,9 @@ function setupIPC(): void {
   ipcBridge = new IPCBridge()
   ipcBridge.onSettingsApplied(applyDesktopSettings)
   ipcBridge.onAgentEvent((message) => {
+    if (message.type === 'desktop_control_status') {
+      setDesktopControlIndicator(message.payload.active === true)
+    }
     if (
       message.type === 'agent_update'
       && typeof message.payload.promotion === 'string'
@@ -1175,7 +1263,19 @@ function applyDesktopSettings(settings: Record<string, unknown>): void {
 
   const emergency = settings.emergency_stop_shortcut
   if (typeof emergency === 'string' && emergency.trim()) {
-    globalShortcut.register(emergency, () => ipcBridge?.sendEmergencyStop())
+    emergencyStopShortcut = emergency
+    emergencyStopShortcutAvailable = globalShortcut.register(
+      emergency,
+      () => ipcBridge?.sendEmergencyStop(),
+    )
+    if (!emergencyStopShortcutAvailable) {
+      console.error(
+        `[Main] Emergency stop shortcut could not be registered: ${emergency}`,
+      )
+    }
+  } else {
+    emergencyStopShortcutAvailable = false
+    console.error('[Main] Emergency stop shortcut is not configured.')
   }
 }
 
