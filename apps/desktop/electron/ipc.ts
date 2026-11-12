@@ -16,6 +16,7 @@ import {
   getNextGestureWindowToOpen,
   type GestureWindowId,
 } from './gesture-window-sequence'
+import { getHyperVPreflight } from './hyperv-preflight'
 
 interface AgentMessage {
   type: string
@@ -138,6 +139,11 @@ export class IPCBridge {
         shells,
         ...(shells.length > 0 ? {} : { reason: 'No supported local shell was found on PATH.' }),
       }
+    })
+
+    ipcMain.handle('helix:get-hyperv-preflight', (event) => {
+      this._assertToolboxSender(event.sender)
+      return getHyperVPreflight()
     })
 
     ipcMain.handle('helix:developer-terminal-start', async (event, incoming: unknown) => {

@@ -1,0 +1,19 @@
+{
+  "monitor_index": 0,
+  "max_wait_seconds": 30,
+  "max_text_characters": 10000,
+  "max_scroll_steps": 10,
+  "mouse_move_duration_ms": 200,
+  "max_accessibility_elements": 100,
+  "max_accessibility_depth": 5,
+  "accessibility_cache_ttl_ms": 30000,
+  "allowed_hotkeys": [
+    "ctrl+a",
+    "ctrl+c",
+    "ctrl+f",
+    "ctrl+s",
+    "ctrl+v",
+    "ctrl+y",
+    "ctrl+z"
+  ]
+}

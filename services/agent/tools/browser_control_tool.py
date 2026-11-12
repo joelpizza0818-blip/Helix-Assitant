@@ -19,7 +19,11 @@ except ImportError:
     from browser.state_validator import BrowserStateValidator
 
 from .base_tool import BaseTool, ToolResult
-from .permission_utils import has_consequential_action_text
+from .permission_utils import (
+    has_consequential_action_text,
+    has_sensitive_input_target_text,
+    is_search_input_target,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -74,18 +78,33 @@ class BrowserControlTool(BaseTool):
     def permission_level_for(self, params: Dict[str, Any]) -> str:
         action = params.get("action")
         target_description = params.get("target_description")
-        if action == "type" and params.get("submit") is True:
-            return "EXECUTE"
-        if action == "press_key" and str(
-            params.get("key", "Enter")
-        ).casefold() == "enter":
+        selector = params.get("selector")
+        if action == "type":
+            target = " ".join(
+                value
+                for value in (selector, target_description)
+                if isinstance(value, str)
+            )
+            if has_sensitive_input_target_text(target):
+                return "EXECUTE"
+            if params.get("submit") is True and not is_search_input_target(target):
+                return "EXECUTE"
+        if (
+            action == "press_key"
+            and str(params.get("key", "Enter")).casefold() == "enter"
+            and (
+                not isinstance(target_description, str)
+                or not target_description.strip()
+                or has_consequential_action_text(target_description)
+                or has_sensitive_input_target_text(target_description)
+            )
+        ):
             return "EXECUTE"
         if (
             action == "press_key"
             and has_consequential_action_text(target_description)
         ):
             return "EXECUTE"
-        selector = params.get("selector")
         selector_action = action in {"click", "type"}
         visual_action = action in {"click_at", "double_click_at", "drag"}
         if (
@@ -678,9 +697,12 @@ class BrowserControlTool(BaseTool):
                 return ToolResult(success=True, output={"action": action, "status": "closed"})
 
             session = await self._get_or_create_session()
-            before_observation = (
-                None if action == "get_content" else await session.observe()
-            )
+            if action == "navigate":
+                current_url = await session.get_current_url()
+                if urlparse(current_url).scheme in {"http", "https"}:
+                    before_observation = await session.observe()
+            elif action != "get_content":
+                before_observation = await session.observe()
             if action == "navigate":
                 url = params["url"].strip()
                 if not url.startswith(("http://", "https://")):

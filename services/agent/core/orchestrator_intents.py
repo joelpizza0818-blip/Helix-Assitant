@@ -47,7 +47,28 @@ _SCREEN_OBSERVATION_INTENT = re.compile(
     re.IGNORECASE,
 )
 _SCREEN_ACTION_INTENT = re.compile(
-    r"^\s*(?:(?:please|kindly|por\s+favor)\s+)?"
+    r"(?:"
+    r"\b(?:use|uses|utili[sz]e|usa|usar|utiliza|utilice)\s+"
+    r"(?:(?:the|el|la|mi)\s+)?"
+    r"(?:computer[-\s]+use|desktop[-\s]+control|"
+    r"control(?:ar)?\s+(?:del|de|de\s+la|de\s+mi)\s+"
+    r"(?:escritorio|computadora|ordenador))\b"
+    r"|^\s*(?:(?:please|kindly|por\s+favor)\s+)?"
+    r"(?:controla|maneja|opera)\s+"
+    r"(?:(?:el|mi|la)\s+)?(?:escritorio|computadora|ordenador)\b"
+    r"|"
+    r"\b(?:use|usa|utiliza)\s+(?:(?:the|el|la|mi)\s+)?"
+    r"(?:desktop|computer|escritorio|computadora)\s+"
+    r"(?:control|to|para)\b"
+    r"|^\s*(?:(?:please|kindly|por\s+favor)\s+)?"
+    r"(?:"
+    r"(?:open|launch|start|abre|inicia|ejecuta)\s+"
+    r"(?:(?:the|my|a|an|la|el|mi|un|una)\s+)?"
+    r"[\w.-]+(?:\s+[\w.-]+){0,2}\s+"
+    r"(?:and|then|y|luego)\s+"
+    r"(?:click|clic|tap|press|select|choose|type|write|paste|drag|"
+    r"pulsa|selecciona|escribe|pega|arrastra)\b"
+    r"|"
     r"(?:click|clic|tap|press|select|choose|type|write|paste|drag|"
     r"haz\s+clic(?:\s+en)?|pulsa|selecciona|escribe|pega|arrastra)"
     r"\s+(?:(?:the|a|an|my|this|el|la|un|una|mi)\s+)?"
@@ -66,7 +87,32 @@ _SCREEN_ACTION_INTENT = re.compile(
     r"(?:on|in|en)\s+"
     r"(?:(?:the|my|current|active|this|el|la|mi|actual)\s+)?"
     r"(?:screen|desktop|window|pantalla|escritorio|ventana)"
-    r")\b",
+    r")))\b",
+    re.IGNORECASE,
+)
+_REQUESTED_DESKTOP_ACTION = re.compile(
+    r"\b(?:"
+    r"(?:quiero|necesito|puedes|podr[ií]as)\s+(?:que\s+)?"
+    r"(?:abras|inicies|ejecutes|uses|utilices|escribas|selecciones|"
+    r"busques|encuentres|hagas\s+clic)"
+    r"|(?:i\s+want\s+you\s+to|please|can\s+you|could\s+you)\s+"
+    r"(?:open|launch|start|click|type|write|select|use)"
+    r").{0,80}\b(?:word|excel|notepad|bloc\s+de\s+notas|"
+    r"window|screen|desktop|ventana|pantalla|escritorio|"
+    r"aplicaci[oó]n|app)\b",
+    re.IGNORECASE,
+)
+_DESKTOP_CONTROL_TOOL_REQUIRED = re.compile(
+    r"(?:"
+    r"\b(?:use|utili[sz]e|usa|utiliza)\s+(?:(?:the|el|la|mi)\s+)?"
+    r"(?:desktop|computer|escritorio|computadora)\s+"
+    r"(?:control|use|automation|control)\b"
+    r"|^\s*(?:(?:please|kindly|por\s+favor)\s+)?"
+    r"(?:open|launch|start|abre|inicia|ejecuta)\s+"
+    r"[\w.-]+(?:\s+[\w.-]+){0,2}\s+(?:and|then|y|luego)\s+"
+    r"(?:click|clic|tap|press|select|choose|type|write|paste|drag|"
+    r"pulsa|selecciona|escribe|pega|arrastra)\b"
+    r")",
     re.IGNORECASE,
 )
 _METALINGUISTIC_INTENT = re.compile(
@@ -167,6 +213,27 @@ def _should_observe_screen(enabled: bool, description: str) -> bool:
     return bool(
         _SCREEN_OBSERVATION_INTENT.search(description)
         or _SCREEN_ACTION_INTENT.search(description)
+        or _REQUESTED_DESKTOP_ACTION.search(description)
+    )
+
+
+def _should_control_desktop(enabled: bool, description: str) -> bool:
+    """Recognize explicit desktop actions without enabling general screen access."""
+    if not enabled or _METALINGUISTIC_INTENT.search(description):
+        return False
+    return bool(
+        _SCREEN_ACTION_INTENT.search(description)
+        or _REQUESTED_DESKTOP_ACTION.search(description)
+    )
+
+
+def _requires_desktop_control_tool(enabled: bool, description: str) -> bool:
+    """Identify tasks that must stay on the dedicated desktop-control tool."""
+    if not enabled or _METALINGUISTIC_INTENT.search(description):
+        return False
+    return bool(
+        _DESKTOP_CONTROL_TOOL_REQUIRED.search(description)
+        or _should_control_desktop(enabled, description)
     )
 
 

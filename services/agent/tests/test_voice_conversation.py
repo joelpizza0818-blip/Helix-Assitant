@@ -89,6 +89,54 @@ def test_voice_orchestration_returns_direct_conversational_answer():
     )
 
 
+def test_desktop_control_request_bypasses_general_workflow_planner():
+    event_bus = EventBusStub()
+    task_manager = TaskManagerStub()
+    react_loop = SimpleNamespace(
+        execute=AsyncMock(return_value=SimpleNamespace(content="Listo.")),
+        complex_workflows_enabled=True,
+        continuous_screen_vision_enabled=True,
+        screen_context_enabled=True,
+        on_demand_screen_context_enabled=True,
+    )
+    planner = SimpleNamespace(create_plan=AsyncMock())
+    orchestrator = Orchestrator(
+        planner=planner,
+        task_manager=task_manager,
+        event_bus=event_bus,
+        react_loop=react_loop,
+        agent_manager=None,
+        tool_registry=None,
+        role_config=None,
+    )
+    screen_observation_calls = []
+    orchestrator.continuous_screen_context_provider = lambda: (
+        screen_observation_calls.append(True) or {"summary": "screen"}
+    )
+
+    asyncio.run(
+        orchestrator.execute_task(
+            "task-desktop",
+            "Open Notepad and type a test sentence.",
+            {
+                "input_source": "text",
+                "conversation_id": "conversation-desktop",
+            },
+        )
+    )
+
+    planner.create_plan.assert_not_awaited()
+    assert screen_observation_calls == []
+    react_loop.execute.assert_awaited_once()
+    messages = react_loop.execute.await_args.args[0]
+    assert any(
+        message.role == "system"
+        and "computer.desktop_control" in message.content
+        and "browser_control" in message.content
+        for message in messages
+    )
+
+
 def test_continuous_screen_context_is_shared_for_model_decisions():
     event_bus = EventBusStub()
     task_manager = TaskManagerStub()

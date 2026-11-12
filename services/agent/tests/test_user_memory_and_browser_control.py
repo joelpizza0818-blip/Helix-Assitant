@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import logging
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -133,6 +134,18 @@ def test_browser_control_escalates_only_explicit_or_consequential_actions():
         "submit": True,
     }) == "EXECUTE"
     assert tool.permission_level_for({
+        "action": "type",
+        "selector": "input[name='q']",
+        "text": "weather",
+        "submit": True,
+    }) == "LOW_RISK"
+    assert tool.permission_level_for({
+        "action": "type",
+        "selector": "input[type='password']",
+        "text": "redacted",
+        "submit": False,
+    }) == "EXECUTE"
+    assert tool.permission_level_for({
         "action": "click",
         "selector": "text=Confirm purchase",
     }) == "EXECUTE"
@@ -175,6 +188,16 @@ def test_browser_control_escalates_only_explicit_or_consequential_actions():
         "key": "Escape",
         "target_description": "Close menu",
     }) == "LOW_RISK"
+    assert tool.permission_level_for({
+        "action": "press_key",
+        "key": "Enter",
+        "target_description": "Google search box",
+    }) == "LOW_RISK"
+    assert tool.permission_level_for({
+        "action": "press_key",
+        "key": "Enter",
+        "target_description": "Password field",
+    }) == "EXECUTE"
 
 
 def test_planned_browser_submission_uses_contextual_confirmation():
@@ -213,6 +236,92 @@ def test_planned_browser_submission_uses_contextual_confirmation():
     loop._request_tool_confirmation.assert_awaited_once()
     assert loop._request_tool_confirmation.await_args.args[1]["submit"] is True
     tool.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_planned_routine_browser_navigation_skips_always_ask_prompt():
+    tool = BrowserControlTool()
+    tool.execute = AsyncMock(return_value=SimpleNamespace(
+        success=True,
+        output={"url": "https://example.org"},
+        error=None,
+    ))
+    event_bus = SimpleNamespace(publish=AsyncMock())
+    permission_manager = PermissionManager()
+    permission_manager.configure(mode="ALWAYS_ASK")
+    loop = ReActLoop(
+        provider_registry=None,
+        model_router=None,
+        fallback_manager=None,
+        tool_registry=SimpleNamespace(get_tool=lambda _name: tool),
+        key_manager=None,
+        event_bus=event_bus,
+        role_config=None,
+        permission_manager=permission_manager,
+    )
+    loop._request_tool_confirmation = AsyncMock(return_value=False)
+    loop.tool_verification_enabled = False
+
+    outcome = await loop.execute_planned_tool(
+        "browser_control",
+        {"action": "navigate", "url": "https://example.org"},
+        task_id="browser-routine-navigation",
+    )
+
+    assert outcome.success
+    loop._request_tool_confirmation.assert_not_awaited()
+    tool.execute.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_failed_browser_tool_summary_and_log_expose_sanitized_error(caplog):
+    tool = BrowserControlTool()
+    tool.execute = AsyncMock(return_value=SimpleNamespace(
+        success=False,
+        output=None,
+        error=(
+            "Search selector timed out at https://example.org/search?q=private "
+            "api_key=sk-private-value"
+        ),
+    ))
+    event_bus = SimpleNamespace(publish=AsyncMock())
+    loop = ReActLoop(
+        provider_registry=None,
+        model_router=None,
+        fallback_manager=None,
+        tool_registry=SimpleNamespace(get_tool=lambda _name: tool),
+        key_manager=None,
+        event_bus=event_bus,
+        role_config=None,
+    )
+
+    caplog.set_level(logging.ERROR, logger="services.agent.core.react_loop")
+    outcome = await loop.execute_planned_tool(
+        "browser_control",
+        {
+            "action": "click",
+            "selector": "input[name=q]",
+            "url": "https://example.org/search?q=private",
+            "text": "private search",
+        },
+        task_id="browser-failure-summary",
+    )
+
+    assert not outcome.success
+    tool_events = [
+        call.args[1]
+        for call in event_bus.publish.call_args_list
+        if call.args[0] == "TOOL_EXECUTED"
+    ]
+    assert len(tool_events) == 1
+    assert "Search selector timed out" in tool_events[0]["result_summary"]
+    assert "sk-private-value" not in tool_events[0]["result_summary"]
+    assert "task_id=browser-failure-summary" in caplog.text
+    assert "action" in caplog.text and "input[name=q]" in caplog.text
+    assert "Search selector timed out" in caplog.text
+    assert "?q=private" not in caplog.text
+    assert "private search" not in caplog.text
+    assert "sk-private-value" not in caplog.text
 
 
 def test_planned_visual_deletion_uses_contextual_confirmation():
@@ -311,6 +420,7 @@ class FakeBrowserSession:
 async def test_browser_control_validates_urls_and_does_not_submit_unless_requested(monkeypatch):
     tool = BrowserControlTool()
     session = FakeBrowserSession()
+    session.visited = "https://example.org/start"
 
     async def use_fake_session():
         return session
@@ -336,6 +446,40 @@ async def test_browser_control_validates_urls_and_does_not_submit_unless_request
     assert visual_click.output["screenshot_bytes"] == b"image-bytes"
     assert visual_click.output["state_validation"]["changed"] is False
     assert session.mouse_actions == [("click", 420, 260, "left")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("initial_url", ["about:blank", "chrome://newtab/"])
+async def test_browser_navigation_does_not_observe_internal_start_page(
+    monkeypatch, initial_url
+):
+    tool = BrowserControlTool()
+    session = FakeBrowserSession()
+    session.visited = initial_url
+    observe_calls = 0
+    observe_page = session.observe
+
+    async def observe_web_page_only():
+        nonlocal observe_calls
+        observe_calls += 1
+        if not (session.visited or "").startswith(("http://", "https://")):
+            raise RuntimeError("Internal browser pages cannot be inspected.")
+        return await observe_page()
+
+    session.observe = observe_web_page_only
+
+    async def use_fake_session():
+        return session
+
+    monkeypatch.setattr(tool, "_get_or_create_session", use_fake_session)
+
+    result = await tool.execute({"action": "navigate", "url": "example.org"})
+
+    assert result.success
+    assert session.visited == "https://example.org"
+    assert observe_calls == 1
+    assert result.output["page"].startswith("URL: https://example.org")
+    assert "state_validation" not in result.output
 
 
 @pytest.mark.asyncio

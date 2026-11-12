@@ -9,12 +9,19 @@ import json
 from .base_provider import BaseAIProvider, ChatMessage, ChatResponse, StreamChunk, ToolCallResponse, Usage, ModelDefinition, ModelCapabilities, AgentError, KeyHealth, ToolCall
 
 class OpenAIProvider(BaseAIProvider):
-    def _client(self, api_key: str, base_url: str | None = None):
+    def _client(
+        self,
+        api_key: str,
+        base_url: str | None = None,
+        default_headers: Dict[str, str] | None = None,
+    ):
         if not openai:
             raise RuntimeError("openai SDK not installed")
         options = {"api_key": api_key}
         if base_url:
             options["base_url"] = base_url.rstrip("/")
+        if default_headers is not None:
+            options["default_headers"] = default_headers
         return AsyncOpenAI(**options)
 
     @property

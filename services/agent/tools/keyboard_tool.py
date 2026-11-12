@@ -4,7 +4,10 @@ import logging
 from .base_tool import BaseTool, ToolResult
 from ..perception.screen_engine import ScreenEngine
 from ..perception.screen_observation_policy import screen_observation_is_allowed
-from .permission_utils import has_consequential_action_text
+from .permission_utils import (
+    has_consequential_action_text,
+    has_sensitive_input_target_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -148,8 +151,9 @@ class KeyboardTool(_KeyboardController, BaseTool):
     def description(self) -> str:
         return (
             "Press a safe navigation or editing key in the focused control. "
-            "Enter requires confirmation; describe the focused target when a "
-            "different key action is consequential."
+            "Routine navigation keys do not require confirmation. Enter requires "
+            "confirmation unless target_description identifies a non-sensitive "
+            "search/filter target; describe consequential targets."
         )
 
     @property
@@ -158,9 +162,17 @@ class KeyboardTool(_KeyboardController, BaseTool):
 
     def permission_level_for(self, params: dict) -> str:
         key = params.get("key")
-        if isinstance(key, str) and key.casefold() == "enter":
+        target_description = params.get("target_description")
+        if (
+            has_consequential_action_text(target_description)
+            or has_sensitive_input_target_text(target_description)
+        ):
             return "EXECUTE"
-        if has_consequential_action_text(params.get("target_description")):
+        if (
+            isinstance(key, str)
+            and key.casefold() == "enter"
+            and not target_description
+        ):
             return "EXECUTE"
         return self.permission_level
 

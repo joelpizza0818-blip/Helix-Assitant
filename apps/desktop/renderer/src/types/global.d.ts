@@ -56,6 +56,7 @@ export interface HelixAPI {
     output: string
   }>
   getDeveloperTerminalStatus: () => Promise<DeveloperTerminalStatus>
+  getHyperVPreflight: () => Promise<HyperVPreflight>
   startDeveloperTerminal: (options: {
     project_id: string
     shell: DeveloperTerminalShell
@@ -837,6 +838,17 @@ export interface DeveloperTerminalStatus {
   supported: boolean
   shells: DeveloperTerminalShell[]
   reason?: string
+}
+
+export interface HyperVPreflight {
+  supportedHost: boolean
+  edition: string | null
+  featureState: 'Enabled' | 'Disabled' | 'EnablePending' | 'DisablePending' | 'Unknown'
+  moduleAvailable: boolean
+  serviceRunning: boolean | null
+  ready: boolean
+  blockers: string[]
+  featureCheckError?: string
 }
 
 export interface DeveloperTerminalDataEvent {
