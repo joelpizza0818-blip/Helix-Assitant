@@ -267,7 +267,11 @@ export function useAgent(options: UseAgentOptions = {}): UseAgentReturn {
     cleanups.push(
       window.helix.onFallbackEvent((event) => {
         setFallbackEvent(event)
-        // Auto-dismiss after 5 seconds
+        // El aviso caduca 5 s después de RECIBIRSE, no de montarse. El temporizador vive en este
+        // hook porque es el dueño del estado: useAgent también lo usan Toolbox y TaskManager, que
+        // no renderizan la barra, y así el descarte no depende de que un componente esté montado.
+        // Reiniciarlo aquí garantiza que un evento nuevo se vea sus 5 s completos aunque el
+        // anterior siguiera visible.
         if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current)
         fallbackTimerRef.current = setTimeout(() => setFallbackEvent(null), 5000)
       })
