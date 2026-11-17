@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Optional
@@ -95,7 +96,7 @@ def split_speech_segments(text: str, max_chars: int = MAX_SPEECH_SEGMENT_CHARS) 
         return []
     raw_segments = [
         segment.strip()
-        for segment in __import__("re").split(r"(?<=[.!?…])\s+|(?<=[;:])\s+", normalized)
+        for segment in re.split(r"(?<=[.!?…])\s+|(?<=[;:])\s+", normalized)
         if segment.strip()
     ]
     if not raw_segments:

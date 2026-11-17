@@ -16,6 +16,7 @@ import asyncio
 import importlib.util
 import logging
 import os
+import re
 import shutil
 import tempfile
 from dataclasses import dataclass
@@ -497,7 +498,8 @@ class TTSRouter:
     """
 
     # Known neural voice ID patterns from the UI catalog
-    _EDGE_VOICE_RE = __import__("re").compile(
+    # Se compila una sola vez porque _is_edge_voice se evalúa en cada conexión.
+    _EDGE_VOICE_RE = re.compile(
         r"^[a-z]{2}-[A-Z]{2}-[A-Za-z]+Neural$"
     )
 
