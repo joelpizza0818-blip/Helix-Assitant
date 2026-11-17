@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from 'react'
 import type { ProjectGraph, ProjectGraphEdge, ProjectGraphNode } from '../../../types/global'
+import { getUserFacingError } from '../../../lib/userError'
 import './ProjectGraphEditor.css'
 
 interface Props {
@@ -270,7 +271,12 @@ const ProjectGraphEditor = forwardRef<ProjectGraphEditorHandle, Props>(function 
         setSelectedNodeId(null)
       })
       .catch((reason: unknown) => {
-        if (active) setError(reason instanceof Error ? reason.message : 'Could not load the project graph.')
+        if (active) {
+          setError(getUserFacingError(
+            reason,
+            'No se pudo cargar el gráfico del proyecto. Comprueba la conexión e inténtalo de nuevo.',
+          ))
+        }
       })
       .finally(() => {
         if (active) setLoading(false)
@@ -431,7 +437,10 @@ const ProjectGraphEditor = forwardRef<ProjectGraphEditorHandle, Props>(function 
       setPositions(nextPositions)
       setSavedPositions(new Map(nextPositions))
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not save the project graph.')
+      setError(getUserFacingError(
+        reason,
+        'No se pudo guardar el gráfico del proyecto. Comprueba la conexión e inténtalo de nuevo.',
+      ))
     } finally {
       setBusy(false)
     }

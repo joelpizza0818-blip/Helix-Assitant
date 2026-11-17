@@ -19,6 +19,10 @@ class UIAutomationUnavailable(UIAutomationError):
     """Windows UI Automation is unavailable in the current environment."""
 
 
+class UIAutomationPatternUnavailable(UIAutomationError):
+    """A control does not expose the requested safe accessibility pattern."""
+
+
 class WindowsUIAutomation:
     """Expose a bounded active-window tree and short-lived element IDs."""
 
@@ -76,6 +80,28 @@ class WindowsUIAutomation:
                 "elements": deepcopy(elements),
             }
 
+    def element_info(self, hwnd: int, element_id: str) -> dict[str, Any]:
+        """Return the current identity and native bounds of one element.
+
+        This is a read-only lookup. It deliberately keeps the snapshot valid so
+        the caller can invoke the element or fall back to its bounds.
+        """
+        with self._lock:
+            control = self._resolve(hwnd, element_id)
+            self._require_enabled(control, element_id)
+            rectangle = control.BoundingRectangle
+            return {
+                "element_id": element_id,
+                "name": str(control.Name or "")[:200],
+                "role": str(control.ControlTypeName or "")[:80],
+                "bounding_box": {
+                    "x": int(rectangle.left),
+                    "y": int(rectangle.top),
+                    "width": max(0, int(rectangle.right - rectangle.left)),
+                    "height": max(0, int(rectangle.bottom - rectangle.top)),
+                },
+            }
+
     def click_element(self, hwnd: int, element_id: str) -> str:
         """Invoke a current enabled element without synthesizing user input."""
         with self._lock:
@@ -86,7 +112,7 @@ class WindowsUIAutomation:
                     control.GetInvokePattern().Invoke()
                     return "invoke"
                 except Exception as error:
-                    raise UIAutomationError(
+                    raise UIAutomationPatternUnavailable(
                         f"Element {element_id} does not expose a safe Invoke pattern."
                     ) from error
             finally:
@@ -104,6 +130,45 @@ class WindowsUIAutomation:
                     raise UIAutomationError(
                         f"Element {element_id} does not expose a safe Value pattern."
                     ) from error
+            finally:
+                self._invalidate()
+
+    def set_value_or_focus(
+        self,
+        hwnd: int,
+        element_id: str,
+        text: str,
+        *,
+        allow_focus: bool,
+    ) -> str:
+        """Set a value through UIA, or focus it for a consented keyboard fallback.
+
+        The control is only focused when ``allow_focus`` is true. This keeps the
+        physical-input fallback behind the user's one-time consent even though
+        focusing itself does not synthesize input.
+        """
+        with self._lock:
+            try:
+                control = self._resolve(hwnd, element_id)
+                self._require_enabled(control, element_id)
+                try:
+                    control.GetValuePattern().SetValue(text)
+                    return "value_pattern"
+                except Exception as error:
+                    if not allow_focus:
+                        raise UIAutomationError(
+                            f"Element {element_id} does not expose a safe Value "
+                            "pattern, and the physical keyboard fallback was not "
+                            "allowed by the user."
+                        ) from error
+                    try:
+                        control.SetFocus()
+                    except Exception as focus_error:
+                        raise UIAutomationError(
+                            f"Element {element_id} could not be focused for the "
+                            "keyboard fallback."
+                        ) from focus_error
+                    return "focus_only"
             finally:
                 self._invalidate()
 

@@ -2,6 +2,7 @@ import prompts from 'prompts';
 import chalk from 'chalk';
 import type { AgentClient } from '../client/agent-client';
 import { CYAN, GREEN, RED, YELLOW, GRAY, BOLD, DIM } from '../ui/colors';
+import { getUserFacingError } from '../ui/userError';
 
 const KNOWN_PROVIDERS = [
   { title: 'OpenAI (GPT-4o, o1, o3-mini)', value: 'openai' },
@@ -59,7 +60,7 @@ export async function handleShowApiKey(client: AgentClient): Promise<void> {
       console.log('');
     }
   } catch (error) {
-    console.log(RED(`  Error al consultar API keys del agente: ${(error as Error).message}\n`));
+    console.log(RED(`  ${getUserFacingError(error, 'No se pudieron consultar las claves de API. Comprueba que HELIX esté conectado e inténtalo de nuevo.')}\n`));
   }
 }
 
@@ -124,6 +125,6 @@ export async function handleConfigApiKey(client: AgentClient): Promise<void> {
       console.log(YELLOW(`\n  ⚠ La clave fue procesada pero su estado es: ${health}\n`));
     }
   } catch (err) {
-    console.log(RED(`\n  ✖ Error al validar la API Key: ${(err as Error).message}\n`));
+    console.log(RED(`\n  ✖ ${getUserFacingError(err, 'No se pudo validar la clave. Comprueba que sea correcta y vuelve a intentarlo.')}\n`));
   }
 }

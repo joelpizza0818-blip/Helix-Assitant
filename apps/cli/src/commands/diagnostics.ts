@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import type { AgentClient } from '../client/agent-client';
 import { BOLD, CYAN, DIM, GREEN, GRAY, RED, YELLOW } from '../ui/colors';
+import { getUserFacingError } from '../ui/userError';
 
 export async function handleProviders(client: AgentClient): Promise<void> {
   try {
@@ -14,7 +15,7 @@ export async function handleProviders(client: AgentClient): Promise<void> {
       }
     }
     console.log('');
-  } catch (err) { console.log(RED(`  Error consultando proveedores: ${(err as Error).message}\n`)); }
+  } catch (err) { console.log(RED(`  ${getUserFacingError(err, 'No se pudieron consultar los proveedores. Comprueba que HELIX esté conectado e inténtalo de nuevo.')}\n`)); }
 }
 
 export async function handleCapabilities(client: AgentClient): Promise<void> {
@@ -26,7 +27,7 @@ export async function handleCapabilities(client: AgentClient): Promise<void> {
       console.log(`  ${DIM(key.padEnd(24))} ${rendered}`);
     }
     console.log('');
-  } catch (err) { console.log(RED(`  Error consultando capacidades: ${(err as Error).message}\n`)); }
+  } catch (err) { console.log(RED(`  ${getUserFacingError(err, 'No se pudieron consultar las capacidades. Inténtalo de nuevo.')}\n`)); }
 }
 
 export async function handleSettings(client: AgentClient): Promise<void> {
@@ -34,5 +35,5 @@ export async function handleSettings(client: AgentClient): Promise<void> {
     const settings = await client.getSettings();
     const safe = Object.fromEntries(Object.entries(settings).filter(([key]) => !/key|token|secret|password|auth/i.test(key)));
     console.log(`\n${BOLD('📋 Configuración efectiva (sin secretos):')}\n${JSON.stringify(safe, null, 2)}\n`);
-  } catch (err) { console.log(RED(`  Error consultando configuración: ${(err as Error).message}\n`)); }
+  } catch (err) { console.log(RED(`  ${getUserFacingError(err, 'No se pudo consultar la configuración. Inténtalo de nuevo.')}\n`)); }
 }

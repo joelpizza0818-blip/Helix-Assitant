@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { COMMUNITY_INSTALLED_PLUGINS_KEY } from '../../../lib/desktopSupabase'
+import { getUserFacingError } from '../../../lib/userError'
 import '../Toolbox.css'
 
 interface InstalledCommunityPlugin {
@@ -72,7 +73,7 @@ export default function PluginsSection() {
     } catch (cause) {
       setBrowserConnected(false)
       setBrowserConnectionIssue(null)
-      setError(cause instanceof Error ? cause.message : 'No se pudo consultar el navegador HELIX.')
+      setError(getUserFacingError(cause, 'No se pudo consultar el navegador HELIX. Comprueba que esté abierto e inténtalo de nuevo.'))
     }
   }
 
@@ -102,7 +103,7 @@ export default function PluginsSection() {
       }
       setCommunityPlugins(valid)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo leer la lista local de plugins.')
+      setError(getUserFacingError(cause, 'No se pudo leer la lista local de plugins. Comprueba el acceso e inténtalo de nuevo.'))
     }
     return () => window.clearInterval(interval)
   }, [])
@@ -115,7 +116,7 @@ export default function PluginsSection() {
       setOpenedPlugin(plugin.id)
       await refreshBrowserStatus()
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : `No se pudo abrir ${plugin.name}.`)
+      setError(getUserFacingError(cause, `No se pudo abrir ${plugin.name}. Comprueba que esté instalado e inténtalo de nuevo.`))
     } finally {
       setBusyPlugin(null)
     }
@@ -128,7 +129,7 @@ export default function PluginsSection() {
       await window.helix.openManagedBrowserTab(plugin.url)
       setOpenedPlugin(plugin.id)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : `No se pudo abrir ${plugin.name}.`)
+      setError(getUserFacingError(cause, `No se pudo abrir ${plugin.name}. Comprueba que esté instalado e inténtalo de nuevo.`))
     } finally {
       setBusyPlugin(null)
     }

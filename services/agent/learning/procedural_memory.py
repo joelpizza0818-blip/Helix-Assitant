@@ -15,9 +15,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from services.agent.storage_paths import get_agent_data_dir
+
 logger = logging.getLogger(__name__)
 
-DEFAULT_PROFILE_PATH = Path.home() / ".helix" / "user_learned_profile.json"
+DEFAULT_PROFILE_PATH = get_agent_data_dir() / "user_learned_profile.json"
 
 
 class ProceduralSemanticMemory:
@@ -33,7 +35,7 @@ class ProceduralSemanticMemory:
             self.storage_path = Path(storage_path)
         else:
             if profile_id and profile_id != "default":
-                self.storage_path = Path.home() / ".helix" / "profiles" / profile_id / "user_learned_profile.json"
+                self.storage_path = get_agent_data_dir() / "profiles" / profile_id / "user_learned_profile.json"
             else:
                 self.storage_path = DEFAULT_PROFILE_PATH
 

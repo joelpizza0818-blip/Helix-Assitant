@@ -71,6 +71,8 @@ def test_voice_orchestration_returns_direct_conversational_answer():
     messages = react_loop.execute.await_args.args[0]
     assert messages[0].role == "system"
     assert "spoken conversation" in messages[0].content
+    assert "rather than reading a screen" in messages[0].content
+    assert "Read something verbatim only when the user explicitly asks" in messages[0].content
     assert [(message.role, message.content) for message in messages[1:]] == [
         (message["role"], message["content"]) for message in history
     ]
@@ -263,7 +265,7 @@ def test_markdown_is_removed_before_voice_synthesis():
         "- Read [the guide](https://example.com).\n"
         "- `inline code`\n"
         "> ~~Not this~~"
-    ) == "Important Read the guide. inline code Not this"
+    ) == "Important Read the guide. Not this"
 
 
 def test_voice_engine_sends_plain_text_to_tts():
@@ -728,6 +730,56 @@ def test_faster_whisper_transcribes_standard_wav_with_cpu_int8(monkeypatch, tmp_
     assert captured["model_name"] == "base"
     assert captured["model_options"] == {"device": "cpu", "compute_type": "int8"}
     assert captured["options"] == {"beam_size": 5, "language": "es"}
+
+
+def test_faster_whisper_transcribes_live_pcm_without_a_temp_wav(monkeypatch):
+    captured = {}
+
+    def transcribe(audio, **options):
+        captured["audio"] = audio
+        captured["options"] = options
+        return iter([SimpleNamespace(text="Hola.")]), SimpleNamespace(language="es")
+
+    faster_whisper_module = ModuleType("faster_whisper")
+    faster_whisper_module.WhisperModel = lambda *_args, **_kwargs: SimpleNamespace(
+        transcribe=transcribe
+    )
+    monkeypatch.setitem(sys.modules, "faster_whisper", faster_whisper_module)
+    monkeypatch.setattr(
+        speech_to_text.importlib.util,
+        "find_spec",
+        lambda name: object() if name == "faster_whisper" else None,
+    )
+    monkeypatch.setattr(
+        speech_to_text.tempfile,
+        "NamedTemporaryFile",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("Live PCM must not create a temporary WAV")
+        ),
+    )
+
+    stt = speech_to_text.SpeechToText(provider="whisper_local", model="base")
+    transcript = asyncio.run(
+        stt.transcribe_pcm16(
+            b"\x00\x00\x00\x40",
+            sample_rate=16000,
+            language="es",
+            beam_size=1,
+            low_latency=True,
+        )
+    )
+
+    assert transcript == "Hola."
+    assert captured["audio"].tolist() == [0.0, 0.5]
+    assert captured["options"] == {
+        "beam_size": 1,
+        "best_of": 1,
+        "temperature": 0.0,
+        "condition_on_previous_text": False,
+        "without_timestamps": True,
+        "vad_filter": False,
+        "language": "es",
+    }
 
 
 def test_faster_whisper_reads_non_pcm_wav_without_ffmpeg(monkeypatch, tmp_path):

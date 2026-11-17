@@ -342,6 +342,128 @@ def test_provider_tool_formats_and_tool_result_history():
         == "computer_click_text"
     )
 
+
+@pytest.mark.asyncio
+async def test_custom_provider_streaming_keeps_its_configured_endpoint(monkeypatch):
+    from services.agent.ai.custom_provider import OpenAICompatibleProvider
+    import services.agent.ai.openai_provider as openai_module
+
+    response = object()
+    stream_tool_call = AsyncMock(return_value=response)
+    monkeypatch.setattr(
+        openai_module.OpenAIProvider,
+        "stream_tool_call",
+        stream_tool_call,
+    )
+    provider = OpenAICompatibleProvider(
+        "custom",
+        "Local endpoint",
+        "http://127.0.0.1:8080/v1",
+    )
+
+    result = await provider.stream_tool_call(
+        messages=[],
+        tools=[],
+        model="local-model",
+        api_key="local-key",
+    )
+
+    assert result is response
+    assert stream_tool_call.await_args.kwargs["base_url"] == provider.base_url
+
+
+@pytest.mark.asyncio
+async def test_openai_stream_tool_calls_preserves_tools_and_publishes_text(
+    monkeypatch,
+):
+    import services.agent.ai.openai_provider as openai_module
+
+    def chunk(delta):
+        return SimpleNamespace(
+            choices=[SimpleNamespace(delta=delta)]
+        )
+
+    streamed_chunks = [
+        chunk(
+            SimpleNamespace(
+                content="I will check. ",
+                tool_calls=[
+                    SimpleNamespace(
+                        index=0,
+                        id="call-1",
+                        function=SimpleNamespace(
+                            name="shell_", arguments='{"command":'
+                        ),
+                    )
+                ],
+            )
+        ),
+        chunk(
+            SimpleNamespace(
+                content=None,
+                tool_calls=[
+                    SimpleNamespace(
+                        index=0,
+                        id=None,
+                        function=SimpleNamespace(
+                            name="tool",
+                            arguments='"echo hello"}',
+                        ),
+                    )
+                ],
+            )
+        ),
+    ]
+
+    class FakeStream:
+        def __aiter__(self):
+            async def iterate():
+                for item in streamed_chunks:
+                    yield item
+
+            return iterate()
+
+    create = AsyncMock(return_value=FakeStream())
+    fake_client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=create)
+        )
+    )
+    monkeypatch.setattr(
+        openai_module, "AsyncOpenAI", lambda **_kwargs: fake_client
+    )
+
+    deltas = []
+
+    async def collect_delta(delta):
+        deltas.append(delta)
+
+    response = await OpenAIProvider().stream_tool_call(
+        [ChatMessage(role="user", content="check")],
+        [
+            {
+                "name": "shell_tool",
+                "description": "Run a command.",
+                "parameters": {"type": "object"},
+            }
+        ],
+        "model-id",
+        api_key="test-key",
+        on_text_delta=collect_delta,
+    )
+
+    assert deltas == ["I will check. "]
+    assert response.content == "I will check. "
+    assert response.tool_calls == [
+        ToolCall(
+            id="call-1",
+            name="shell_tool",
+            arguments={"command": "echo hello"},
+        )
+    ]
+    create.assert_awaited_once()
+
+
 def test_google_tool_schema_drops_unsupported_metadata_recursively():
     schema = {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -572,6 +694,126 @@ def test_react_loop_passes_candidate_key_and_named_tools():
     assert response.content == "Hello."
     assert provider.tool_call.await_args.kwargs == {"api_key": "test-key"}
     assert provider.tool_call.await_args.args[1][0]["name"] == "lookup"
+
+
+def test_react_loop_allows_local_provider_without_api_key():
+    from services.agent.core.react_loop import ReActLoop
+
+    provider = SimpleNamespace(
+        no_key_required=True,
+        tool_call=AsyncMock(return_value=ChatResponse(
+            content="Respuesta local.",
+            model="C:/models/qwen.gguf",
+            provider="llama_server",
+            usage=None,
+            finish_reason="stop",
+        )),
+    )
+    candidate = RouteCandidate(
+        provider_id="llama_server",
+        model_id="C:/models/qwen.gguf",
+        key_slot=0,
+        score=1,
+        fallback_available=False,
+    )
+
+    class Fallback:
+        async def execute_with_fallback(self, call, _requirements, context):
+            return await call(candidate, context)
+
+    loop = ReActLoop(
+        provider_registry=SimpleNamespace(get_provider=lambda _provider: provider),
+        model_router=None,
+        fallback_manager=Fallback(),
+        tool_registry=SimpleNamespace(get_tool_schemas=lambda: [{
+            "name": "lookup",
+            "description": "Look something up.",
+            "parameters": {"type": "object", "properties": {}},
+        }]),
+        key_manager=SimpleNamespace(get_key=lambda _provider, _slot: None),
+        event_bus=SimpleNamespace(publish=AsyncMock()),
+        role_config=SimpleNamespace(
+            get_assignment=lambda _role: SimpleNamespace(requirements=TaskRequirements())
+        ),
+    )
+
+    response = asyncio.run(loop.execute([ChatMessage(role="user", content="Hola")]))
+
+    assert response.content == "Respuesta local."
+    assert provider.tool_call.await_args.kwargs == {"api_key": None}
+
+
+def test_react_loop_streams_tool_enabled_voice_responses():
+    from services.agent.core.react_loop import ReActLoop
+
+    candidate = RouteCandidate(
+        provider_id="openrouter",
+        model_id="deepseek-test",
+        key_slot=0,
+        score=1,
+        fallback_available=False,
+    )
+    streamed_deltas = []
+
+    async def stream_tool_call(_messages, _tools, model, **kwargs):
+        await kwargs["on_text_delta"]("A streamed answer. ")
+        return ToolCallResponse(
+            tool_calls=[],
+            content="A streamed answer. ",
+            model=model,
+            provider="openrouter",
+        )
+
+    provider = SimpleNamespace(
+        stream_tool_call=AsyncMock(side_effect=stream_tool_call),
+        tool_call=AsyncMock(),
+    )
+
+    class Fallback:
+        async def execute_with_fallback(self, call, _requirements, context):
+            return await call(candidate, context)
+
+    loop = ReActLoop(
+        provider_registry=SimpleNamespace(
+            get_provider=lambda _provider: provider
+        ),
+        model_router=None,
+        fallback_manager=Fallback(),
+        tool_registry=SimpleNamespace(
+            get_tool_schemas=lambda: [
+                {
+                    "name": "lookup",
+                    "description": "Look something up.",
+                    "parameters": {"type": "object", "properties": {}},
+                }
+            ]
+        ),
+        key_manager=SimpleNamespace(
+            get_key=lambda _provider, _slot: "test-key"
+        ),
+        event_bus=SimpleNamespace(publish=AsyncMock()),
+        role_config=SimpleNamespace(
+            get_assignment=lambda _role: SimpleNamespace(
+                requirements=TaskRequirements()
+            )
+        ),
+    )
+
+    async def run():
+        async def on_text_delta(delta):
+            streamed_deltas.append(delta)
+
+        return await loop.execute(
+            [ChatMessage(role="user", content="Speak")],
+            on_text_delta=on_text_delta,
+        )
+
+    response = asyncio.run(run())
+
+    assert response.content == "A streamed answer. "
+    assert streamed_deltas == ["A streamed answer. "]
+    assert provider.stream_tool_call.await_count == 1
+    assert provider.tool_call.await_count == 0
 
 
 def test_react_loop_retries_empty_tool_response_without_tools():
@@ -1016,6 +1258,30 @@ def test_text_chat_uses_conversation_loop_and_returns_renderable_message():
     assert message_events[0][1]["role"] == "assistant"
     assert message_events[0][1]["content"] == "Hola."
     assert message_events[0][1]["model"] == "claude-sonnet-5-5"
+    assert "on_text_delta" not in react_loop.execute.await_args.kwargs
+
+    event_bus.publish.reset_mock()
+    asyncio.run(
+        orchestrator.execute_task(
+            "task-voice",
+            "Hola.",
+            {
+                "input_source": "voice",
+                "conversation_id": "voice-conversation",
+                "conversation_history": [{"role": "user", "content": "Hola."}],
+            },
+        )
+    )
+    on_text_delta = react_loop.execute.await_args.kwargs["on_text_delta"]
+    asyncio.run(on_text_delta("Hola "))
+    event_bus.publish.assert_any_await(
+        "ORCHESTRATION_TEXT_DELTA",
+        {
+            "task_id": "task-voice",
+            "conversation_id": "voice-conversation",
+            "delta": "Hola ",
+        },
+    )
 
 
 def test_image_attachment_reaches_the_model_with_its_mime_type():
@@ -1306,6 +1572,61 @@ def test_explicit_workflow_mention_selects_saved_workflow_and_strips_trigger():
     assert context["workflow_input"] == "Please summarize this document"
 
 
+def test_workflow_skill_mention_selects_saved_workflow_and_strips_skill_mention():
+    from services.agent.skills.skill_loader import SkillDefinition
+
+    workflow = {
+        "id": "summarize-flow",
+        "name": "Summarize",
+        "description": "Summarize the input",
+    }
+    skill = SkillDefinition(
+        name="summarize-flow",
+        description="Run the summarize workflow",
+        version="1.0.0",
+        triggers=[],
+        tools=["summarize"],
+        instructions="Run the saved summarize workflow.",
+        config={"workflow_id": "summarize-flow"},
+    )
+    workflow_store = SimpleNamespace(
+        get_workflow=lambda workflow_id: workflow
+        if workflow_id == "summarize-flow"
+        else (_ for _ in ()).throw(ValueError("missing")),
+    )
+    skill_registry = SimpleNamespace(
+        get_skill=lambda name: skill if name == "summarize-flow" else None,
+        get_all_skills=lambda: [skill],
+    )
+    orchestrator = SimpleNamespace(
+        workflow_store=workflow_store,
+        execute_task=AsyncMock(),
+        tool_registry=None,
+        project_memory_store=None,
+    )
+    agent = Agent.__new__(Agent)
+    agent.intent_matcher = None
+    agent.skill_registry = skill_registry
+    agent.task_manager = SimpleNamespace(create_task=AsyncMock())
+    agent.orchestrator = orchestrator
+    agent.state_manager = StateManager()
+
+    async def send_text():
+        await agent.handle_user_input(
+            "USER_TEXT",
+            {"text": "@summarize-flow this document"},
+        )
+        await asyncio.sleep(0)
+
+    asyncio.run(send_text())
+
+    context = orchestrator.execute_task.await_args.kwargs["context"]
+    assert context["workflow_definition"] == workflow
+    assert context["workflow_id"] == "summarize-flow"
+    assert context["workflow_input"] == "this document"
+    assert context["requested_skills"] == ["summarize-flow"]
+
+
 def test_agent_automatically_selects_a_unique_matching_skill():
     from services.agent.skills.intent_matcher import SkillMatch
     from services.agent.skills.skill_loader import SkillDefinition
@@ -1444,7 +1765,7 @@ def test_text_chat_surfaces_provider_failure_instead_of_marking_task_complete():
     assert any(
         call.args[0] == "AGENT_MESSAGE"
         and call.args[1]["role"] == "assistant"
-        and "No pude completar" in call.args[1]["content"]
+        and "HELIX no pudo obtener una respuesta" in call.args[1]["content"]
         for call in event_bus.publish.await_args_list
     )
 
@@ -1476,6 +1797,18 @@ def test_exhausted_provider_failures_explain_next_steps(error_text, expected):
 
     assert expected in message
     assert "ProviderExhaustedError" not in message
+
+
+def test_unknown_provider_failure_is_actionable_without_exposing_code_details():
+    message = _conversation_failure_message(
+        RuntimeError("internal.module._send_request failed at C:\\agent\\provider.py:42")
+    )
+
+    assert "Comprueba tu conexión" in message
+    assert "prueba otro modelo o proveedor" in message
+    assert "internal.module" not in message
+    assert "_send_request" not in message
+    assert "provider.py" not in message
 
 
 def test_checkpoint_storage_failure_is_actionable_and_warns_about_last_action():

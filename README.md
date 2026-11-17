@@ -4,7 +4,7 @@
 
 ### The Persistent, Local-First AI Desktop Assistant for Windows
 
-HELIX is a local-first desktop agent that works with your operating system, terminal, and the context you choose to share; it asks for confirmation before system-level or critical actions.
+HELIX is a local-first desktop agent that works with your operating system, terminal, and the context you choose to share; it applies configurable confirmation policies before sensitive actions.
 
 [Website](https://helix-assistant.vercel.app) | [Downloads](https://helix-assistant.vercel.app/download) | [Features](https://helix-assistant.vercel.app/features) | [Docs](https://helix-assistant.vercel.app/docs) | [Releases](https://github.com/joelpizza0818-blip/Helix-Assitant/releases) | [FAQ](FAQ.md) | [Support](SUPPORT.md) | [Security](SECURITY.md)
 
@@ -64,7 +64,7 @@ Click any preview to play the video from the live landing page.
     <td width="50%" align="center">
       <strong>Natural desktop interaction</strong><br><br>
       <img src="docs/assets/demo/helix-chat-capabilities.png" alt="HELIX chat capabilities" width="100%">
-      <p align="left"><em>Use chat to request supported desktop, terminal, file, and browser tasks, with confirmation for sensitive actions.</em></p>
+      <p align="left"><em>Use chat to request supported desktop, terminal, file, and browser tasks, with configurable confirmation for sensitive actions.</em></p>
     </td>
     <td width="50%" align="center">
       <strong>Provider key failover</strong><br><br>
@@ -196,7 +196,7 @@ flowchart LR
 
 ## Security and privacy
 
-HELIX classifies tool operations as `READ_ONLY`, `LOW_RISK`, `MODIFY`, `EXECUTE`, `SYSTEM`, or `CRITICAL`. Policies are action-specific; system and critical operations require human confirmation before execution. Confirmation checks do not replace operating-system permissions.
+HELIX classifies tool operations as `READ_ONLY`, `LOW_RISK`, `MODIFY`, `EXECUTE`, `SYSTEM`, or `CRITICAL`. Policies are action-specific; system and critical operations require human confirmation in Always Ask, Smart Approval, and Auto Approve. The explicit Allow All mode disables confirmation prompts. Confirmation checks do not replace operating-system permissions.
 
 The agent runs locally, but prompts and context you provide—including selected screen content—may be sent to the configured AI provider. Remote speech services, account/download flows, and other enabled integrations may also send data to their respective services. Credentials can come from the operating-system keyring or the agent environment; never share logs or configuration files without checking them for sensitive data.
 

@@ -19,6 +19,7 @@ import {
   DIM,
   highlightMentions,
 } from './colors';
+import { getUserFacingError } from './userError';
 import { handleConfigApiKey, handleShowApiKey } from '../commands/apikey';
 import { handleCreateSkill, handleListSkills } from '../commands/skills';
 import { handleCreateMcp, handleListMcp, handleMcpDefaults } from '../commands/mcp';
@@ -52,6 +53,8 @@ export class HelixRepl {
   private isProcessingPrompt: boolean = false;
   private plain: boolean = false;
   private browserLiveViewEnabled: boolean = false;
+  private activeVoiceSessionId: string | null = null;
+  private activeVoiceConfirmationId: string | null = null;
 
   constructor(private options: ReplOptions) {
     this.conversationId = `cli_conv_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -151,7 +154,10 @@ export class HelixRepl {
     });
 
     this.client.on('agent_start_failed', (data: { error?: string }) => {
-      process.stdout.write(`\r\x1b[K\n  ${chalk.red('✖')} ${chalk.redBright('No se pudo iniciar el servicio automáticamente:')} ${chalk.gray(data?.error || 'Tiempo agotado')}\n`);
+      process.stdout.write(`\r\x1b[K\n  ${chalk.red('✖')} ${chalk.redBright(getUserFacingError(
+        data?.error,
+        'No se pudo iniciar el agente local. Abre HELIX Desktop y vuelve a intentarlo.',
+      ))}\n`);
       this._promptUser();
     });
 
@@ -165,6 +171,46 @@ export class HelixRepl {
       this.isCapturingVoice = false;
       process.stdout.write(`\n${chalk.bgCyan.black.bold(' 🔊 [AUDIO RECIBIDO]: Procesando voz... ')}\n`);
       this._promptUser();
+    });
+
+    // Live Voice session events
+    this.client.on('VOICE_STATE', (payload: { state?: string }) => {
+      if (payload?.state) {
+        process.stdout.write(`\r  ${chalk.hex('#FF9F1C')('◉')} ${chalk.gray(`[Helix Live Voice: ${payload.state}]`)} `);
+      }
+    });
+
+    this.client.on('VOICE_TRANSCRIPT', (payload: { text?: string; final?: boolean }) => {
+      if (payload?.text && payload.final) {
+        process.stdout.write(`\r\x1b[K  ${chalk.hex('#FFB300')('🗣️  Tú:')} "${payload.text}"\n`);
+      }
+    });
+
+    this.client.on('VOICE_ASSISTANT_TEXT', (payload: { speech_text?: string; had_code?: boolean }) => {
+      if (payload?.speech_text) {
+        process.stdout.write(`\r\x1b[K  ${chalk.hex('#FF8C00').bold('⬡ Helix:')} ${payload.speech_text}\n`);
+      }
+    });
+
+    this.client.on('VOICE_CONFIRMATION_REQUEST', (payload: { request_id?: string; speech_text?: string; action?: string }) => {
+      this.activeVoiceConfirmationId = payload?.request_id || null;
+      process.stdout.write(`\r\x1b[K\n  ${chalk.yellowBright.bold('⚠️  CONFIRMACIÓN REQUERIDA:')} ${payload?.speech_text || payload?.action}\n  ${chalk.gray('(Responde "sí", "dale" o "cancela" aquí, o habla por voz. Nunca se aprueba por silencio)')}\n`);
+    });
+
+    this.client.on('VOICE_CONFIRMATION_RESOLVED', () => {
+      this.activeVoiceConfirmationId = null;
+    });
+
+    this.client.on('VOICE_SESSION_CLOSED', () => {
+      this.activeVoiceSessionId = null;
+      this.activeVoiceConfirmationId = null;
+    });
+
+    this.client.on('VOICE_ERROR', (payload: { message?: string; code?: string }) => {
+      process.stdout.write(`\r\x1b[K  ${chalk.red('✖')} ${payload?.message || 'Error en la sesión de voz.'}\n`);
+      if (payload?.code === 'SERVER_AUDIO_FAILED') {
+        process.stdout.write(chalk.gray('  La captura del host requiere el paquete opcional sounddevice.\n'));
+      }
     });
 
     // ReAct Step Progress
@@ -235,7 +281,10 @@ export class HelixRepl {
         console.log(renderJpegAsAscii(payload.image_base64));
         this._promptUser();
       } catch (error) {
-        console.log(RED(`  No se pudo representar el cuadro del navegador: ${(error as Error).message}`));
+        console.log(RED(`  ${getUserFacingError(
+          error,
+          'No se pudo mostrar la vista del navegador. Cierra y vuelve a abrir la sesión.',
+        )}`));
       }
     });
   }
@@ -405,6 +454,35 @@ export class HelixRepl {
           }
           break;
 
+        case '/live':
+        case '/live-voice': {
+          const action = args.trim().toLowerCase();
+          if (action === 'stop' || action === 'off' || action === 'end') {
+            if (this.activeVoiceSessionId) {
+              this.client.send('VOICE_SESSION_STOP', { session_id: this.activeVoiceSessionId });
+              this.activeVoiceSessionId = null;
+            }
+            this.activeVoiceConfirmationId = null;
+            console.log(YELLOW('  Helix Live Voice finalizado.\n'));
+          } else {
+            const sid = `cli_voice_${Date.now()}`;
+            this.activeVoiceSessionId = sid;
+            this.activeVoiceConfirmationId = null;
+            console.log(ORANGE_BOLD('\n  Iniciando Helix Live Voice ($0 local)...'));
+            console.log(GRAY('  Captura de audio activa en el host. Habla con naturalidad.'));
+            console.log(DIM('  (Usa "/live stop" para finalizar la llamada)\n'));
+            this.client.send('VOICE_SESSION_START', {
+              session_id: sid,
+              mode: 'live',
+              server_audio: true,
+              language: 'es',
+              tts_enabled: true,
+              silence_ms: 700,
+            });
+          }
+          break;
+        }
+
         case '/microphone': {
           const newState = await handleMicrophoneCommand(this.client, args, this.voiceEnabled);
           this.voiceEnabled = newState;
@@ -492,6 +570,21 @@ export class HelixRepl {
       return;
     }
 
+    // --- Typed answers to a pending voice confirmation ---
+    if (this.activeVoiceConfirmationId && this.activeVoiceSessionId) {
+      process.stdout.write(`  ${chalk.gray('→')} ${highlightMentions(line, this.autocompleter.getSkills())}\n`);
+      const sent = this.client.send('VOICE_CONFIRMATION_TEXT', {
+        session_id: this.activeVoiceSessionId,
+        request_id: this.activeVoiceConfirmationId,
+        text: line,
+      });
+      if (!sent) {
+        console.log(RED('✖ No se pudo enviar la confirmación (WebSocket desconectado).'));
+      }
+      this._promptUser();
+      return;
+    }
+
     // --- Direct chat message / @skill / #mcp ---
     if (!this.client.connected) {
       console.log(YELLOW('⚠ El agente no está conectado actualmente. Intentando enviar de todos modos...'));
@@ -545,7 +638,7 @@ export class HelixRepl {
         console.log('');
       }
     } catch (err) {
-      console.log(RED(`  Error al obtener tareas: ${(err as Error).message}\n`));
+      console.log(RED(`  ${getUserFacingError(err, 'No se pudieron cargar las tareas. Comprueba que HELIX esté conectado e inténtalo de nuevo.')}\n`));
     }
   }
 
@@ -563,7 +656,7 @@ export class HelixRepl {
       }
       console.log('');
     } catch (err) {
-      console.log(RED(`  Error al obtener modelos: ${(err as Error).message}\n`));
+      console.log(RED(`  ${getUserFacingError(err, 'No se pudieron cargar los modelos. Comprueba la conexión e inténtalo de nuevo.')}\n`));
     }
   }
 

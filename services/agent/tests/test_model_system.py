@@ -228,6 +228,50 @@ class TestOllamaManager:
         assert "running" in status
         assert "models" in status
         assert isinstance(status["models"], list)
+        assert isinstance(status["pulls"], list)
+
+    @pytest.mark.asyncio
+    async def test_start_pull_tracks_progress_and_result(self, monkeypatch):
+        from services.agent.ai.ollama_manager import OllamaManager, PullProgress
+
+        mgr = OllamaManager(base_url="http://127.0.0.1:19999")
+        progress_reported = asyncio.Event()
+        finish_pull = asyncio.Event()
+
+        async def fake_pull(_model_name, on_progress=None):
+            progress = PullProgress(
+                status="downloading",
+                total=100,
+                completed=40,
+                percent=40,
+            )
+            await on_progress(progress)
+            progress_reported.set()
+            await finish_pull.wait()
+            return PullProgress(status="success", percent=100, done=True)
+
+        monkeypatch.setattr(mgr, "pull_model", fake_pull)
+        task = mgr.start_pull_task("test-model")
+        await progress_reported.wait()
+        in_progress = await mgr.get_status()
+        assert in_progress["pulls"][0]["status"] == "downloading"
+        assert in_progress["pulls"][0]["percent"] == 40
+
+        finish_pull.set()
+        await task
+        await asyncio.sleep(0)
+
+        completed = await mgr.get_status()
+        assert completed["pulls"] == [{
+            "model": "test-model",
+            "status": "success",
+            "percent": 100,
+            "completed": 0,
+            "total": 0,
+            "done": True,
+            "error": None,
+        }]
+        assert not completed["active_pulls"]
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -297,10 +341,34 @@ class TestBridgeIpcHandlers:
         stub = MagicMock()
         bad_check = HardwareCheck(ok=False, free_disk_gb=0.1, free_ram_gb=0.5, model_size_gb=4.1, issues=["Espacio insuficiente"])
         with patch.object(OllamaManager, "is_pulling", return_value=False), \
+             patch.object(OllamaManager, "is_running", new=AsyncMock(return_value=True)), \
+             patch.object(OllamaManager, "is_model_installed", new=AsyncMock(return_value=False)), \
              patch.object(OllamaManager, "check_hardware", return_value=bad_check):
             result = await DesktopBridge._pull_ollama_model(stub, {"model": "mistral:7b"})
             assert result["status"] == "INCOMPATIBLE"
             assert len(result["issues"]) > 0
+
+    @pytest.mark.asyncio
+    async def test_pull_ollama_model_requires_running_service(self):
+        from services.agent.ai.ollama_manager import OllamaManager
+        DesktopBridge = _get_bridge_class()
+        stub = MagicMock()
+        with patch.object(OllamaManager, "is_pulling", return_value=False), \
+             patch.object(OllamaManager, "is_running", new=AsyncMock(return_value=False)):
+            result = await DesktopBridge._pull_ollama_model(stub, {"model": "deepseek-r1:1.5b"})
+        assert result["status"] == "UNAVAILABLE"
+        assert "Ollama" in result["message"]
+
+    @pytest.mark.asyncio
+    async def test_pull_ollama_model_returns_ready_when_already_installed(self):
+        from services.agent.ai.ollama_manager import OllamaManager
+        DesktopBridge = _get_bridge_class()
+        stub = MagicMock()
+        with patch.object(OllamaManager, "is_pulling", return_value=False), \
+             patch.object(OllamaManager, "is_running", new=AsyncMock(return_value=True)), \
+             patch.object(OllamaManager, "is_model_installed", new=AsyncMock(return_value=True)):
+            result = await DesktopBridge._pull_ollama_model(stub, {"model": "deepseek-r1:1.5b"})
+        assert result["status"] == "READY"
 
     @pytest.mark.asyncio
     async def test_pull_ollama_model_already_pulling(self):

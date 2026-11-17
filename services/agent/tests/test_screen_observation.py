@@ -111,7 +111,13 @@ def _make_loop(
 
     provider = SimpleNamespace(
         tool_call=AsyncMock(side_effect=call_model),
-        chat=AsyncMock(),
+        chat=AsyncMock(return_value=ChatResponse(
+            content="Done.",
+            model=candidate.model_id,
+            provider=candidate.provider_id,
+            usage=None,
+            finish_reason="stop",
+        )),
     )
     requirements_seen = []
 
@@ -318,8 +324,22 @@ def test_continuous_screen_vision_allows_model_selected_screen_capture():
 
 
 def test_desktop_action_uses_only_desktop_control_not_shell_tools():
-    async def execute(_params):
+    call_count = {"n": 0}
+
+    async def execute(params):
         assert screen_observation_is_allowed()
+        call_count["n"] += 1
+        # First call is the preflight (list_windows); return desktop_backend so the
+        # react loop generates the correct Docker desktop preflight message.
+        if params.get("action") == "list_windows":
+            return SimpleNamespace(
+                success=True,
+                output=json.dumps({
+                    "desktop_backend": "docker_guest",
+                    "screenshot_bytes": "dmVyaWZpZWQ=",  # base64 "verified"
+                }),
+                error=None,
+            )
         return SimpleNamespace(
             success=True,
             output={"clicked": "Save", "screenshot_bytes": b"verified-frame"},
@@ -387,11 +407,18 @@ def test_desktop_action_uses_only_desktop_control_not_shell_tools():
         for role, content in messages_seen[0]
         if role == "user"
         and isinstance(content, str)
-        and content.startswith("Computer-use preflight completed")
+        and content.startswith(
+            "The isolated Docker desktop preflight completed"
+        )
     )
-    assert "HELIX GUI remains on the user's current desktop" in preflight_message
-    assert "Do not repeat list_windows" in preflight_message
-    assert "harness will assign its new window" in preflight_message
+    assert "screenshot from the guest only" in preflight_message
+    assert (
+        "Windows host has not been captured or controlled" in preflight_message
+    )
+    assert (
+        "never substitute host UI Automation, host screenshots, or physical input"
+        in preflight_message
+    )
 
 
 def test_desktop_control_preflight_failure_stops_without_calling_model():
@@ -653,16 +680,23 @@ def test_orchestrator_forwards_explicit_screen_context_as_ephemeral_image():
         output=context,
         error=None,
     )
-    tool = SimpleNamespace(execute=AsyncMock(return_value=observe))
+    tool = SimpleNamespace(
+        execute=AsyncMock(return_value=observe),
+        select_window_for_request=Mock(return_value=42),
+    )
     messages = []
 
     asyncio.run(_append_requested_screen_observation(
         messages,
         SimpleNamespace(get_tool=lambda _name: tool),
         "task-1",
+        "Read the spreadsheet behind the HELIX window",
     ))
 
-    tool.execute.assert_awaited_once_with({})
+    tool.select_window_for_request.assert_called_once_with(
+        "Read the spreadsheet behind the HELIX window"
+    )
+    tool.execute.assert_awaited_once_with({"window_handle": 42})
     assert messages[0].image_bytes == screenshot
     assert "Mock app" in messages[0].content
     assert context["screenshot_bytes"] == screenshot
@@ -697,16 +731,44 @@ def test_react_loop_blocks_capture_when_feature_is_off():
         validate_params=lambda _args: True,
         execute=AsyncMock(),
     )
+    schemas_seen = []
     response, provider, requirements_seen = _make_loop(
         enabled=False,
         request_active=True,
         capture_tool=capture_tool,
+        schemas_seen=schemas_seen,
     )
 
     assert response.content == "Done."
     capture_tool.execute.assert_not_awaited()
-    assert requirements_seen == [False, False]
-    assert provider.tool_call.await_count == 2
+    assert requirements_seen == [False]
+    provider.tool_call.assert_not_awaited()
+    provider.chat.assert_awaited_once()
+    assert all("computer.observe_screen" not in names for names in schemas_seen)
+
+
+def test_desktop_actions_are_not_offered_without_explicit_request():
+    action_tool = SimpleNamespace(
+        name="computer.desktop_control",
+        description="Control the desktop on explicit request.",
+        permission_level="LOW_RISK",
+        requires_confirmation=False,
+        validate_params=lambda _args: True,
+        execute=AsyncMock(),
+    )
+    schemas_seen = []
+
+    _make_loop(
+        enabled=False,
+        request_active=False,
+        capture_tool=action_tool,
+        tool_name="computer.desktop_control",
+        description="Tell me a joke.",
+        schemas_seen=schemas_seen,
+    )
+
+    action_tool.execute.assert_not_awaited()
+    assert all("computer.desktop_control" not in names for names in schemas_seen)
 
 
 def test_react_loop_routes_ephemeral_capture_to_vision_model(tmp_path):
@@ -901,6 +963,18 @@ def test_observe_tool_requires_explicit_policy_and_keeps_image_in_memory():
         "screenshot_bytes": b"ephemeral",
         "active_window": {"title": "Mock window"},
     })
+    tool.screen_engine.list_windows = lambda: [
+        {
+            "window_handle": 123,
+            "title": "Mock window",
+            "is_foreground": True,
+            "bounds": {"width": 640, "height": 480},
+        },
+    ]
+    tool.screen_engine.get_active_window_info = lambda: {
+        "hwnd": 123,
+        "title": "Mock window",
+    }
 
     blocked = asyncio.run(tool.execute({}))
     assert not blocked.success
@@ -911,8 +985,42 @@ def test_observe_tool_requires_explicit_policy_and_keeps_image_in_memory():
 
     assert allowed.success
     assert allowed.output["screenshot_bytes"] == b"ephemeral"
-    tool.capture_context.assert_awaited_once()
+    tool.capture_context.assert_awaited_once_with(window_handle=123)
     assert not screen_observation_is_allowed()
+
+
+def test_screen_observation_selects_requested_app_and_excludes_helix_windows():
+    tool = ScreenObserveTool()
+    tool.screen_engine.list_windows = lambda: [
+        {
+            "window_handle": 10,
+            "title": "HELIX",
+            "is_foreground": True,
+            "bounds": {"width": 400, "height": 600},
+        },
+        {
+            "window_handle": 20,
+            "title": "Google Chrome - Inbox",
+            "is_foreground": False,
+            "bounds": {"width": 1200, "height": 800},
+        },
+        {
+            "window_handle": 30,
+            "title": "Microsoft Word - Draft",
+            "is_foreground": False,
+            "bounds": {"width": 900, "height": 700},
+        },
+    ]
+    tool.screen_engine.get_active_window_info = lambda: {
+        "hwnd": 10,
+        "title": "HELIX",
+    }
+
+    with screen_observation_scope(True):
+        assert (
+            tool.select_window_for_request("Read the open Microsoft Word draft")
+            == 30
+        )
 
 
 def test_keyboard_action_skips_screenshot_when_screen_context_is_disabled(monkeypatch):

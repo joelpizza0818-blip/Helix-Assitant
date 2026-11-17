@@ -59,7 +59,7 @@ class ShellTool(BaseTool):
             self.block_elevated_execution = settings['block_elevated_execution']
         if isinstance(settings.get('sandbox_enabled'), bool):
             self.sandbox_enabled = settings['sandbox_enabled']
-        if settings.get('sandbox_mode') in {'restricted', 'isolated', 'windows_sandbox', 'docker'}:
+        if settings.get('sandbox_mode') in {'restricted', 'isolated'}:
             self.sandbox_mode = settings['sandbox_mode']
 
     @staticmethod

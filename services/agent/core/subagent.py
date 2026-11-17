@@ -41,6 +41,8 @@ class SubAgent:
         )
 
     def _preferred_tools(self) -> Optional[list[str]]:
+        if self.profile and self.profile.allowed_tools:
+            return list(self.profile.allowed_tools)
         tools = []
         caps = set(self.profile.capabilities) if self.profile else set()
         if "browser" in caps or "automation" in caps or self.role == "automation":
@@ -48,7 +50,12 @@ class SubAgent:
         if "coding" in caps or self.role == "coding":
             tools.extend(["filesystem_tool", "shell_tool", "powershell_tool", "cmd_tool"])
         if "research" in caps or "analysis" in caps or self.role == "research":
-            tools.extend(["read_active_browser_page", "browser_control", "context_retrieve_tool", "indexed_file_search_tool"])
+            tools.extend([
+                "read_active_browser_page",
+                "browser_control",
+                "context_retrieve",
+                "indexed_file_search",
+            ])
         if "planning" in caps or self.role == "planning":
             tools.extend(["delegate_task", "message_subagent"])
         return tools if tools else None
@@ -150,12 +157,16 @@ class SubAgent:
             }
             if preferred_tools:
                 execute_options["preferred_tool_names"] = preferred_tools
+            if self.profile and self.profile.allowed_tools:
+                execute_options["allowed_tool_names"] = list(self.profile.allowed_tools)
             if context:
                 for key in ("conversation_id", "source_device_id"):
                     if isinstance(context.get(key), str):
                         execute_options[key] = context[key]
             if excluded_api_keys:
                 execute_options["excluded_api_keys"] = excluded_api_keys
+            if self.profile is not None:
+                execute_options["max_iterations"] = self.profile.max_iterations
             if self.profile and self.profile.model_route is not None:
                 execute_options["preferred_route"] = dict(self.profile.model_route)
             with user_memory_scope(self.memory_manager):
@@ -234,6 +245,9 @@ class SubAgent:
         }
         if preferred_tools:
             execute_options["preferred_tool_names"] = preferred_tools
+        if self.profile.allowed_tools:
+            execute_options["allowed_tool_names"] = list(self.profile.allowed_tools)
+        execute_options["max_iterations"] = self.profile.max_iterations
         if self.profile.model_route is not None:
             execute_options["preferred_route"] = dict(self.profile.model_route)
         with user_memory_scope(self.memory_manager):

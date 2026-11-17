@@ -3,6 +3,7 @@ import type { ChildProcessWithoutNullStreams } from 'child_process'
 import { randomUUID } from 'crypto'
 import fs from 'fs/promises'
 import os from 'os'
+import path from 'path'
 import WebSocket from 'ws'
 import type { BrowserPageSnapshot } from './browser-extension-bridge'
 import {
@@ -16,7 +17,15 @@ import {
   getNextGestureWindowToOpen,
   type GestureWindowId,
 } from './gesture-window-sequence'
-import { getHyperVPreflight } from './hyperv-preflight'
+import {
+  detectDesktopApps,
+  getApprovedDesktopAppPackages,
+  getDesktopAppNames,
+} from './desktop-app-catalog'
+import {
+  DockerDesktopManager,
+  type DockerDesktopProgress,
+} from './docker-desktop-manager'
 
 interface AgentMessage {
   type: string
@@ -35,6 +44,22 @@ const RECONNECT_DELAY_MS = 3000
 const MOBILE_DEVICE_ID_PATTERN = /^[A-Za-z0-9_-]{20,64}$/
 const CONFIRMATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const MOBILE_CONFIRMATION_TTL_MS = 5 * 60 * 1000
+const VOICE_SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/
+const MOBILE_VOICE_TYPES = new Set([
+  'VOICE_SESSION_START',
+  'VOICE_SESSION_STOP',
+  'VOICE_AUDIO_CHUNK',
+  'VOICE_RECORDING_START',
+  'VOICE_RECORDING_STOP',
+  'VOICE_INTERRUPT',
+  'VOICE_CONFIRMATION',
+  'VOICE_CONFIRMATION_TEXT',
+  'VOICE_MUTE',
+  'VOICE_UNMUTE',
+  'VOICE_PLAYBACK_PROGRESS',
+  'VOICE_PLAYBACK_DONE',
+  'VOICE_PING',
+])
 const DEVELOPER_TERMINAL_SHELLS: DeveloperTerminalShell[] = ['powershell', 'cmd', 'bash']
 const MAX_TERMINAL_INPUT_BYTES = 64 * 1024
 
@@ -42,6 +67,23 @@ interface DeveloperTerminalSession {
   id: string
   owner: Electron.WebContents
   process: ChildProcessWithoutNullStreams
+}
+
+export interface ComputerUseStatus {
+  mode: 'auto' | 'isolated' | 'host'
+  hostConsent: boolean
+  isolatedSupported: boolean
+  isolatedReady: boolean
+  installationComplete: boolean
+  guestRunning: boolean
+  preparing: boolean
+  progressPhase: DockerDesktopProgress['phase'] | null
+  lastError: string | null
+}
+
+export interface ComputerUseSetupResult {
+  status: 'in_progress' | 'unsupported' | 'unavailable'
+  message: string
 }
 
 function isDeveloperTerminalShell(value: unknown): value is DeveloperTerminalShell {
@@ -76,6 +118,10 @@ export class IPCBridge {
     { deviceId: string; expiresAt: number }
   >()
   private readonly developerTerminalSessions = new Map<string, DeveloperTerminalSession>()
+  private dockerDesktopManager: DockerDesktopManager | null = null
+  private computerUseSetupPromise: Promise<void> | null = null
+  private computerUseSetupError: string | null = null
+  private computerUseProgress: DockerDesktopProgress | null = null
 
   setToolboxWindow(window: BrowserWindow | null): void {
     this.toolboxWindow = window
@@ -99,6 +145,29 @@ export class IPCBridge {
     this.toolboxWindow = toolboxWindow
     this.confirmationWindow = confirmationWindow
     this.agentsWindow = agentsWindow
+    const agentDirectory = app.isPackaged
+      ? path.join(process.resourcesPath, 'services', 'agent')
+      : path.resolve(app.getAppPath(), '..', '..', 'services', 'agent')
+    const computerUseImageDirectory = app.isPackaged
+      ? path.join(process.resourcesPath, 'computer-use-image')
+      : path.resolve(app.getAppPath(), 'computer-use-image')
+    this.dockerDesktopManager = new DockerDesktopManager(
+      path.join(app.getPath('userData'), 'docker-desktop-session.json'),
+      computerUseImageDirectory,
+      path.join(agentDirectory, 'desktop_control', 'guest', 'guest_agent.py'),
+      undefined,
+      (progress: DockerDesktopProgress) => {
+        this.computerUseProgress = progress
+        if (this.toolboxWindow && !this.toolboxWindow.isDestroyed()) {
+          this.toolboxWindow.webContents.send(
+            'helix:docker-desktop-progress',
+            progress,
+          )
+        }
+      },
+      process.env.HELIX_STORAGE_DIR ?? path.join(app.getPath('desktop'), 'helix-storage'),
+    )
+    this.dockerDesktopManager.startIdleMonitor()
     toolboxWindow.webContents.once('destroyed', () => {
       this._closeDeveloperTerminalsForOwner(toolboxWindow.webContents)
     })
@@ -141,9 +210,79 @@ export class IPCBridge {
       }
     })
 
-    ipcMain.handle('helix:get-hyperv-preflight', (event) => {
+    ipcMain.handle('helix:get-computer-use-status', async (event) => {
       this._assertToolboxSender(event.sender)
-      return getHyperVPreflight()
+      return this._getComputerUseStatus()
+    })
+
+    ipcMain.handle('helix:start-computer-use-setup', async (event) => {
+      this._assertToolboxSender(event.sender)
+      return this.ensureComputerUseSetup()
+    })
+
+    ipcMain.handle('helix:request-host-desktop-consent', async (event) => {
+      this._assertToolboxSender(event.sender)
+      const owner = BrowserWindow.fromWebContents(event.sender)
+      const options: Electron.MessageBoxOptions = {
+        type: 'warning',
+        title: 'Let HELIX work on this Windows desktop?',
+        message: 'HELIX will show its own virtual cursor on your real desktop.',
+        detail: 'HELIX can see the screen and open apps, click, type, scroll, and use shortcuts while working on tasks you ask for. It uses Windows accessibility first and keeps your physical cursor where it is. If an app blocks accessibility, HELIX may briefly use your real mouse or keyboard and then restore the pointer; that fallback is covered by this one-time permission. You can switch back to the private desktop at any time.',
+        buttons: ['Allow computer use', 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true,
+      }
+      const confirmation = owner
+        ? await dialog.showMessageBox(owner, options)
+        : await dialog.showMessageBox(options)
+      return { accepted: confirmation.response === 0 }
+    })
+
+    ipcMain.handle('helix:start-docker-desktop', (event) => {
+      this._assertToolboxSender(event.sender)
+      return this._requireDockerDesktopManager().start()
+    })
+
+    ipcMain.handle('helix:stop-docker-desktop', (event) => {
+      this._assertToolboxSender(event.sender)
+      return this._requireDockerDesktopManager().stop()
+    })
+
+    ipcMain.handle('helix:detect-desktop-apps', async (event) => {
+      this._assertToolboxSender(event.sender)
+      return detectDesktopApps()
+    })
+
+    ipcMain.handle('helix:install-desktop-apps', async (event, ids: unknown) => {
+      this._assertToolboxSender(event.sender)
+      const packages = getApprovedDesktopAppPackages(ids)
+      const appNames = getDesktopAppNames(
+        Array.isArray(ids)
+          ? ids.filter((id): id is string => typeof id === 'string')
+          : [],
+      )
+      const manager = this._requireDockerDesktopManager()
+      if (!(await manager.getStatus()).ready) {
+        throw new Error('Start the Docker desktop before installing Linux apps.')
+      }
+      const owner = BrowserWindow.fromWebContents(event.sender)
+      const options: Electron.MessageBoxOptions = {
+        type: 'warning',
+        title: 'Install Linux app equivalents?',
+        message: `Install ${appNames.join(', ')} in the isolated Docker desktop?`,
+        detail: 'Only these selected Linux packages will be installed in the container. Windows apps and their data are not copied.',
+        buttons: ['Install selected apps', 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true,
+      }
+      const confirmation = owner
+        ? await dialog.showMessageBox(owner, options)
+        : await dialog.showMessageBox(options)
+      if (confirmation.response !== 0) return { installed: false }
+      await manager.installApps(packages)
+      return { installed: true }
     })
 
     ipcMain.handle('helix:developer-terminal-start', async (event, incoming: unknown) => {
@@ -216,7 +355,8 @@ export class IPCBridge {
       terminal.stdout.on('data', sendData)
       terminal.stderr.on('data', sendData)
       terminal.once('error', (error) => {
-        sendData(`\r\n${error.message}\r\n`)
+        console.error('[DeveloperTerminal] Process failed:', error)
+        sendData('\r\nNo se pudo iniciar la terminal. Revisa la configuración e inténtalo de nuevo.\r\n')
         sendExit(null, null)
       })
       terminal.once('exit', (code, signal) => sendExit(code, signal))
@@ -240,6 +380,18 @@ export class IPCBridge {
 
     ipcMain.on('helix:cancel-task', (_event, taskId: string) => {
       this._sendToPython({ type: 'TASK_CANCEL', payload: { task_id: taskId }, timestamp: new Date().toISOString() })
+    })
+
+    ipcMain.on('helix:pause-task', (_event, taskId: string) => {
+      this._sendToPython({ type: 'TASK_PAUSE', payload: { task_id: taskId }, timestamp: new Date().toISOString() })
+    })
+
+    ipcMain.on('helix:resume-task', (_event, taskId: string) => {
+      this._sendToPython({
+        type: 'TASK_RESUME',
+        payload: { task_id: taskId, repeat_interrupted: false, force: false },
+        timestamp: new Date().toISOString(),
+      })
     })
 
     ipcMain.on('helix:emergency-stop', () => {
@@ -399,10 +551,15 @@ export class IPCBridge {
       return result
     })
 
-    ipcMain.handle('helix:test-tts', async (_event, text?: string) => {
+    ipcMain.handle('helix:test-tts', async (_event, payload?: string | { text?: string; provider?: string; voice_id?: string }) => {
+      const payloadObj = typeof payload === 'string'
+        ? { text: payload.trim() || undefined }
+        : typeof payload === 'object' && payload !== null
+        ? payload
+        : {}
       return this._request({
         type: 'TEST_TTS',
-        payload: { text: typeof text === 'string' && text.trim() ? text.trim() : undefined },
+        payload: payloadObj,
       }, 30000)
     })
 
@@ -605,12 +762,25 @@ export class IPCBridge {
       return this._request({ type: 'SAVE_WORKFLOW', payload: { workflow } })
     })
 
+    ipcMain.handle('helix:save-workflow-skill', async (_event, id: string, triggers?: string[]) => {
+      return this._request({ type: 'SAVE_WORKFLOW_SKILL', payload: { id, triggers } })
+    })
+
     ipcMain.handle('helix:delete-workflow', async (_event, id: string) => {
       return this._request({ type: 'DELETE_WORKFLOW', payload: { id } })
     })
 
     ipcMain.handle('helix:run-workflow', async (_event, id: string, input: string) => {
       return this._request({ type: 'RUN_WORKFLOW', payload: { id, input } })
+    })
+
+    ipcMain.handle('helix:voice-send', (_event, message: { type: string; payload: Record<string, unknown> }) => {
+      if (!message || typeof message.type !== 'string') return false
+      return this._sendToPython({
+        type: message.type,
+        payload: message.payload || {},
+        timestamp: new Date().toISOString(),
+      })
     })
   }
 
@@ -655,6 +825,31 @@ export class IPCBridge {
         conversation_history: [],
         input_source: 'mobile',
         source_device_id: deviceId,
+      },
+      timestamp: new Date().toISOString(),
+    })
+  }
+
+  sendMobileVoiceMessage(
+    deviceId: string,
+    voiceType: string,
+    payload: Record<string, unknown>,
+  ): boolean {
+    if (
+      !MOBILE_DEVICE_ID_PATTERN.test(deviceId)
+      || !MOBILE_VOICE_TYPES.has(voiceType)
+      || !isRecord(payload)
+      || typeof payload.session_id !== 'string'
+      || !VOICE_SESSION_ID_PATTERN.test(payload.session_id)
+    ) {
+      throw new TypeError('Mobile voice message is invalid.')
+    }
+    return this._sendToPython({
+      type: voiceType,
+      payload: {
+        ...payload,
+        source_device_id: deviceId,
+        input_source: 'mobile',
       },
       timestamp: new Date().toISOString(),
     })
@@ -830,6 +1025,17 @@ export class IPCBridge {
     this._sendToPython({ type: 'TASK_CANCEL_ALL', payload: {}, timestamp: new Date().toISOString() })
   }
 
+  cancelTask(taskId: string): void {
+    if (!/^[0-9a-f-]{36}$/i.test(taskId)) {
+      throw new TypeError('Desktop task identifier is invalid.')
+    }
+    this._sendToPython({
+      type: 'TASK_CANCEL',
+      payload: { task_id: taskId },
+      timestamp: new Date().toISOString(),
+    })
+  }
+
   sendBrowserPageUpdate(snapshot: BrowserPageSnapshot): boolean {
     return this._sendToPython({
       type: 'BROWSER_PAGE_UPDATE',
@@ -855,13 +1061,23 @@ export class IPCBridge {
     })
   }
 
-  close(): void {
+  async close(): Promise<void> {
+    const dockerDesktopManager = this.dockerDesktopManager
+    dockerDesktopManager?.dispose()
+    this.dockerDesktopManager = null
     for (const session of this.developerTerminalSessions.values()) {
       this.developerTerminalSessions.delete(session.id)
       session.process.kill()
     }
     for (const timeout of this.requestTimeouts.values()) clearTimeout(timeout)
     this.requestTimeouts.clear()
+    if (dockerDesktopManager) {
+      try {
+        await dockerDesktopManager.stop()
+      } catch (error) {
+        console.error('[ComputerUse] Could not stop the Docker desktop during shutdown:', error)
+      }
+    }
     this.requestDeadlines.clear()
     this.sentRequestIds.clear()
 
@@ -879,8 +1095,129 @@ export class IPCBridge {
 
   private _assertToolboxSender(sender: Electron.WebContents): void {
     if (sender !== this.toolboxWindow?.webContents || sender.isDestroyed()) {
-      throw new Error('Developer terminal requests are only available from the HELIX Toolbox.')
+      throw new Error('This operation is only available from the HELIX Toolbox.')
     }
+  }
+
+  async startComputerUseIfNeeded(settings: Record<string, unknown>): Promise<void> {
+    const mode = settings.computer_use_mode
+    const manager = this._requireDockerDesktopManager()
+    const hostConsent = settings.computer_use_host_consent === true
+    if (hostConsent && (mode === undefined || mode === 'auto' || mode === 'host')) return
+
+    const status = await manager.getStatus()
+    if (status.ready) {
+      await manager.start()
+      return
+    }
+
+    const setup = await this.ensureComputerUseSetup()
+    if (setup.status !== 'in_progress') {
+      throw new Error(setup.message)
+    }
+  }
+
+  async ensureComputerUseSetup(): Promise<ComputerUseSetupResult> {
+    if (this.computerUseSetupPromise) {
+      return {
+        status: 'in_progress',
+        message: 'The Docker desktop is still being prepared.',
+      }
+    }
+    const manager = this._requireDockerDesktopManager()
+    const current = await manager.getStatus()
+    if (!current.supported) {
+      return {
+        status: 'unsupported',
+        message: 'Docker desktop is not supported on this operating system.',
+      }
+    }
+    if (!current.engineAvailable) {
+      this.computerUseSetupError = current.lastError
+      return {
+        status: 'unavailable',
+        message: current.lastError ?? 'Start Docker Desktop and retry.',
+      }
+    }
+    if (current.resourceConflict) {
+      this.computerUseSetupError = current.lastError
+      return {
+        status: 'unavailable',
+        message: current.lastError ?? 'A container name conflict prevents setup.',
+      }
+    }
+    this.computerUseSetupError = null
+    this.computerUseProgress = null
+    const setup = this._runComputerUseSetup()
+    this.computerUseSetupPromise = setup
+    void setup.finally(() => {
+      if (this.computerUseSetupPromise === setup) {
+        this.computerUseSetupPromise = null
+      }
+    })
+    return {
+      status: 'in_progress',
+      message: 'The Debian XFCE Docker desktop is being prepared. The first setup downloads and builds its image.',
+    }
+  }
+
+  private async _runComputerUseSetup(): Promise<void> {
+    try {
+      await this._requireDockerDesktopManager().prepare()
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      this.computerUseSetupError = detail
+      console.error('[ComputerUse] Could not prepare the Docker desktop:', detail)
+    }
+  }
+
+  private async _getComputerUseStatus(): Promise<ComputerUseStatus> {
+    let settings: Record<string, unknown> = {}
+    try {
+      const loaded = await this._request({ type: 'GET_SETTINGS', payload: {} })
+      if (isRecord(loaded)) settings = loaded
+    } catch (error) {
+      console.error('[ComputerUse] Could not load settings:', error)
+    }
+    const rawMode = settings.computer_use_mode
+    const mode: ComputerUseStatus['mode'] = rawMode === 'isolated' || rawMode === 'host'
+      ? rawMode
+      : 'auto'
+    const status: ComputerUseStatus = {
+      mode,
+      hostConsent: settings.computer_use_host_consent === true,
+      isolatedSupported: false,
+      isolatedReady: false,
+      installationComplete: false,
+      guestRunning: false,
+      preparing: this.computerUseSetupPromise !== null,
+      progressPhase: this.computerUseSetupPromise
+        ? this.computerUseProgress?.phase ?? null
+        : null,
+      lastError: this.computerUseSetupError,
+    }
+    try {
+      const session = await this._requireDockerDesktopManager().getStatus()
+      status.isolatedSupported = session.supported
+      status.isolatedReady = session.ready
+      status.installationComplete = session.imageReady && session.containerExists
+      status.guestRunning = session.running
+      status.preparing = status.preparing || session.provisioning
+      status.lastError = session.ready
+        ? null
+        : this.computerUseSetupError ?? session.lastError
+    } catch (error) {
+      console.error('[ComputerUse] Could not read Docker desktop status:', error)
+      status.lastError = 'HELIX could not read Docker desktop status.'
+    }
+    return status
+  }
+
+  private _requireDockerDesktopManager(): DockerDesktopManager {
+    if (!this.dockerDesktopManager) {
+      throw new Error('The Docker desktop session manager is unavailable.')
+    }
+    return this.dockerDesktopManager
   }
 
   private _getDeveloperTerminalSession(sender: Electron.WebContents, sessionId: unknown): DeveloperTerminalSession {
@@ -1122,6 +1459,11 @@ export class IPCBridge {
   }
 
   private _forwardToRenderer(message: AgentMessage): void {
+    if (typeof message.type === 'string' && message.type.startsWith('VOICE_')) {
+      this._sendToAll('helix:voice-event', message)
+      return
+    }
+
     const typeMap: Record<string, string> = {
       'agent_message': 'helix:agent-message',
       'task_update': 'helix:task-update',
@@ -1132,7 +1474,8 @@ export class IPCBridge {
       'error': 'helix:error',
       'provider_update': 'helix:provider-update',
       'model_update': 'helix:model-update',
-      'hand_landmarks': 'helix:hand-landmarks'
+      'hand_landmarks': 'helix:hand-landmarks',
+      'desktop_frame': 'helix:desktop-frame',
     }
 
     const channel = typeMap[message.type] ?? `helix:${message.type}`

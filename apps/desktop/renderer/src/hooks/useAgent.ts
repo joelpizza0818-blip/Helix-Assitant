@@ -12,6 +12,7 @@ import {
   deleteConversation as deleteStoredConversation,
   type StoredConversation,
 } from './conversationHistory'
+import { getUserFacingError } from '../lib/userError'
 
 interface UseAgentReturn {
   messages: AgentMessage[]
@@ -36,6 +37,8 @@ interface UseAgentReturn {
   deleteConversation: (id: string) => boolean
   startNewConversation: () => void
   cancelTask: (taskId: string) => void
+  pauseTask: (taskId: string) => void
+  resumeTask: (taskId: string) => void
   confirmAction: (requestId: string) => void
   rejectAction: (requestId: string) => void
   loadProviders: () => Promise<void>
@@ -302,11 +305,16 @@ export function useAgent(options: UseAgentOptions = {}): UseAgentReturn {
           || err.source === 'microphone'
           || err.source === 'agent_connection'
         ) {
+          const fallback = err.source === 'camera'
+            ? 'No se pudo acceder a la cámara. Revisa los permisos e inténtalo de nuevo.'
+            : err.source === 'microphone'
+              ? 'No se pudo acceder al micrófono. Revisa los permisos e inténtalo de nuevo.'
+              : 'No se pudo conectar con HELIX. Comprueba la conexión e inténtalo de nuevo.'
           setMessages((previous) => [
             ...previous,
             {
               role: 'assistant',
-              content: err.message,
+              content: getUserFacingError(err.message, fallback),
               timestamp: new Date().toISOString(),
             },
           ])
@@ -374,6 +382,14 @@ export function useAgent(options: UseAgentOptions = {}): UseAgentReturn {
     window.helix?.cancelTask(taskId)
   }, [])
 
+  const pauseTask = useCallback((taskId: string) => {
+    window.helix?.pauseTask(taskId)
+  }, [])
+
+  const resumeTask = useCallback((taskId: string) => {
+    window.helix?.resumeTask(taskId)
+  }, [])
+
   const confirmAction = useCallback((requestId: string) => {
     window.helix?.confirmAction(requestId)
     setPendingConfirmation(null)
@@ -427,7 +443,7 @@ export function useAgent(options: UseAgentOptions = {}): UseAgentReturn {
   return {
     messages, conversationHistory, conversationHistoryError, conversationId, isLoading, tasks, agentUpdates, agentStatus, currentModel, currentProvider,
     taskCount, pendingConfirmation, fallbackEvent, browserProgress, browserFrame, providers, models,
-    sendMessage, selectConversation, deleteConversation, startNewConversation, cancelTask, confirmAction, rejectAction,
+    sendMessage, selectConversation, deleteConversation, startNewConversation, cancelTask, pauseTask, resumeTask, confirmAction, rejectAction,
     loadProviders, loadModels, loadTasks, dismissFallback
   }
 }

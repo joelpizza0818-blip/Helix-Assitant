@@ -2,18 +2,17 @@ import mss
 from PIL import Image
 import io
 import base64
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, List
 from .base_tool import BaseTool, ToolResult
 from ..perception.screen_observation_policy import screen_observation_is_allowed
+from ..perception.screen_engine import ScreenEngine
 import logging
 
 try:
     import win32gui
-    import win32con
     _WIN32_AVAILABLE = True
 except ImportError:
     win32gui = None
-    win32con = None
     _WIN32_AVAILABLE = False
 
 from ..os.factory import get_os_adapter
@@ -29,7 +28,11 @@ class ScreenshotTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return "Tool for capturing screen regions, full screen, and specific windows."
+        return (
+            "Capture a screen, region, or selected window. On Windows, "
+            "capture_window renders only the requested window without overlay "
+            "occlusion; use it for an unobstructed app view."
+        )
 
     @property
     def permission_level(self) -> str:
@@ -79,15 +82,25 @@ class ScreenshotTool(BaseTool):
         if _WIN32_AVAILABLE and win32gui is not None:
             windows = []
             def callback(hwnd, extra):
-                if win32gui.IsWindowVisible(hwnd) and win32gui.GetWindowText(hwnd):
-                    windows.append(win32gui.GetWindowText(hwnd))
+                title = str(win32gui.GetWindowText(hwnd) or "").strip()
+                if (
+                    win32gui.IsWindowVisible(hwnd)
+                    and title
+                    and not title.casefold().startswith("helix")
+                ):
+                    windows.append(title)
                 return True
             win32gui.EnumWindows(callback, None)
             return windows
         
         adapter = get_os_adapter()
         win_list = adapter.list_windows(visible_only=True)
-        return [w.get("title", "") for w in win_list if w.get("title")]
+        return [
+            w.get("title", "")
+            for w in win_list
+            if w.get("title")
+            and not str(w.get("title")).casefold().startswith("helix")
+        ]
 
     async def capture_window(self, window_title: str) -> bytes:
         if _WIN32_AVAILABLE and win32gui is not None:
@@ -97,24 +110,13 @@ class ScreenshotTool(BaseTool):
             
             if win32gui.IsIconic(hwnd):
                 raise RuntimeError(f"Window is minimized: {window_title}")
-                
-            rect = win32gui.GetWindowRect(hwnd)
-            left, top, right, bottom = rect
-            width = right - left
-            height = bottom - top
-            
-            if width <= 0 or height <= 0:
-                raise RuntimeError(f"Window has zero-size dimensions: {width}x{height}")
-                
-            return await self.capture_region(left, top, width, height)
+            if window_title.casefold().startswith("helix"):
+                raise RuntimeError("HELIX interface windows are excluded from capture.")
+            return ScreenEngine().capture_window(hwnd)
         
-        adapter = get_os_adapter()
-        rect = adapter.get_window_rect(window_title)
-        width = rect.get("width", 0)
-        height = rect.get("height", 0)
-        if width <= 0 or height <= 0:
-            raise RuntimeError(f"Window has zero-size dimensions or was not found: {window_title}")
-        return await self.capture_region(rect.get("x", 0), rect.get("y", 0), width, height)
+        raise NotImplementedError(
+            "Unobstructed native-window capture is currently available only on Windows."
+        )
 
     def save_to_file(self, image_bytes: bytes, path: str) -> str:
         with open(path, 'wb') as f:

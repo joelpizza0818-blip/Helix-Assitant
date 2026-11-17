@@ -5,6 +5,10 @@ import time
 
 logger = logging.getLogger(__name__)
 
+_MAX_WINDOW_CAPTURE_PIXELS = 40_000_000
+_PW_RENDERFULLCONTENT = 2
+
+
 class ScreenEngine:
     def __init__(self):
         self._watch_task = None
@@ -44,22 +48,160 @@ class ScreenEngine:
             img.save(buf, format="PNG")
             return buf.getvalue()
 
-    def capture_window(self, hwnd: int) -> bytes:
-        import win32gui
+    def list_windows(self) -> list[dict]:
+        """List visible application windows, excluding HELIX's own interface."""
         try:
-            rect = win32gui.GetWindowRect(hwnd)
-            x = rect[0]
-            y = rect[1]
-            w = rect[2] - x
-            h = rect[3] - y
-            if w > 0 and h > 0:
-                return self.capture_region(x, y, w, h)
-        except Exception as e:
-            logger.error(f"Error capturing window {hwnd}: {e}")
-        return b""
+            import win32gui
+            import win32process
+        except ImportError as error:
+            raise RuntimeError("Window discovery requires pywin32.") from error
 
-    def capture_context(self, ocr_engine=None, ocr_error=None) -> dict:
-        image = self.capture_full()
+        foreground = int(win32gui.GetForegroundWindow())
+        windows = []
+
+        def collect(hwnd, _extra):
+            if not win32gui.IsWindowVisible(hwnd):
+                return True
+            title = str(win32gui.GetWindowText(hwnd) or "").strip()
+            if not title or title.casefold().startswith("helix"):
+                return True
+            left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+            _, pid = win32process.GetWindowThreadProcessId(hwnd)
+            width, height = int(right - left), int(bottom - top)
+            if width <= 0 or height <= 0:
+                return True
+            windows.append({
+                "window_handle": int(hwnd),
+                "title": title[:200],
+                "pid": int(pid),
+                "bounds": {
+                    "x": int(left),
+                    "y": int(top),
+                    "width": width,
+                    "height": height,
+                },
+                "is_foreground": int(hwnd) == foreground,
+                "is_minimized": bool(win32gui.IsIconic(hwnd)),
+            })
+            return True
+
+        win32gui.EnumWindows(collect, None)
+        return windows[:80]
+
+    def get_window_info(self, hwnd: int) -> dict:
+        """Return title and screen bounds for a selected native window."""
+        try:
+            import win32gui
+            import win32process
+        except ImportError as error:
+            raise RuntimeError("Window inspection requires pywin32.") from error
+        if (
+            isinstance(hwnd, bool)
+            or not isinstance(hwnd, int)
+            or hwnd <= 0
+            or not win32gui.IsWindow(hwnd)
+        ):
+            raise ValueError("The target window handle is invalid or no longer exists.")
+        title = str(win32gui.GetWindowText(hwnd) or "").strip()
+        if title.casefold().startswith("helix"):
+            raise ValueError("HELIX interface windows are excluded from observation.")
+        left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+        _, pid = win32process.GetWindowThreadProcessId(hwnd)
+        return {
+            "hwnd": hwnd,
+            "title": title,
+            "pid": int(pid),
+            "rect": {
+                "x": int(left),
+                "y": int(top),
+                "width": max(0, int(right - left)),
+                "height": max(0, int(bottom - top)),
+            },
+        }
+
+    def capture_window(self, hwnd: int) -> bytes:
+        """Render one native window without including windows layered above it."""
+        try:
+            import win32gui
+            import win32ui
+            from PIL import Image
+        except ImportError as error:
+            raise RuntimeError(
+                "Window capture requires pywin32 and Pillow."
+            ) from error
+        if (
+            isinstance(hwnd, bool)
+            or not isinstance(hwnd, int)
+            or hwnd <= 0
+            or not win32gui.IsWindow(hwnd)
+        ):
+            raise ValueError("The target window handle is invalid or no longer exists.")
+        title = str(win32gui.GetWindowText(hwnd) or "").strip()
+        if title.casefold().startswith("helix"):
+            raise ValueError("HELIX interface windows are excluded from capture.")
+        if win32gui.IsIconic(hwnd):
+            raise RuntimeError("The target window is minimized and cannot be captured.")
+        left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+        width, height = int(right - left), int(bottom - top)
+        if (
+            width <= 0
+            or height <= 0
+            or width * height > _MAX_WINDOW_CAPTURE_PIXELS
+        ):
+            raise RuntimeError(
+                "The target window has no capturable area or exceeds the capture size limit."
+            )
+
+        window_dc = win32gui.GetWindowDC(hwnd)
+        source_dc = None
+        memory_dc = None
+        bitmap = None
+        try:
+            source_dc = win32ui.CreateDCFromHandle(window_dc)
+            memory_dc = source_dc.CreateCompatibleDC()
+            bitmap = win32ui.CreateBitmap()
+            bitmap.CreateCompatibleBitmap(source_dc, width, height)
+            memory_dc.SelectObject(bitmap)
+            if not win32gui.PrintWindow(
+                hwnd,
+                memory_dc.GetSafeHdc(),
+                _PW_RENDERFULLCONTENT,
+            ):
+                raise RuntimeError(
+                    "Windows could not render this window. No monitor screenshot "
+                    "was substituted."
+                )
+            pixels = bitmap.GetBitmapBits(True)
+            image = Image.frombytes(
+                "RGB",
+                (width, height),
+                pixels,
+                "raw",
+                "BGRX",
+            )
+            buffer = io.BytesIO()
+            image.save(buffer, format="PNG")
+            return buffer.getvalue()
+        finally:
+            if memory_dc is not None:
+                memory_dc.DeleteDC()
+            if bitmap is not None:
+                win32gui.DeleteObject(bitmap.GetHandle())
+            if source_dc is not None:
+                source_dc.DeleteDC()
+            win32gui.ReleaseDC(hwnd, window_dc)
+
+    def capture_context(
+        self,
+        ocr_engine=None,
+        ocr_error=None,
+        window_handle: int | None = None,
+    ) -> dict:
+        image = (
+            self.capture_full()
+            if window_handle is None
+            else self.capture_window(window_handle)
+        )
         from PIL import Image
 
         screenshot = Image.open(io.BytesIO(image))
@@ -68,7 +210,12 @@ class ScreenEngine:
         screenshot.save(screenshot_buffer, format="JPEG", quality=75, optimize=True)
         context = {
             "screenshot_bytes": screenshot_buffer.getvalue(),
-            "active_window": self.get_active_window_info(),
+            "active_window": (
+                self.get_active_window_info()
+                if window_handle is None
+                else self.get_window_info(window_handle)
+            ),
+            "capture_scope": "monitor" if window_handle is None else "window",
             "ui_tree": {},
             "ocr_text": None,
             "ocr_error": ocr_error,

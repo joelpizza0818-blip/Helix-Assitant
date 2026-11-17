@@ -30,9 +30,13 @@ import type {
   WorkflowDefinition,
 } from '../../types/global'
 import ModelSelectorDropdown from './ModelSelectorDropdown'
+import { LiveVoice } from '../LiveVoice/LiveVoice'
+import { NormalAudioButton } from '../NormalAudio/NormalAudioButton'
 import './FloatingUI.css'
 
 export default function FloatingUI() {
+  const [isLiveVoiceOpen, setIsLiveVoiceOpen] = useState(false)
+  const [isLiveVoiceSuppressed, setIsLiveVoiceSuppressed] = useState(false)
   const {
     settings: voiceSettings,
     isLoading: isVoiceSettingsLoading,
@@ -101,9 +105,24 @@ export default function FloatingUI() {
   const suppressedMode = voiceSettings.floating_ui_mode === 'suppressed'
 
   useEffect(() => {
-    document.body.classList.toggle('floating-ui-transparent', suppressedMode)
+    document.body.classList.toggle(
+      'floating-ui-transparent',
+      suppressedMode || isLiveVoiceSuppressed,
+    )
     return () => document.body.classList.remove('floating-ui-transparent')
-  }, [suppressedMode])
+  }, [suppressedMode, isLiveVoiceSuppressed])
+
+  const setLiveVoiceSuppressed = async (suppressed: boolean) => {
+    try {
+      const applied = await window.helix?.setLiveVoiceMode?.(true, suppressed)
+      if (!applied) {
+        throw new Error('The Live Voice window mode was not applied.')
+      }
+      setIsLiveVoiceSuppressed(suppressed)
+    } catch (error) {
+      console.error('[FloatingUI] Failed to change Live Voice window mode:', error)
+    }
+  }
 
   useEffect(() => {
     if (!window.helix?.setFloatingWindowMode) return
@@ -424,7 +443,7 @@ export default function FloatingUI() {
   }, [activeTask?.id])
 
   return (
-        <div className={`floating-ui ${suppressedMode ? 'floating-ui--suppressed' : ''}`}>
+        <div className={`floating-ui ${suppressedMode ? 'floating-ui--suppressed' : ''}${isLiveVoiceSuppressed ? ' floating-ui--live-suppressed' : ''}`}>
       {/* ── Header ─────────────────────────────── */}
       <div className="floating-ui__header" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
         <div className="floating-ui__brand">
@@ -722,31 +741,29 @@ export default function FloatingUI() {
 
         <button className="icon-btn" type="button" onClick={() => fileInputRef.current?.click()} disabled={isReadingAttachments} title="Attach files or images" aria-label="Attach files or images"><PaperclipIcon /></button>
 
-        {/* Microphone button */}
+        {/* Unified Microphone Button (Normal Audio recording & wake-word indicator) */}
+        <NormalAudioButton
+          onTranscript={(text) => setInputText((prev) => prev ? `${prev} ${text}` : text)}
+          disabled={isLoading}
+          isVoiceActive={voiceSettingsReady && voiceSettings.voice_enabled}
+          isVoiceCapturing={isVoiceCapturing}
+          onToggleVoiceActive={() => void saveSettings({ voice_enabled: !voiceSettings.voice_enabled })}
+        />
+
+        {/* Live Voice mode button */}
         <button
-          className={`icon-btn floating-ui__mic-btn ${voiceSettingsReady && voiceSettings.voice_enabled ? 'icon-btn--active' : ''} ${isVoiceCapturing ? 'floating-ui__mic-btn--capturing' : ''}`}
-          onClick={() => void saveSettings({ voice_enabled: !voiceSettings.voice_enabled })}
-          disabled={!voiceSettingsReady || isVoiceSettingsLoading || isVoiceSettingsSaving || Boolean(voiceSettingsError)}
-          title={isVoiceCapturing ? 'Listening — speak now' : voiceSettingsReady && voiceSettings.voice_enabled ? 'Disable voice activation' : 'Enable voice activation'}
-          aria-label="Microphone"
-          aria-pressed={voiceSettingsReady && voiceSettings.voice_enabled}
+          type="button"
+          className="floating-ui__live-voice-btn"
+          onClick={() => {
+            setIsLiveVoiceOpen(true)
+            void window.helix?.setLiveVoiceMode?.(true)
+          }}
+          title="Iniciar Helix Live Voice (Llamada telefónica interactiva)"
+          aria-label="Helix Live Voice"
         >
-          <MicIcon active={voiceSettingsReady && voiceSettings.voice_enabled} />
-          {isVoiceCapturing && (
-            <span className="floating-ui__mic-wave" aria-hidden="true">
-              <span />
-              <span />
-              <span />
-              <span />
-              <span />
-            </span>
-          )}
+          <span className="floating-ui__live-dot" />
+          <span>Live</span>
         </button>
-
-        {/* Camera status indicator */}
-        <span className="camera-indicator" title="Camera status" />
-
-
 
         {/* Send button */}
         <button
@@ -778,6 +795,24 @@ export default function FloatingUI() {
           </button>
         </div>
       )}
+
+      {/* ── Helix Live Voice Fullscreen Experience ───── */}
+      <LiveVoice
+        isOpen={isLiveVoiceOpen}
+        isSuppressed={isLiveVoiceSuppressed}
+        onSuppressionChange={setLiveVoiceSuppressed}
+        silenceMs={voiceSettings.voice_live_silence_ms ?? 1000}
+        onClose={() => {
+          setIsLiveVoiceOpen(false)
+          setIsLiveVoiceSuppressed(false)
+          void window.helix?.setLiveVoiceMode?.(false)
+        }}
+        onSwitchToChat={() => {
+          setIsLiveVoiceOpen(false)
+          setIsLiveVoiceSuppressed(false)
+          void window.helix?.setLiveVoiceMode?.(false)
+        }}
+      />
     </div>
   )
 }
@@ -809,17 +844,6 @@ function QuitIcon() {
       <path d="M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h5" />
       <path d="M16 17l5-5-5-5" />
       <path d="M21 12H9" />
-    </svg>
-  )
-}
-
-function MicIcon({ active }: { active: boolean }) {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={active ? 'var(--orange)' : 'currentColor'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-      <line x1="12" y1="19" x2="12" y2="23" />
-      <line x1="8" y1="23" x2="16" y2="23" />
     </svg>
   )
 }

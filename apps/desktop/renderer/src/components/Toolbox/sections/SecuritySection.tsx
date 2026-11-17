@@ -1,5 +1,10 @@
-import React, { useEffect, useState } from 'react'
-import type { HelixSettings, HyperVPreflight } from '../../../types/global'
+import React, { useCallback, useEffect, useState } from 'react'
+import type {
+  ComputerUseStatus,
+  DockerDesktopProgress,
+  HelixSettings,
+} from '../../../types/global'
+import { getUserFacingError } from '../../../lib/userError'
 import '../Toolbox.css'
 
 interface Props {
@@ -16,28 +21,126 @@ const PERMISSION_LEVELS = [
   { level: 'CRITICAL', desc: 'Delete files/directories, kill processes, format/destructive commands', defaultReq: 'Mandatory Explicit Confirmation' }
 ]
 
+function progressLabel(progress: DockerDesktopProgress | null): string {
+  return progress?.message ?? 'Preparing the Docker desktop…'
+}
+
 export default function SecuritySection({ settings, onSave }: Props) {
   const [newPath, setNewPath] = useState('')
   const [newApp, setNewApp] = useState('')
-  const [hyperVPreflight, setHyperVPreflight] = useState<HyperVPreflight | null>(null)
-  const [hyperVError, setHyperVError] = useState<string | null>(null)
-  const [isCheckingHyperV, setIsCheckingHyperV] = useState(false)
+  const [computerUseStatus, setComputerUseStatus] = useState<ComputerUseStatus | null>(null)
+  const [computerUseError, setComputerUseError] = useState<string | null>(null)
+  const [computerUseProgress, setComputerUseProgress] = useState<DockerDesktopProgress | null>(null)
+  const [isRefreshingComputerUse, setIsRefreshingComputerUse] = useState(false)
+  const [isChangingComputerUse, setIsChangingComputerUse] = useState(false)
 
-  const checkHyperV = async () => {
-    setIsCheckingHyperV(true)
-    setHyperVError(null)
+  const refreshComputerUse = useCallback(async () => {
+    setIsRefreshingComputerUse(true)
+    setComputerUseError(null)
     try {
-      setHyperVPreflight(await window.helix.getHyperVPreflight())
+      setComputerUseStatus(await window.helix.getComputerUseStatus())
     } catch (error) {
-      setHyperVError(error instanceof Error ? error.message : String(error))
+      setComputerUseError(getUserFacingError(
+        error,
+        'Could not check Computer Use. Try again in a moment.',
+      ))
     } finally {
-      setIsCheckingHyperV(false)
+      setIsRefreshingComputerUse(false)
+    }
+  }, [])
+
+  const startComputerUseSetup = useCallback(async () => {
+    setComputerUseError(null)
+    setComputerUseProgress(null)
+    try {
+      await window.helix.startComputerUseSetup()
+      await refreshComputerUse()
+    } catch (error) {
+      setComputerUseError(getUserFacingError(
+        error,
+        'Could not prepare the private desktop. Try again in a moment.',
+      ))
+    }
+  }, [refreshComputerUse])
+
+  const choosePrivateDesktop = async () => {
+    if (isChangingComputerUse) return
+    setIsChangingComputerUse(true)
+    setComputerUseError(null)
+    try {
+      await onSave({
+        computer_use_mode: 'isolated',
+        computer_use_host_consent: false,
+      })
+      await startComputerUseSetup()
+    } catch (error) {
+      setComputerUseError(getUserFacingError(
+        error,
+        'Could not switch to the private desktop. Try again in a moment.',
+      ))
+    } finally {
+      setIsChangingComputerUse(false)
+    }
+  }
+
+  const chooseWindowsDesktop = async () => {
+    if (isChangingComputerUse) return
+    setIsChangingComputerUse(true)
+    setComputerUseError(null)
+    try {
+      if (computerUseStatus?.hostConsent) {
+        await onSave({ computer_use_mode: 'host' })
+      } else {
+        const consent = await window.helix.requestHostDesktopConsent()
+        if (!consent.accepted) return
+        await onSave({
+          computer_use_mode: 'host',
+          computer_use_host_consent: true,
+        })
+      }
+      await refreshComputerUse()
+    } catch (error) {
+      setComputerUseError(getUserFacingError(
+        error,
+        'Could not change Computer Use. Try again in a moment.',
+      ))
+    } finally {
+      setIsChangingComputerUse(false)
     }
   }
 
   useEffect(() => {
-    void checkHyperV()
-  }, [])
+    const unsubscribeProgress = window.helix.onDockerDesktopProgress((progress) => {
+      setComputerUseProgress(progress)
+      void refreshComputerUse()
+    })
+    void refreshComputerUse()
+    return unsubscribeProgress
+  }, [refreshComputerUse])
+
+  useEffect(() => {
+    if (!computerUseStatus?.preparing) return
+    const timer = window.setInterval(() => {
+      void refreshComputerUse()
+    }, 5000)
+    return () => window.clearInterval(timer)
+  }, [computerUseStatus?.preparing, refreshComputerUse])
+
+  const effectiveMode = computerUseStatus?.mode ?? settings.computer_use_mode ?? 'auto'
+  const hostSelected = effectiveMode === 'host'
+    || (effectiveMode === 'auto' && computerUseStatus?.hostConsent === true)
+  const privateDesktopSelected = !hostSelected
+  const privateDesktopAvailable = computerUseStatus?.isolatedSupported === true
+  const privateDesktopPreparing = computerUseStatus?.preparing === true
+  const privateDesktopReady = computerUseStatus?.isolatedReady === true
+  const activeProgress = computerUseProgress ?? (
+    computerUseStatus?.progressPhase
+      ? {
+          phase: computerUseStatus.progressPhase,
+          message: 'Preparing the Docker desktop…',
+        }
+      : null
+  )
 
   const handleAddPath = () => {
     if (!newPath.trim()) return
@@ -72,45 +175,139 @@ export default function SecuritySection({ settings, onSave }: Props) {
 
       <div className="toolbox-card">
         <div className="toolbox-card__header">
-          <span className="toolbox-card__title">Isolated desktop (Hyper-V)</span>
+          <span className="toolbox-card__title">Computer Use</span>
           <button
             type="button"
             className="validate-btn"
-            disabled={isCheckingHyperV}
-            onClick={() => void checkHyperV()}
+            disabled={isRefreshingComputerUse}
+            onClick={() => void refreshComputerUse()}
           >
-            {isCheckingHyperV ? 'Checking…' : 'Check compatibility'}
+            {isRefreshingComputerUse ? 'Checking…' : 'Refresh'}
           </button>
         </div>
         <p className="text-xs text-muted" style={{ marginBottom: 12 }}>
-          The isolated desktop requires a persistent Hyper-V virtual machine. HELIX will not enable Windows features or capture the host desktop as a fallback.
+          Choose where HELIX can work when you ask it to use a computer. The isolated desktop runs Debian Stable with XFCE in a Docker container; it has its own persistent home folder and does not share Windows files.
         </p>
-        {hyperVError && (
-          <p className="text-xs" role="alert" style={{ color: 'var(--red)' }}>
-            Could not check Hyper-V: {hyperVError}
+        <div
+          role="radiogroup"
+          aria-label="Computer Use desktop"
+          style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+        >
+          <label
+            style={{
+              display: 'flex',
+              gap: 10,
+              alignItems: 'flex-start',
+              padding: '10px 12px',
+              background: 'var(--canvas)',
+              borderRadius: 'var(--radius-btn)',
+              border: '1px solid var(--border)',
+            }}
+          >
+            <input
+              type="radio"
+              name="computer-use-mode"
+              checked={hostSelected}
+              disabled={isChangingComputerUse}
+              onChange={() => void chooseWindowsDesktop()}
+              style={{ marginTop: 3 }}
+            />
+            <span>
+              <span className="text-sm weight-medium text-bone">This Windows desktop</span>
+              <span className="cap-badge" style={{ marginLeft: 8, fontSize: 10 }}>Requires permission</span>
+              <p className="text-xs text-muted" style={{ marginTop: 4 }}>
+                HELIX sees the screen and works in VS Code, browsers, and any open app with a separate virtual cursor. Your own mouse stays in place unless an app blocks accessibility; that physical fallback is covered by one-time permission and the pointer is restored afterward.
+              </p>
+            </span>
+          </label>
+          <label
+            style={{
+              display: 'flex',
+              gap: 10,
+              alignItems: 'flex-start',
+              padding: '10px 12px',
+              background: 'var(--canvas)',
+              borderRadius: 'var(--radius-btn)',
+              border: '1px solid var(--border)',
+              opacity: privateDesktopAvailable ? 1 : 0.6,
+            }}
+          >
+            <input
+              type="radio"
+              name="computer-use-mode"
+              checked={privateDesktopSelected && privateDesktopAvailable}
+              disabled={!privateDesktopAvailable || isChangingComputerUse}
+              onChange={() => void choosePrivateDesktop()}
+              style={{ marginTop: 3 }}
+            />
+            <span>
+              <span className="text-sm weight-medium text-bone">Private desktop</span>
+              <span className="cap-badge" style={{ marginLeft: 8, fontSize: 10 }}>Default without host permission</span>
+              <p className="text-xs text-muted" style={{ marginTop: 4 }}>
+                {privateDesktopAvailable
+                  ? 'An isolated Debian XFCE desktop in Docker. Its screen is shown in the desktop preview, and it cannot see your Windows apps or files.'
+                  : 'Not available on this PC.'}
+              </p>
+            </span>
+          </label>
+        </div>
+
+        <div aria-live="polite" style={{ marginTop: 12 }}>
+          {!computerUseStatus && isRefreshingComputerUse && (
+            <p className="text-xs text-muted">Checking what this PC supports…</p>
+          )}
+          {privateDesktopPreparing && (
+            <>
+              <p className="text-sm" style={{ color: 'var(--orange)' }}>
+                {progressLabel(activeProgress)}
+              </p>
+              <p className="text-xs text-muted">
+                The first setup builds the Debian desktop image and downloads its packages. It may take several minutes.
+              </p>
+            </>
+          )}
+          {!privateDesktopPreparing && privateDesktopReady && privateDesktopSelected && (
+            <p className="text-sm" style={{ color: 'var(--green)' }}>
+              Your private desktop is ready.
+            </p>
+          )}
+          {!privateDesktopPreparing && !privateDesktopReady && privateDesktopAvailable && privateDesktopSelected && (
+            <p className="text-xs text-muted">
+              Your private desktop is not ready yet.
+            </p>
+          )}
+          {!privateDesktopAvailable && privateDesktopSelected && (
+            <p className="text-xs" style={{ color: 'var(--orange)' }}>
+              Start Docker Desktop’s Linux container engine, then retry setup. You can also use this Windows desktop after granting consent.
+            </p>
+          )}
+          {hostSelected && (
+            <p className="text-xs text-muted">
+              HELIX works on this Windows desktop only when you ask it to. Its virtual cursor is separate from yours, and accessibility actions do not move your physical pointer.
+            </p>
+          )}
+        </div>
+
+        {computerUseError && (
+          <p className="text-xs" role="alert" style={{ color: 'var(--red)', marginTop: 8 }}>
+            {computerUseError}
           </p>
         )}
-        {hyperVPreflight && (
-          <div aria-live="polite">
-            <p className="text-sm" style={{ color: hyperVPreflight.ready ? 'var(--green)' : 'var(--orange)' }}>
-              {hyperVPreflight.ready
-                ? 'Hyper-V is ready for virtual desktop provisioning.'
-                : 'Hyper-V is not ready for virtual desktop provisioning.'}
-            </p>
-            <p className="text-xs text-muted">
-              Windows edition: {hyperVPreflight.edition ?? 'not detected'} · Feature: {hyperVPreflight.featureState}
-            </p>
-            {hyperVPreflight.blockers.length > 0 && (
-              <ul className="text-xs text-muted" style={{ margin: '8px 0 0', paddingLeft: 18 }}>
-                {hyperVPreflight.blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}
-              </ul>
-            )}
-            {hyperVPreflight.featureCheckError && (
-              <p className="text-xs text-muted" style={{ marginTop: 8 }}>
-                Windows feature check: {hyperVPreflight.featureCheckError}
-              </p>
-            )}
-          </div>
+        {!computerUseError && computerUseStatus?.lastError && (
+          <p className="text-xs" role="alert" style={{ color: 'var(--red)', marginTop: 8 }}>
+            {computerUseStatus.lastError}
+          </p>
+        )}
+        {!privateDesktopPreparing && privateDesktopAvailable && !privateDesktopReady && effectiveMode !== 'host' && (
+          <button
+            type="button"
+            className="validate-btn"
+            disabled={isChangingComputerUse}
+            onClick={() => void startComputerUseSetup()}
+            style={{ marginTop: 10 }}
+          >
+            {computerUseStatus?.installationComplete ? 'Start private desktop' : 'Set up Docker desktop'}
+          </button>
         )}
       </div>
 
@@ -135,6 +332,7 @@ export default function SecuritySection({ settings, onSave }: Props) {
           <option value="ALWAYS_ASK">Always Ask — confirm non-routine actions</option>
           <option value="AUTO_APPROVE">Auto Approve — gate system and critical actions</option>
           <option value="SMART_APPROVAL">Smart Approval — gate modifications and risky context</option>
+          <option value="ALLOW_ALL">Allow All — no confirmation prompts</option>
         </select>
         <div style={{ height: 10 }} />
         <label className="form-label" htmlFor="auto-approve-up-to">
@@ -154,11 +352,16 @@ export default function SecuritySection({ settings, onSave }: Props) {
           <option value="MODIFY">Modify</option>
         </select>
         <p className="text-xs text-muted" style={{ marginTop: 8 }}>
-          This limit applies to Smart Approval. Auto Approve permits non-system and non-critical actions;
-          Always Ask confirms non-routine actions. Routine mouse, keyboard, and browser navigation
-          are allowed without repeated prompts. Shell commands, dangerous operations, and protected
-          resources still require confirmation.
+          This limit applies only to Smart Approval. Always Ask confirms non-routine actions;
+          Auto Approve runs non-system actions without repeated prompts; Allow All bypasses every
+          confirmation prompt, including shell, system, and protected actions. Commands rejected
+          by the shell security filter remain blocked. Use Allow All only when you trust the task.
         </p>
+        {settings.permissions_mode === 'ALLOW_ALL' && (
+          <p className="text-xs" role="alert" style={{ marginTop: 8, color: 'var(--orange)' }}>
+            Allow All is active. HELIX will run supported tools without asking for approval.
+          </p>
+        )}
       </div>
 
       {/* ── Command Sandboxing & Isolation ───────────────────── */}
@@ -192,7 +395,7 @@ export default function SecuritySection({ settings, onSave }: Props) {
           <select
             id="sandbox-mode"
             className="form-input"
-            value={settings.sandbox_mode || 'restricted'}
+            value={settings.sandbox_mode === 'isolated' ? 'isolated' : 'restricted'}
             disabled={!settings.sandbox_enabled}
             onChange={(e) => void onSave({
               sandbox_mode: e.target.value as HelixSettings['sandbox_mode']
@@ -200,8 +403,6 @@ export default function SecuritySection({ settings, onSave }: Props) {
           >
             <option value="restricted">Restricted Environment — Process isolation & sanitized environment (Default)</option>
             <option value="isolated">Isolated Subprocess — Clean system PATH & cleared environment variables</option>
-            <option value="windows_sandbox">Windows Sandbox — Disposable lightweight Hyper-V container</option>
-            <option value="docker">Docker Container — Isolated containerized environment</option>
           </select>
         </div>
       </div>

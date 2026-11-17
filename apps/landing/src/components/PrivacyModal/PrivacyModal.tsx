@@ -98,7 +98,7 @@ export const PrivacyModal: React.FC<PrivacyModalProps> = ({
               </span>
               <div>
                 <h4>Tool permissions</h4>
-                <p>Shell-command execution requires confirmation in the local policy engine. Requirements vary by tool and action; operating-system permissions still apply.</p>
+                <p>Tool actions follow the configured approval mode; the explicit Allow All mode disables confirmation prompts. Operating-system permissions still apply.</p>
               </div>
             </div>
           </div>

@@ -33,6 +33,11 @@ class OpenAICompatibleProvider(OpenAIProvider):
     async def tool_call(self, messages, tools, model: str, **kwargs):
         return await super().tool_call(messages, tools, model, base_url=self.base_url, **kwargs)
 
+    async def stream_tool_call(self, messages, tools, model, **kwargs):
+        return await super().stream_tool_call(
+            messages, tools, model, base_url=self.base_url, **kwargs
+        )
+
     async def structured_output(self, messages, schema, model: str, **kwargs):
         return await super().structured_output(messages, schema, model, base_url=self.base_url, **kwargs)
 

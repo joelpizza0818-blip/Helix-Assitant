@@ -6,6 +6,7 @@ import type {
   MobilePairingRequest,
   MobileTextRequest,
 } from '../../../types/global'
+import { getUserFacingError } from '../../../lib/userError'
 import '../Toolbox.css'
 
 const DEFAULT_MOBILE_WORKER_URL = 'https://helix-mobile-relay.joelpizza0818.workers.dev'
@@ -64,7 +65,7 @@ export default function MobileSection() {
         void window.helix.getMobileDevices()
           .then(setDevices)
           .catch((cause: unknown) => {
-            setError(cause instanceof Error ? cause.message : 'No se pudieron cargar los dispositivos.')
+            setError(getUserFacingError(cause, 'No se pudieron cargar los dispositivos. Comprueba la conexión e inténtalo de nuevo.'))
           })
       }
     })
@@ -88,7 +89,7 @@ export default function MobileSection() {
         setTextRequests(pendingTexts)
       }
     }).catch((cause: unknown) => {
-      if (active) setError(cause instanceof Error ? cause.message : 'No se pudo consultar el estado del relay.')
+      if (active) setError(getUserFacingError(cause, 'No se pudo consultar el estado del relay. Comprueba la conexión e inténtalo de nuevo.'))
     })
     return () => {
       active = false
@@ -111,7 +112,7 @@ export default function MobileSection() {
       setInvitation(await window.helix.createMobilePairing())
       setCopied(false)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo crear la vinculación móvil.')
+      setError(getUserFacingError(cause, 'No se pudo crear la vinculación móvil. Comprueba la conexión e inténtalo de nuevo.'))
     } finally {
       setBusy(false)
     }
@@ -128,7 +129,7 @@ export default function MobileSection() {
       setCopied(true)
       window.setTimeout(() => setCopied(false), 1800)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo copiar la invitación.')
+      setError(getUserFacingError(cause, 'No se pudo copiar la invitación. Comprueba los permisos del portapapeles e inténtalo de nuevo.'))
     }
   }
 
@@ -143,7 +144,7 @@ export default function MobileSection() {
       setWorkerConnected(status.connected)
       setDevices(status.configured ? await window.helix.getMobileDevices() : [])
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo guardar la URL del Worker.')
+      setError(getUserFacingError(cause, 'No se pudo guardar la dirección del relay. Revisa la dirección e inténtalo de nuevo.'))
     } finally {
       setWorkerBusy(false)
     }
@@ -157,7 +158,7 @@ export default function MobileSection() {
       await window.helix.revokeMobileDevice(device.device_id)
       setDevices(await window.helix.getMobileDevices())
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo revocar el dispositivo.')
+      setError(getUserFacingError(cause, 'No se pudo desvincular el dispositivo. Comprueba la conexión e inténtalo de nuevo.'))
     } finally {
       setWorkerBusy(false)
     }
@@ -172,7 +173,7 @@ export default function MobileSection() {
       setPairingRequests((current) => current.filter((item) => item.request_id !== request.request_id))
       if (approved) setDevices(await window.helix.getMobileDevices())
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo resolver la solicitud de vinculación.')
+      setError(getUserFacingError(cause, 'No se pudo responder a la solicitud de vinculación. Inténtalo de nuevo.'))
     } finally {
       setWorkerBusy(false)
     }
@@ -186,7 +187,7 @@ export default function MobileSection() {
       await window.helix.resolveMobileTextRequest(request.request_id, approved)
       setTextRequests((current) => current.filter((item) => item.request_id !== request.request_id))
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo resolver el mensaje móvil.')
+      setError(getUserFacingError(cause, 'No se pudo responder al mensaje móvil. Inténtalo de nuevo.'))
     } finally {
       setWorkerBusy(false)
     }

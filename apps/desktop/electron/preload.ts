@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { DockerDesktopProgress } from './docker-desktop-manager'
 
 // Type-safe event listener cleanup
 function createEventListener<T>(channel: string, fn: (data: T) => void): () => void {
@@ -21,6 +22,14 @@ contextBridge.exposeInMainWorld('helix', {
   // Cancel a running background task
   cancelTask: (taskId: string): void => {
     ipcRenderer.send('helix:cancel-task', taskId)
+  },
+
+  pauseTask: (taskId: string): void => {
+    ipcRenderer.send('helix:pause-task', taskId)
+  },
+
+  resumeTask: (taskId: string): void => {
+    ipcRenderer.send('helix:resume-task', taskId)
   },
 
   emergencyStop: (): void => {
@@ -80,8 +89,22 @@ contextBridge.exposeInMainWorld('helix', {
   }> => ipcRenderer.invoke('helix:install-playwright-chromium'),
   getDeveloperTerminalStatus: () =>
     ipcRenderer.invoke('helix:developer-terminal-status'),
-  getHyperVPreflight: () =>
-    ipcRenderer.invoke('helix:get-hyperv-preflight'),
+  getComputerUseStatus: () =>
+    ipcRenderer.invoke('helix:get-computer-use-status'),
+  startComputerUseSetup: () =>
+    ipcRenderer.invoke('helix:start-computer-use-setup'),
+  requestHostDesktopConsent: () =>
+    ipcRenderer.invoke('helix:request-host-desktop-consent'),
+  onDockerDesktopProgress: (fn: (progress: DockerDesktopProgress) => void): (() => void) =>
+    createEventListener('helix:docker-desktop-progress', fn),
+  startDockerDesktop: () =>
+    ipcRenderer.invoke('helix:start-docker-desktop'),
+  stopDockerDesktop: () =>
+    ipcRenderer.invoke('helix:stop-docker-desktop'),
+  detectDesktopApps: () =>
+    ipcRenderer.invoke('helix:detect-desktop-apps'),
+  installDesktopApps: (ids: string[]) =>
+    ipcRenderer.invoke('helix:install-desktop-apps', ids),
   startDeveloperTerminal: (options: {
     project_id: string
     shell: 'powershell' | 'cmd' | 'bash'
@@ -98,8 +121,8 @@ contextBridge.exposeInMainWorld('helix', {
     fn: (event: { session_id: string; exit_code: number | null; signal: string | null }) => void,
   ) => createEventListener('helix:developer-terminal-exit', fn),
 
-  testTts: (text?: string): Promise<unknown> =>
-    ipcRenderer.invoke('helix:test-tts', text),
+  testTts: (payload?: string | { text?: string; provider?: string; voice_id?: string }): Promise<unknown> =>
+    ipcRenderer.invoke('helix:test-tts', payload),
 
   getMemoryStatus: (): Promise<unknown> =>
     ipcRenderer.invoke('helix:get-memory-status'),
@@ -301,6 +324,9 @@ contextBridge.exposeInMainWorld('helix', {
   saveWorkflow: (workflow: object): Promise<unknown> =>
     ipcRenderer.invoke('helix:save-workflow', workflow),
 
+  saveWorkflowSkill: (id: string, triggers?: string[]): Promise<unknown> =>
+    ipcRenderer.invoke('helix:save-workflow-skill', id, triggers),
+
   deleteWorkflow: (id: string): Promise<{ deleted: boolean }> =>
     ipcRenderer.invoke('helix:delete-workflow', id),
 
@@ -353,6 +379,15 @@ contextBridge.exposeInMainWorld('helix', {
   onVoiceCaptureStopped: (fn: () => void): (() => void) =>
     createEventListener('helix:voice_capture_stopped', fn),
 
+  voiceSend: (message: { type: string; payload: Record<string, unknown> }): Promise<boolean> =>
+    ipcRenderer.invoke('helix:voice-send', message),
+
+  setLiveVoiceMode: (enabled: boolean, suppressed = false): Promise<boolean> =>
+    ipcRenderer.invoke('helix:set-live-voice-mode', enabled, suppressed),
+
+  onVoiceEvent: (fn: (event: { type: string; payload: Record<string, unknown> }) => void): (() => void) =>
+    createEventListener('helix:voice-event', fn),
+
   onTaskUpdate: (fn: (task: unknown) => void): (() => void) =>
     createEventListener('helix:task-update', fn),
 
@@ -367,6 +402,13 @@ contextBridge.exposeInMainWorld('helix', {
 
   onBrowserFrame: (fn: (event: unknown) => void): (() => void) =>
     createEventListener('helix:browser_frame', fn),
+  onDesktopFrame: (fn: (event: unknown) => void): (() => void) =>
+    createEventListener('helix:desktop-frame', fn),
+  onDesktopControlStatus: (fn: (event: unknown) => void): (() => void) =>
+    createEventListener('helix:desktop-control-status', fn),
+  stopDesktopControl: (): void => {
+    ipcRenderer.send('helix:stop-desktop-control')
+  },
 
   onModelRequest: (fn: (request: unknown) => void): (() => void) =>
     createEventListener('helix:model_request', fn),

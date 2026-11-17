@@ -63,6 +63,12 @@ class WorkflowExecutionMixin:
                 progress = int((completed_count / total_steps) * 100) if total_steps > 0 else 0
                 await self.task_manager.update_progress(task_id, progress)
 
+        async def _wait_while_paused() -> bool:
+            waiter = getattr(self.task_manager, "wait_if_paused", None)
+            if waiter is None:
+                return True
+            return await waiter(task_id)
+
         pending = [
             step for step in plan.steps if step.id not in step_results
         ]
@@ -103,6 +109,12 @@ class WorkflowExecutionMixin:
             else ""
         )
         while pending:
+            if not await _wait_while_paused():
+                self._save_workflow_checkpoint(task_id, checkpoint_data)
+                return {
+                    "status": "cancelled",
+                    "steps": step_results,
+                }
             ready = [
                 step
                 for step in pending
@@ -115,6 +127,12 @@ class WorkflowExecutionMixin:
                 raise ValueError("Workflow plan could not make dependency progress.")
             for step in ready:
                 pending.remove(step)
+                if not await _wait_while_paused():
+                    self._save_workflow_checkpoint(task_id, checkpoint_data)
+                    return {
+                        "status": "cancelled",
+                        "steps": step_results,
+                    }
                 if await self._is_cancelled(task_id):
                     self._save_workflow_checkpoint(task_id, checkpoint_data)
                     return {

@@ -11,8 +11,10 @@ interface ErrorDetails {
   expose?: unknown;
 }
 
-const DEFAULT_CLIENT_ERROR_MESSAGE = 'The request could not be processed.';
-const INTERNAL_ERROR_MESSAGE = 'An unexpected error occurred';
+const DEFAULT_CLIENT_ERROR_MESSAGE =
+  'We could not process this request. Check the information and try again.';
+const INTERNAL_ERROR_MESSAGE =
+  'HELIX could not complete this request. Please try again; contact support if it continues.';
 const PUBLIC_CODE_PATTERN = /^[A-Z][A-Z0-9_]{0,63}$/;
 
 function isRecord(value: unknown): value is ErrorDetails {
@@ -61,7 +63,6 @@ export const errorHandler = (
       : statusCode < 500
         ? DEFAULT_CLIENT_ERROR_MESSAGE
         : INTERNAL_ERROR_MESSAGE;
-  const isProduction = process.env.NODE_ENV === 'production';
   const errorName =
     typeof error.name === 'string' && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(error.name)
       ? error.name
@@ -78,19 +79,12 @@ export const errorHandler = (
   res.status(statusCode).json({
     success: false,
     error: {
-      code: isProduction
-        ? statusCode < 500
+        code: statusCode < 500
           ? isPublicClientError && safeCode
             ? safeCode
             : 'REQUEST_ERROR'
-          : 'INTERNAL_ERROR'
-        : getSafeErrorCode(error.code) || (statusCode < 500 ? 'REQUEST_ERROR' : 'INTERNAL_ERROR'),
-      message: isProduction
-        ? safeMessage
-        : typeof error.message === 'string'
-          ? error.message
-          : safeMessage,
-      ...(!isProduction && typeof error.stack === 'string' && { stack: error.stack }),
+          : 'INTERNAL_ERROR',
+        message: safeMessage,
     },
     meta: {
       timestamp: new Date().toISOString(),

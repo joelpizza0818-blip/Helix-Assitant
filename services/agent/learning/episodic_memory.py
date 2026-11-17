@@ -1,7 +1,7 @@
 """Episodic Memory for HELIX Adaptive Learning Harness.
 
 Stores raw session episodes (queries, tool actions taken, outcomes, and user corrections)
-in a persistent SQLite database at ~/.helix/learning_harness.db.
+in a persistent SQLite database in HELIX's agent storage directory.
 Inspired by MemoHarness short-term episodic memory architecture.
 """
 
@@ -15,9 +15,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from services.agent.storage_paths import get_agent_data_dir
+
 logger = logging.getLogger(__name__)
 
-DEFAULT_LEARNING_DB_PATH = Path.home() / ".helix" / "learning_harness.db"
+DEFAULT_LEARNING_DB_PATH = get_agent_data_dir() / "learning_harness.db"
 
 
 class EpisodicMemory:

@@ -345,11 +345,10 @@ export async function spawnAgentDaemon(port: number = 8765): Promise<{ success: 
     });
 
     return { success: true };
-  } catch (err) {
+  } catch {
     return {
       success: false,
-      error: `Error al invocar proceso Python: ${(err as Error).message}`,
+      error: 'No se pudo iniciar el agente local. Abre HELIX Desktop y vuelve a intentarlo.',
     };
   }
 }
-

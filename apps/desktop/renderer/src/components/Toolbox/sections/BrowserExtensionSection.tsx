@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { BrowserExtensionInfo } from '../../../types/global'
+import { getUserFacingError } from '../../../lib/userError'
 import '../Toolbox.css'
 import './BrowserExtensionSection.css'
 
@@ -15,7 +16,7 @@ export default function BrowserExtensionSection() {
       setInfo(await window.helix.getBrowserExtensionInfo())
       setError(null)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not load browser extension status.')
+      setError(getUserFacingError(cause, 'No se pudo consultar el estado de la extensión. Comprueba que esté instalada e inténtalo de nuevo.'))
     }
   }, [])
 
@@ -31,7 +32,7 @@ export default function BrowserExtensionSection() {
     try {
       await window.helix.openBrowserExtensionFolder()
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not open the extension folder.')
+      setError(getUserFacingError(cause, 'No se pudo abrir la carpeta de la extensión. Comprueba los permisos e inténtalo de nuevo.'))
     } finally {
       setOpeningFolder(false)
     }
@@ -46,7 +47,7 @@ export default function BrowserExtensionSection() {
       setCopied(true)
       window.setTimeout(() => setCopied(false), 1500)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not copy the pairing token.')
+      setError(getUserFacingError(cause, 'No se pudo copiar el código de vinculación. Comprueba los permisos e inténtalo de nuevo.'))
     } finally {
       setCopyingToken(false)
     }
@@ -71,7 +72,9 @@ export default function BrowserExtensionSection() {
           </span>
         </div>
         {!info?.listening && info?.error && (
-          <p className="toolbox-error" role="alert">{info.error}</p>
+          <p className="toolbox-error" role="alert">
+            {getUserFacingError(info.error, 'No se pudo iniciar el puente local. Comprueba los permisos e inténtalo de nuevo.')}
+          </p>
         )}
         {info?.listening && !info.extensionConnected && (
           <p className="toolbox-error" role="status">

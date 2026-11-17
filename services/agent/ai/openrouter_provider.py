@@ -59,6 +59,17 @@ class OpenRouterProvider(OpenAIProvider):
     async def tool_call(self, messages: List[ChatMessage], tools: List[dict], model: str, **kwargs):
         return await super().tool_call(messages=messages, tools=tools, model=model, base_url=self._base_url, **kwargs)
 
+    async def stream_tool_call(
+        self, messages: List[ChatMessage], tools: List[dict], model: str, **kwargs
+    ):
+        return await super().stream_tool_call(
+            messages=messages,
+            tools=tools,
+            model=model,
+            base_url=self._base_url,
+            **kwargs,
+        )
+
     async def structured_output(self, messages: List[ChatMessage], schema: dict, model: str, **kwargs):
         return await super().structured_output(messages=messages, schema=schema, model=model, base_url=self._base_url, **kwargs)
 

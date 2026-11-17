@@ -73,6 +73,15 @@ export interface OllamaStatus {
   models: { name: string; size_gb: number; modified_at: string }[]
   install_hint?: string
   active_pulls: string[]
+  pulls?: {
+    model: string
+    status: string
+    percent: number
+    completed: number
+    total: number
+    done: boolean
+    error?: string | null
+  }[]
 }
 
 export interface PullResult {

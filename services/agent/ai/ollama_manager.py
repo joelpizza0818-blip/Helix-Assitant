@@ -73,6 +73,7 @@ class OllamaManager:
     def __init__(self, base_url: str = OLLAMA_BASE_URL):
         self._base_url = base_url.rstrip("/")
         self._active_pulls: Dict[str, asyncio.Task] = {}
+        self._pull_progress: Dict[str, PullProgress] = {}
 
     # ------------------------------------------------------------------ #
     #  Runtime detection
@@ -294,9 +295,38 @@ class OllamaManager:
         on_progress: Optional[Any] = None,
     ) -> asyncio.Task:
         """Start an async pull task and track it for cancellation."""
-        task = asyncio.create_task(self.pull_model(model_name, on_progress))
+        self._pull_progress[model_name] = PullProgress(status="starting")
+
+        async def track_progress(progress: PullProgress) -> None:
+            self._pull_progress[model_name] = progress
+            if on_progress is not None:
+                if asyncio.iscoroutinefunction(on_progress):
+                    await on_progress(progress)
+                else:
+                    on_progress(progress)
+
+        task = asyncio.create_task(self.pull_model(model_name, track_progress))
         self._active_pulls[model_name] = task
-        task.add_done_callback(lambda _: self._active_pulls.pop(model_name, None))
+
+        def finish_pull(completed: asyncio.Task) -> None:
+            self._active_pulls.pop(model_name, None)
+            try:
+                self._pull_progress[model_name] = completed.result()
+            except asyncio.CancelledError:
+                self._pull_progress[model_name] = PullProgress(
+                    status="cancelled",
+                    done=True,
+                    error="Cancelled by user.",
+                )
+            except Exception as exc:
+                logger.exception("Ollama pull task failed for %s", model_name)
+                self._pull_progress[model_name] = PullProgress(
+                    status="error",
+                    done=True,
+                    error=str(exc),
+                )
+
+        task.add_done_callback(finish_pull)
         return task
 
     def cancel_pull(self, model_name: str) -> bool:
@@ -361,6 +391,18 @@ class OllamaManager:
             "models": models,
             "install_hint": self.get_install_command() if not installed else None,
             "active_pulls": list(self._active_pulls.keys()),
+            "pulls": [
+                {
+                    "model": model_name,
+                    "status": progress.status,
+                    "percent": progress.percent,
+                    "completed": progress.completed,
+                    "total": progress.total,
+                    "done": progress.done,
+                    "error": progress.error,
+                }
+                for model_name, progress in self._pull_progress.items()
+            ],
         }
 
 

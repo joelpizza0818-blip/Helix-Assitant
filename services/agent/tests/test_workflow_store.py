@@ -108,6 +108,58 @@ def test_desktop_bridge_registers_workflow_execution_for_cancellation(tmp_path):
     task_manager.unregister_task_handle.assert_awaited_once()
 
 
+def test_workflow_store_builds_advanced_skill_from_graph(tmp_path):
+    store = WorkflowStore(tmp_path, ToolRegistry())
+    workflow = store.save_workflow(_workflow())
+
+    skill = store.to_skill(workflow, triggers=["summarize this", "make a summary"])
+
+    assert skill["name"] == "summarize-flow"
+    assert skill["workflow_id"] == "summarize-flow"
+    assert skill["tools"] == ["summarize"]
+    assert skill["triggers"] == ["summarize this", "make a summary"]
+    assert "%summarize-flow" in skill["instructions"]
+    assert "summarize" in skill["instructions"]
+
+    with pytest.raises(ValueError, match="triggers"):
+        store.to_skill(workflow, triggers=["x"] * 13)
+
+
+def test_desktop_bridge_saves_workflow_as_advanced_skill(tmp_path):
+    import asyncio
+
+    from services.agent.skills.skill_loader import SkillLoader
+    from services.agent.skills.skill_registry import SkillRegistry
+
+    workflow_store = WorkflowStore(tmp_path / "workflows", ToolRegistry())
+    workflow_store.save_workflow(_workflow())
+    skill_registry = SkillRegistry(SkillLoader())
+    handler = DesktopRequestHandler(
+        type("TaskManager", (), {})(),
+        None,
+        None,
+        None,
+        tmp_path / "settings.json",
+        skill_registry=skill_registry,
+        workflow_store=workflow_store,
+    )
+
+    result = asyncio.run(handler._save_workflow_skill({
+        "id": "summarize-flow",
+        "triggers": ["summarize this"],
+    }))
+
+    assert result["name"] == "summarize-flow"
+    assert result["workflow_id"] == "summarize-flow"
+    assert result["custom"] is True
+    saved_skill = skill_registry.get_skill("summarize-flow")
+    assert saved_skill is not None
+    assert saved_skill.config["workflow_id"] == "summarize-flow"
+    skill_file = tmp_path / "skills" / "summarize-flow" / "SKILL.md"
+    assert skill_file.is_file()
+    assert 'workflow_id: "summarize-flow"' in skill_file.read_text(encoding="utf-8")
+
+
 def test_workflow_store_converts_graph_and_validates_tool_dependencies(tmp_path):
     store = WorkflowStore(tmp_path, ToolRegistry())
     workflow = _workflow()

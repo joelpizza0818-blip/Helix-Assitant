@@ -5,6 +5,7 @@ import type {
   CapabilitySnapshot,
   InstallationProfile,
 } from '../../../types/global'
+import { getUserFacingError } from '../../../lib/userError'
 
 export default function CapabilitiesSection() {
   const [snapshot, setSnapshot] = useState<CapabilitySnapshot | null>(null)
@@ -18,7 +19,7 @@ export default function CapabilitiesSection() {
       setSnapshot(next)
       setError(null)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not read installed capabilities.')
+      setError(getUserFacingError(cause, 'No se pudieron consultar las capacidades instaladas. Inténtalo de nuevo.'))
     }
   }, [])
 
@@ -33,7 +34,7 @@ export default function CapabilitiesSection() {
       setSnapshot(await window.helix.setInstallationProfile(profile))
       setError(null)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not save the installation profile.')
+      setError(getUserFacingError(cause, 'No se pudo guardar el perfil de instalación. Revisa los datos e inténtalo de nuevo.'))
     } finally {
       setBusy(null)
     }
@@ -53,7 +54,7 @@ export default function CapabilitiesSection() {
       await refresh()
       setDownloadProgress(null)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : `Could not install ${pack.capability}.`)
+      setError(getUserFacingError(cause, `No se pudo instalar ${pack.capability}. Comprueba la conexión y vuelve a intentarlo.`))
       setDownloadProgress(null)
     } finally {
       setBusy(null)

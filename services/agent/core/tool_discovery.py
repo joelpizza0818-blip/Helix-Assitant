@@ -29,6 +29,8 @@ def discover_native_tools(registry: Any, tools_dir: str) -> None:
                     or tool_class.__name__ == "BaseTool"
                 ):
                     continue
+                if not (hasattr(tool_class, "execute") and hasattr(tool_class, "name")):
+                    continue
                 constructor_parameters = inspect.signature(
                     tool_class
                 ).parameters.values()

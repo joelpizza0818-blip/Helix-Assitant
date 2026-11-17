@@ -1,5 +1,6 @@
 import type { AgentClient } from '../client/agent-client';
 import { CYAN_BOLD, DIM, RED, YELLOW } from '../ui/colors';
+import { getUserFacingError } from '../ui/userError';
 
 interface SubagentProfile {
   profile_id: string;
@@ -124,7 +125,7 @@ export async function handleSubagentsCommand(
       }
       console.log('');
     } catch (error) {
-      console.log(RED(`  No se pudo contactar al subagente: ${(error as Error).message}\n`));
+      console.log(RED(`  ${getUserFacingError(error, 'No se pudo contactar al subagente. Comprueba que HELIX esté conectado e inténtalo de nuevo.')}\n`));
     }
     return;
   }
@@ -145,6 +146,6 @@ export async function handleSubagentsCommand(
     console.log(renderSubagentPanel(profiles, statuses));
     console.log(DIM('  Chat: /subagents chat <profile_id> <mensaje>\n'));
   } catch (error) {
-    console.log(RED(`  No se pudo cargar el panel de subagentes: ${(error as Error).message}\n`));
+    console.log(RED(`  ${getUserFacingError(error, 'No se pudo cargar el panel de subagentes. Comprueba que HELIX esté conectado e inténtalo de nuevo.')}\n`));
   }
 }

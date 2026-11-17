@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import platform
@@ -115,6 +116,34 @@ _DESKTOP_CONTROL_TOOL_REQUIRED = re.compile(
     r")",
     re.IGNORECASE,
 )
+_HOST_DESKTOP_INTENT = re.compile(
+    r"(?i)\b(?:"
+    r"host|windows|principal|main\s+desktop|main\s+environment|"
+    r"mi\s+escritorio|escritorio\s+principal|entorno\s+principal|"
+    r"pc\s+real|mi\s+pc|mi\s+computadora|equipo\s+real|sistema\s+principal|"
+    r"escritorio\s+real|en\s+el\s+host|en\s+windows|en\s+el\s+principal|"
+    r"en\s+mi\s+m[aá]quina\s+real|en\s+mi\s+equipo"
+    r")\b"
+)
+_ISOLATED_DESKTOP_INTENT = re.compile(
+    r"(?i)\b(?:"
+    r"docker|guest|linux|aislado|virtual|privad[oa]|isolated|"
+    r"m[aá]quina\s+virtual|maquina\s+virtual|entorno\s+aislado|"
+    r"entorno\s+virtual|escritorio\s+privado|en\s+la\s+virtual|"
+    r"en\s+el\s+contenedor|debian"
+    r")\b"
+)
+
+
+def _detect_desktop_environment_intent(text: str) -> str | None:
+    """Detect whether a task explicitly requests the host or Docker desktop."""
+    if not text or not isinstance(text, str):
+        return None
+    if _HOST_DESKTOP_INTENT.search(text):
+        return "windows_host"
+    if _ISOLATED_DESKTOP_INTENT.search(text):
+        return "docker_guest"
+    return None
 _METALINGUISTIC_INTENT = re.compile(
     r"^\s*(?:"
     r"what\s+does\b.*\bmean\b|"
@@ -185,10 +214,20 @@ def _conversation_failure_message(error: Exception) -> str:
             "El proveedor rechazó la autenticación. Vuelve a validar la clave "
             "en la configuración de IA."
         )
+    if "INVALID_API_KEY" in detail or "API KEY INVALID" in detail:
+        return (
+            "La clave del proveedor no es válida. Comprueba que esté bien copiada "
+            "y guardada en la configuración de IA."
+        )
     if "MODEL_UNAVAILABLE" in detail:
         return (
             "El modelo seleccionado no está disponible para esta clave. "
             "Selecciona otro modelo o proveedor."
+        )
+    if "SERVICE_UNAVAILABLE" in detail or "SERVER_ERROR" in detail:
+        return (
+            "El proveedor de IA no está disponible en este momento. Espera un poco "
+            "o prueba con otro modelo o proveedor."
         )
     if "CONTEXT_LENGTH_EXCEEDED" in detail or "PROMPT_TOO_LONG" in detail:
         return (
@@ -203,7 +242,12 @@ def _conversation_failure_message(error: Exception) -> str:
             "haberse ejecutado, así que verifica su resultado antes de reintentar. "
             "Comprueba el almacén seguro de credenciales del sistema."
         )
-    return "No pude completar la solicitud. Revisa la configuración del proveedor de IA y vuelve a intentarlo."
+    return (
+        "HELIX no pudo obtener una respuesta de los proveedores configurados. "
+        "Comprueba tu conexión y que el modelo seleccionado esté disponible; "
+        "si continúa, prueba otro modelo o proveedor. No se muestran detalles "
+        "técnicos en el chat."
+    )
 
 
 def _should_observe_screen(enabled: bool, description: str) -> bool:
@@ -241,6 +285,7 @@ async def _append_requested_screen_observation(
     messages: list,
     tool_registry,
     task_id: str,
+    task_description: str = "",
 ) -> None:
     """Attach a safe screen observation or explain why it is unavailable."""
     observe_tool = tool_registry.get_tool("computer.observe_screen")
@@ -251,7 +296,20 @@ async def _append_requested_screen_observation(
     else:
         try:
             with screen_observation_scope(True):
-                observation = await observe_tool.execute({})
+                parameters = {}
+                select_window = getattr(
+                    observe_tool,
+                    "select_window_for_request",
+                    None,
+                )
+                if callable(select_window):
+                    window_handle = await asyncio.to_thread(
+                        select_window,
+                        task_description,
+                    )
+                    if window_handle is not None:
+                        parameters["window_handle"] = window_handle
+                observation = await observe_tool.execute(parameters)
         except Exception as error:
             logger.exception(
                 "On-demand screen observation raised an error for task %s",

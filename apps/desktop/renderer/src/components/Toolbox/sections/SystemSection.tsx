@@ -12,6 +12,7 @@ import {
   playConfiguredSound,
   SUCCESS_SOUND_PRESETS,
 } from '../../../lib/soundEffects'
+import { getUserFacingError } from '../../../lib/userError'
 import '../Toolbox.css'
 
 interface Props {
@@ -54,7 +55,7 @@ export default function SystemSection({ settings, onSave, onSaveSound }: Props) 
       setSoundMessage(`${kind === 'success' ? 'Success' : 'Error'} sound saved.`)
     } catch (error) {
       console.error(`[SystemSection] Could not save custom ${kind} sound:`, error)
-      setSoundMessage(error instanceof Error ? error.message : 'Could not save the selected sound.')
+      setSoundMessage(getUserFacingError(error, 'No se pudo guardar el sonido seleccionado. Comprueba el archivo e inténtalo de nuevo.'))
     }
   }
 
@@ -69,7 +70,7 @@ export default function SystemSection({ settings, onSave, onSaveSound }: Props) 
       setSoundMessage(`${kind === 'success' ? 'Success' : 'Error'} sound removed.`)
     } catch (error) {
       console.error(`[SystemSection] Could not remove custom ${kind} sound:`, error)
-      setSoundMessage(error instanceof Error ? error.message : 'Could not remove the saved sound.')
+      setSoundMessage(getUserFacingError(error, 'No se pudo quitar el sonido guardado. Inténtalo de nuevo.'))
     }
   }
 
@@ -80,7 +81,7 @@ export default function SystemSection({ settings, onSave, onSaveSound }: Props) 
     setSoundMessage(null)
     void playConfiguredSound(kind, preset).catch((error: unknown) => {
       console.error(`[SystemSection] Could not preview ${kind} sound:`, error)
-      setSoundMessage(error instanceof Error ? error.message : 'Could not play the selected sound.')
+      setSoundMessage(getUserFacingError(error, 'No se pudo reproducir el sonido seleccionado. Comprueba el archivo e inténtalo de nuevo.'))
     })
   }
 
@@ -93,7 +94,7 @@ export default function SystemSection({ settings, onSave, onSaveSound }: Props) 
       if (!saved) setSoundMessage('Could not save the selected sound.')
     } catch (error) {
       console.error(`[SystemSection] Could not select ${kind} sound:`, error)
-      setSoundMessage(error instanceof Error ? error.message : 'Could not save the selected sound.')
+      setSoundMessage(getUserFacingError(error, 'No se pudo seleccionar el sonido. Comprueba el archivo e inténtalo de nuevo.'))
     }
   }
 
@@ -262,7 +263,7 @@ export default function SystemSection({ settings, onSave, onSaveSound }: Props) 
           <select
             id="system-sandbox-mode"
             className="form-input"
-            value={settings.sandbox_mode || 'restricted'}
+            value={settings.sandbox_mode === 'isolated' ? 'isolated' : 'restricted'}
             disabled={!settings.sandbox_enabled}
             onChange={(e) => void onSave({
               sandbox_mode: e.target.value as HelixSettings['sandbox_mode']
@@ -270,8 +271,6 @@ export default function SystemSection({ settings, onSave, onSaveSound }: Props) 
           >
             <option value="restricted">Restricted Environment — Process isolation & sanitized environment (Default)</option>
             <option value="isolated">Isolated Subprocess — Clean system PATH & cleared environment variables</option>
-            <option value="windows_sandbox">Windows Sandbox — Disposable lightweight Hyper-V container</option>
-            <option value="docker">Docker Container — Isolated containerized environment</option>
           </select>
         </div>
       </div>

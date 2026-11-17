@@ -6,6 +6,7 @@ import {
   type AdminErrorReport,
   type HelixProfile,
 } from '../../../lib/desktopSupabase'
+import { getUserFacingError } from '../../../lib/userError'
 import '../Toolbox.css'
 
 const emptyConfig: AdminConfig = { autoUpdate: true, checkIntervalHours: 24, channel: 'stable', publicVersion: '', backups: [] }
@@ -59,7 +60,7 @@ export default function AdminSection({ profile, onPendingReportsCount }: AdminSe
       setReports(reportResult.reports)
       onPendingReportsCount(reportResult.reports.filter((report) => report.status === 'open').length)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not refresh admin inbox.')
+      setError(getUserFacingError(cause, 'No se pudo actualizar la bandeja de administración. Inténtalo de nuevo.'))
     } finally {
       setLoadingDirectory(false)
     }
@@ -75,9 +76,13 @@ export default function AdminSection({ profile, onPendingReportsCount }: AdminSe
           const loaded = await window.helix.getAdminConfig(token)
           if (!active) return
           setConfig(loaded)
-          setSyncStatus(loaded.synced ? 'Política Electron cargada.' : loaded.syncError || 'Usando la política local.')
+          setSyncStatus(loaded.synced
+            ? 'Política Electron cargada.'
+            : loaded.syncError
+              ? getUserFacingError(loaded.syncError, 'No se pudo sincronizar la configuración de administración.')
+              : 'Usando la política local.')
         } catch (cause) {
-          if (active) setError(cause instanceof Error ? cause.message : 'No se pudo cargar la configuración admin.')
+          if (active) setError(getUserFacingError(cause, 'No se pudo cargar la configuración de administración. Inténtalo de nuevo.'))
         }
       }
       await refreshDirectory()
@@ -112,10 +117,14 @@ export default function AdminSection({ profile, onPendingReportsCount }: AdminSe
       const updated = await window.helix.saveAdminConfig(token, config)
       setConfig(updated)
       setSaved(updated.synced === true)
-      setSyncStatus(updated.synced ? 'Política pública actualizada.' : updated.syncError || 'No se sincronizó la política.')
+      setSyncStatus(updated.synced
+        ? 'Política pública actualizada.'
+        : updated.syncError
+          ? getUserFacingError(updated.syncError, 'No se pudo sincronizar la política.')
+          : 'No se sincronizó la política.')
       window.setTimeout(() => setSaved(false), 1600)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo guardar la política.')
+      setError(getUserFacingError(cause, 'No se pudo guardar la política. Comprueba los datos e inténtalo de nuevo.'))
     } finally {
       setIsSaving(false)
     }
@@ -129,9 +138,13 @@ export default function AdminSection({ profile, onPendingReportsCount }: AdminSe
       const created = await window.helix.createVersionBackup(token, version)
       setConfig((current) => ({ ...current, backups: [created, ...current.backups.filter((item) => item.version !== created.version)] }))
       setVersion('')
-      setSyncStatus(created.synced ? `Copia verificada de la versión ${created.version}.` : created.syncError || 'No se sincronizó la copia.')
+      setSyncStatus(created.synced
+        ? `Copia verificada de la versión ${created.version}.`
+        : created.syncError
+          ? getUserFacingError(created.syncError, 'No se pudo sincronizar la copia de seguridad.')
+          : 'No se sincronizó la copia.')
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo crear la copia.')
+      setError(getUserFacingError(cause, 'No se pudo crear la copia de seguridad. Comprueba el espacio disponible e inténtalo de nuevo.'))
     }
   }
 
@@ -149,7 +162,7 @@ export default function AdminSection({ profile, onPendingReportsCount }: AdminSe
       setReportDescription('')
       setReportStatus('Reporte enviado al master-admin.')
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo enviar el reporte.')
+      setError(getUserFacingError(cause, 'No se pudo enviar el reporte. Comprueba la conexión e inténtalo de nuevo.'))
     } finally {
       setIsSubmittingReport(false)
     }
@@ -164,7 +177,7 @@ export default function AdminSection({ profile, onPendingReportsCount }: AdminSe
       )
       setProfiles((current) => current.map((item) => item.profileId === updated.profile.profileId ? updated.profile : item))
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo actualizar el rango.')
+      setError(getUserFacingError(cause, 'No se pudo actualizar el rango. Comprueba tus permisos e inténtalo de nuevo.'))
     }
   }
 
@@ -174,7 +187,7 @@ export default function AdminSection({ profile, onPendingReportsCount }: AdminSe
       await adminRequest(`reports/${encodeURIComponent(report.id)}`, { method: 'PUT' })
       await refreshDirectory()
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo resolver el reporte.')
+      setError(getUserFacingError(cause, 'No se pudo resolver el reporte. Inténtalo de nuevo.'))
     }
   }
 
@@ -190,7 +203,7 @@ export default function AdminSection({ profile, onPendingReportsCount }: AdminSe
         setAgentLogPath(res.agentLogPath)
       }
     } catch (cause) {
-      setLogsError(cause instanceof Error ? cause.message : 'No se pudieron obtener los registros.')
+      setLogsError(getUserFacingError(cause, 'No se pudieron obtener los registros. Comprueba tus permisos e inténtalo de nuevo.'))
     } finally {
       setLoadingLogs(false)
     }
@@ -235,7 +248,7 @@ export default function AdminSection({ profile, onPendingReportsCount }: AdminSe
       await window.helix.clearAdminLogs(token)
       await fetchLogs()
     } catch (cause) {
-      setLogsError(cause instanceof Error ? cause.message : 'No se pudieron limpiar los registros.')
+      setLogsError(getUserFacingError(cause, 'No se pudieron limpiar los registros. Comprueba tus permisos e inténtalo de nuevo.'))
     } finally {
       setClearingLogs(false)
     }

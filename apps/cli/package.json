@@ -15,7 +15,7 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -w -p tsconfig.json",
     "start": "node dist/index.js",
-    "test": "node --test --require ts-node/register/transpile-only tests/cli.test.ts"
+    "test": "node --test --require ts-node/register/transpile-only tests/cli.test.ts src/ui/userError.test.ts"
   },
   "dependencies": {
     "chalk": "^4.1.2",

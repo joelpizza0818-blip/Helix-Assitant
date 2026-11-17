@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import type { HelixSettings } from '../../../types/global'
+import { getUserFacingError } from '../../../lib/userError'
 import '../Toolbox.css'
 
 interface Props {
@@ -24,9 +25,10 @@ export default function WebSection({ settings, onSave }: Props) {
       const result = await window.helix.installPlaywrightChromium()
       setChromiumInstallMessage(result.message)
     } catch (error) {
-      setChromiumInstallMessage(
-        error instanceof Error ? error.message : String(error),
-      )
+      setChromiumInstallMessage(getUserFacingError(
+        error,
+        'No se pudo instalar el navegador. Comprueba tu conexión y vuelve a intentarlo.',
+      ))
     } finally {
       setInstallingChromium(false)
     }

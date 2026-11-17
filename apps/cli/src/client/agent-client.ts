@@ -178,7 +178,7 @@ export class AgentClient extends EventEmitter {
           } else {
             this.reconnecting = false;
             this.emit('agent_start_failed', {
-              error: 'El servicio del agente no respondió en el puerto 8765 dentro de 45s.',
+              error: 'El agente no respondió a tiempo. Abre HELIX Desktop y vuelve a intentarlo.',
             });
             if (!this.isExplicitlyClosed && this.autoReconnect) {
               this._scheduleReconnect();
@@ -187,7 +187,9 @@ export class AgentClient extends EventEmitter {
         } catch (e) {
           this._isAgentStarting = false;
           this.reconnecting = false;
-          this.emit('agent_start_failed', { error: (e as Error).message });
+          this.emit('agent_start_failed', {
+            error: 'No se pudo iniciar el agente local. Abre HELIX Desktop y vuelve a intentarlo.',
+          });
           if (!this.isExplicitlyClosed && this.autoReconnect) {
             this._scheduleReconnect();
           }

@@ -53,6 +53,82 @@ def test_router_returns_none_when_no_provider_configured(clean_env, model_router
     assert candidate is None
 
 
+def test_local_gguf_is_first_fallback_but_not_the_primary_route(
+    openai_only_env, model_router, provider_registry, monkeypatch
+):
+    from services.agent.ai.llama_server_manager import GgufModelInfo, LlamaServerManager
+    from services.agent.ai.llama_server_provider import LlamaServerProvider
+
+    provider_registry.register_provider(LlamaServerProvider())
+    monkeypatch.setattr(
+        LlamaServerManager,
+        "list_local_models",
+        lambda _self: [
+            GgufModelInfo(
+                name="local-model",
+                path="C:/models/local-model.gguf",
+                size_gb=1.0,
+            )
+        ],
+    )
+    requirements = TaskRequirements(text=True, tool_calling=True)
+
+    primary = model_router.get_best_candidate(requirements)
+    fallbacks = model_router.get_fallback_candidates(requirements, exclude=[])
+
+    assert primary is not None
+    assert primary.provider_id == "openai"
+    assert fallbacks[0].provider_id == "llama_server"
+
+
+def test_router_selects_the_requested_local_gguf(
+    clean_env, model_router, provider_registry, monkeypatch
+):
+    from services.agent.ai.llama_server_manager import GgufModelInfo, LlamaServerManager
+    from services.agent.ai.llama_server_provider import LlamaServerProvider
+
+    provider_registry.register_provider(LlamaServerProvider())
+    model_path = "C:/models/selected-model.gguf"
+    monkeypatch.setattr(
+        LlamaServerManager,
+        "list_local_models",
+        lambda _self: [
+            GgufModelInfo(name="selected-model", path=model_path, size_gb=1.0),
+            GgufModelInfo(name="other-model", path="C:/models/other-model.gguf", size_gb=2.0),
+        ],
+    )
+
+    candidate = model_router.get_best_candidate(TaskRequirements(
+        text=True,
+        tool_calling=True,
+        preferred_provider="llama_server",
+        preferred_model=model_path,
+    ))
+
+    assert candidate is not None
+    assert candidate.provider_id == "llama_server"
+    assert candidate.model_id == model_path
+
+
+def test_router_accepts_a_downloaded_ollama_model_as_primary(
+    clean_env, model_router, provider_registry
+):
+    from services.agent.ai.free_provider import OllamaProvider
+
+    provider_registry.register_provider(OllamaProvider())
+    model_id = "custom-local-model:latest"
+
+    candidate = model_router.get_best_candidate(TaskRequirements(
+        text=True,
+        preferred_provider="ollama",
+        preferred_model=model_id,
+    ))
+
+    assert candidate is not None
+    assert candidate.provider_id == "ollama"
+    assert candidate.model_id == model_id
+
+
 def test_free_tier_route_uses_configured_openrouter_credential(
     clean_env,
     model_router,

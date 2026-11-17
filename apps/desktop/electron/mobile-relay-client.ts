@@ -1,4 +1,4 @@
-import { randomBytes } from 'crypto'
+import { createHash, randomBytes } from 'crypto'
 import fs from 'fs'
 import path from 'path'
 import WebSocket from 'ws'
@@ -9,6 +9,39 @@ const TOKEN_PATTERN = /^[A-Za-z0-9_-]{40,128}$/
 const PAIRING_TTL_MS = 5 * 60 * 1000
 const SOCKET_CONNECT_TIMEOUT_MS = 12_000
 const RECONNECT_DELAY_MS = 3_000
+const VOICE_SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/
+const MOBILE_VOICE_TYPES = new Set([
+  'VOICE_SESSION_START',
+  'VOICE_SESSION_STOP',
+  'VOICE_AUDIO_CHUNK',
+  'VOICE_RECORDING_START',
+  'VOICE_RECORDING_STOP',
+  'VOICE_INTERRUPT',
+  'VOICE_CONFIRMATION',
+  'VOICE_CONFIRMATION_TEXT',
+  'VOICE_MUTE',
+  'VOICE_UNMUTE',
+  'VOICE_PLAYBACK_PROGRESS',
+  'VOICE_PLAYBACK_DONE',
+  'VOICE_PING',
+])
+const SERVER_VOICE_TYPES = new Set([
+  'VOICE_SESSION_READY',
+  'VOICE_STATE',
+  'VOICE_TRANSCRIPT',
+  'VOICE_ASSISTANT_TEXT',
+  'VOICE_SPEECH_TEXT',
+  'VOICE_AUDIO_SEGMENT',
+  'VOICE_AUDIO_STOP',
+  'VOICE_SPEAKING_END',
+  'VOICE_INTERRUPTED',
+  'VOICE_CONFIRMATION_REQUEST',
+  'VOICE_CONFIRMATION_RESOLVED',
+  'VOICE_LEVEL',
+  'VOICE_ERROR',
+  'VOICE_PONG',
+  'VOICE_SESSION_CLOSED',
+])
 
 interface RelayCredentials {
   workerApiUrl: string
@@ -51,6 +84,18 @@ interface RelayClientHandlers {
     action: 'list_profiles' | 'get_status' | 'chat',
     payload: { profile_id?: string; message?: string },
   ) => Promise<Record<string, unknown>>
+  receiveMobileVoice: (
+    deviceId: string,
+    voiceType: string,
+    payload: Record<string, unknown>,
+  ) => boolean
+}
+
+interface MobileVoiceSession {
+  deviceId: string
+  mobileSessionId: string
+  relaySessionId: string
+  startedAt: number
 }
 
 interface RelayMessage {
@@ -95,6 +140,8 @@ export class MobileRelayClient {
   private reconnectTimer: NodeJS.Timeout | null = null
   private closing = false
   private readonly pausedBrowserDevices = new Set<string>()
+  private readonly voiceSessions = new Map<string, MobileVoiceSession>()
+  private readonly voiceSessionByDevice = new Map<string, string>()
 
   constructor(
     private readonly configPath: string,
@@ -204,6 +251,10 @@ export class MobileRelayClient {
 
   sendAgentEvent(message: { type: string; payload: Record<string, unknown> }): void {
     if (!this.connected || !this.socket) return
+    if (message.type.startsWith('VOICE_')) {
+      this.sendVoiceEvent(message)
+      return
+    }
     if (![
       'agent_message',
       'status_update',
@@ -225,6 +276,15 @@ export class MobileRelayClient {
 
   close(): void {
     this.closing = true
+    for (const session of this.voiceSessions.values()) {
+      this.handlers.receiveMobileVoice(
+        session.deviceId,
+        'VOICE_SESSION_STOP',
+        { session_id: session.relaySessionId },
+      )
+    }
+    this.voiceSessions.clear()
+    this.voiceSessionByDevice.clear()
     this.disconnectSocket()
   }
 
@@ -518,11 +578,16 @@ export class MobileRelayClient {
           result,
         })
       } catch (error) {
+        console.error('[MobileRelay] Subagent request failed:', error)
         this.sendDeviceEvent(deviceId, 'subagent_response', {
           correlation_id: payload.correlation_id,
-          error: error instanceof Error ? error.message.slice(0, 500) : 'Subagent request failed.',
+          error: 'No se pudo completar la solicitud al subagente. Inténtalo de nuevo.',
         })
       }
+      return
+    }
+    if (message.type === 'VOICE_MESSAGE') {
+      await this.handleMobileVoiceMessage(message)
       return
     }
     if (message.type === 'CONFIRMATION_RESPONSE') {
@@ -546,6 +611,146 @@ export class MobileRelayClient {
         })
       }
     }
+  }
+
+  private async handleMobileVoiceMessage(message: RelayMessage): Promise<void> {
+    const deviceId = message.source_device_id
+    const envelope = message.payload
+    if (
+      typeof deviceId !== 'string'
+      || !DEVICE_ID_PATTERN.test(deviceId)
+      || !isRecord(envelope)
+      || typeof envelope.voice_type !== 'string'
+      || !MOBILE_VOICE_TYPES.has(envelope.voice_type)
+      || !isRecord(envelope.voice_payload)
+    ) {
+      throw new Error('Relay mobile voice message is invalid.')
+    }
+    const voiceType = envelope.voice_type
+    const payload = envelope.voice_payload
+    const mobileSessionId = payload.session_id
+    if (typeof mobileSessionId !== 'string' || !VOICE_SESSION_ID_PATTERN.test(mobileSessionId)) {
+      throw new Error('Relay mobile voice session is invalid.')
+    }
+
+    if (voiceType === 'VOICE_SESSION_START') {
+      this.closeDeviceVoiceSession(deviceId)
+      const relaySessionId = this.relayVoiceSessionId(deviceId, mobileSessionId)
+      const forwardedPayload = {
+        ...payload,
+        session_id: relaySessionId,
+        // The phone owns microphone capture. A relayed client is never allowed
+        // to open the Desktop microphone by asking for server audio.
+        server_audio: false,
+      }
+      if (!this.handlers.receiveMobileVoice(deviceId, voiceType, forwardedPayload)) {
+        this.sendVoiceError(
+          deviceId,
+          mobileSessionId,
+          'VOICE_DESKTOP_OFFLINE',
+          'HELIX Desktop is not connected to the agent.',
+        )
+        return
+      }
+      this.voiceSessions.set(relaySessionId, {
+        deviceId,
+        mobileSessionId,
+        relaySessionId,
+        startedAt: Date.now(),
+      })
+      this.voiceSessionByDevice.set(deviceId, relaySessionId)
+      return
+    }
+
+    const relaySessionId = this.voiceSessionByDevice.get(deviceId)
+    const session = relaySessionId ? this.voiceSessions.get(relaySessionId) : undefined
+    if (!session || session.mobileSessionId !== mobileSessionId) {
+      this.sendVoiceError(
+        deviceId,
+        mobileSessionId,
+        'VOICE_SESSION_NOT_FOUND',
+        'The mobile voice session is no longer active. Start a new session.',
+      )
+      return
+    }
+    if (!this.handlers.receiveMobileVoice(deviceId, voiceType, {
+      ...payload,
+      session_id: session.relaySessionId,
+      ...(voiceType === 'VOICE_AUDIO_CHUNK' ? { channels: 1 } : {}),
+    })) {
+      this.sendVoiceError(
+        deviceId,
+        mobileSessionId,
+        'VOICE_DESKTOP_OFFLINE',
+        'HELIX Desktop is not connected to the agent.',
+      )
+    }
+  }
+
+  private closeDeviceVoiceSession(deviceId: string): void {
+    const relaySessionId = this.voiceSessionByDevice.get(deviceId)
+    if (!relaySessionId) return
+    const session = this.voiceSessions.get(relaySessionId)
+    this.voiceSessions.delete(relaySessionId)
+    this.voiceSessionByDevice.delete(deviceId)
+    if (!session) return
+    try {
+      this.handlers.receiveMobileVoice(deviceId, 'VOICE_SESSION_STOP', {
+        session_id: session.relaySessionId,
+      })
+    } catch (error) {
+      console.error('[MobileRelay] Could not close the previous voice session:', error)
+    }
+  }
+
+  private relayVoiceSessionId(deviceId: string, mobileSessionId: string): string {
+    const suffix = createHash('sha256')
+      .update(`${deviceId}\u0000${mobileSessionId}`)
+      .digest('hex')
+      .slice(0, 40)
+    return `m_${deviceId.slice(0, 8)}_${suffix}`
+  }
+
+  private sendVoiceEvent(message: {
+    type: string
+    payload: Record<string, unknown>
+  }): void {
+    if (!SERVER_VOICE_TYPES.has(message.type) || !isRecord(message.payload)) return
+    const relaySessionId = message.payload.session_id
+    if (typeof relaySessionId !== 'string') return
+    const session = this.voiceSessions.get(relaySessionId)
+    if (!session) return
+    const voicePayload = {
+      ...message.payload,
+      session_id: session.mobileSessionId,
+    }
+    this.sendDeviceEvent(session.deviceId, 'VOICE_MESSAGE', {
+      voice_type: message.type,
+      voice_payload: voicePayload,
+    })
+    if (message.type === 'VOICE_SESSION_CLOSED') {
+      this.voiceSessions.delete(session.relaySessionId)
+      if (this.voiceSessionByDevice.get(session.deviceId) === session.relaySessionId) {
+        this.voiceSessionByDevice.delete(session.deviceId)
+      }
+    }
+  }
+
+  private sendVoiceError(
+    deviceId: string,
+    mobileSessionId: string,
+    code: string,
+    message: string,
+  ): void {
+    this.sendDeviceEvent(deviceId, 'VOICE_MESSAGE', {
+      voice_type: 'VOICE_ERROR',
+      voice_payload: {
+        session_id: mobileSessionId,
+        code,
+        message,
+        recoverable: true,
+      },
+    })
   }
 
   private sendDeviceEvent(

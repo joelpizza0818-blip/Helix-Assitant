@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/errors/user_error_message.dart';
 import '../../core/session/helix_session.dart';
 
 class MobileSubagentsPanel extends StatefulWidget {
@@ -72,7 +73,11 @@ class _MobileSubagentsPanelState extends State<MobileSubagentsPanel> {
                         size: 38, color: Color(0xFFEE6018)),
                     const SizedBox(height: 12),
                     Text(
-                      result.error.toString(),
+                      userFacingErrorMessage(
+                        result.error ?? StateError('Unknown subagent error'),
+                        fallback:
+                            'No se pudieron cargar los subagentes. Comprueba que el Desktop esté conectado e inténtalo de nuevo.',
+                      ),
                       textAlign: TextAlign.center,
                       style: const TextStyle(color: Color(0xFFB9BDC2)),
                     ),
@@ -304,7 +309,16 @@ class _SubagentChatDialogState extends State<_SubagentChatDialog> {
       }
       if (mounted) setState(() => _messages.add((response, false)));
     } on Object catch (error) {
-      if (mounted) setState(() => _messages.add((error.toString(), false)));
+      if (mounted) {
+        setState(() => _messages.add((
+              userFacingErrorMessage(
+                error,
+                fallback:
+                    'No se pudo enviar el mensaje al subagente. Comprueba la conexión e inténtalo de nuevo.',
+              ),
+              false,
+            )));
+      }
     } finally {
       if (mounted) setState(() => _sending = false);
     }

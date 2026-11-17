@@ -1,9 +1,9 @@
 """Free cloud and local AI model providers for 0-cost execution.
 
 Supports:
-1. FreeModelProvider: Auto-routed public/free OpenAI-compatible tiers
+1. FreeModelProvider: Public/free OpenAI-compatible tiers
    (e.g., OpenRouter free models, Llama 3.2 3B, Qwen 2.5, DeepSeek R1).
-   Features automatic transparent fallback to the next free model if rate-limited.
+   Fallbacks are managed centrally so the selected model is attempted first.
 2. OllamaProvider: Local models running on the user's computer (0 cost, 100% private).
 """
 
@@ -25,14 +25,6 @@ from .openai_provider import OpenAIProvider
 
 logger = logging.getLogger(__name__)
 
-# Fallback sequence of free tier models
-DEFAULT_FREE_MODELS = [
-    "meta-llama/llama-3.2-3b-instruct:free",
-    "qwen/qwen-2.5-coder-7b-instruct:free",
-    "deepseek/deepseek-r1:free",
-    "google/gemini-2.0-flash-exp:free",
-]
-
 DEFAULT_OLLAMA_MODELS = [
     "llama3.2:3b",
     "qwen2.5-coder:1.5b",
@@ -41,7 +33,7 @@ DEFAULT_OLLAMA_MODELS = [
 
 
 class FreeModelProvider(OpenAIProvider):
-    """Provides access to 0-cost cloud models with automatic fallback upon rate-limits."""
+    """Provides one requested free-tier model; global routing handles fallbacks."""
 
     no_key_required = False
 
@@ -72,29 +64,16 @@ class FreeModelProvider(OpenAIProvider):
         )
 
     async def chat(self, messages: List[ChatMessage], model: str, **kwargs) -> ChatResponse:
-        models_to_try = [model] + [m for m in DEFAULT_FREE_MODELS if m != model]
-        last_error = None
-
-        for target_model in models_to_try:
-            try:
-                call_kwargs = dict(kwargs)
-                api_key = call_kwargs.pop("api_key", self._api_key)
-                call_kwargs.pop("base_url", None)
-                return await super().chat(
-                    messages=messages,
-                    model=target_model,
-                    api_key=api_key,
-                    base_url=self._base_url,
-                    **call_kwargs,
-                )
-            except Exception as exc:
-                last_error = exc
-                logger.warning(
-                    "Free model %s failed (%s); attempting automatic free fallback...",
-                    target_model,
-                    exc,
-                )
-        raise self.normalize_error(last_error or RuntimeError("All free models exhausted"))
+        call_kwargs = dict(kwargs)
+        api_key = call_kwargs.pop("api_key", self._api_key)
+        call_kwargs.pop("base_url", None)
+        return await super().chat(
+            messages=messages,
+            model=model,
+            api_key=api_key,
+            base_url=self._base_url,
+            **call_kwargs,
+        )
 
     async def stream(self, messages: List[ChatMessage], model: str, **kwargs) -> AsyncIterator[StreamChunk]:
         call_kwargs = dict(kwargs)
@@ -110,30 +89,32 @@ class FreeModelProvider(OpenAIProvider):
             yield chunk
 
     async def tool_call(self, messages: List[ChatMessage], tools: List[Dict], model: str, **kwargs) -> ToolCallResponse:
-        models_to_try = [model] + [m for m in DEFAULT_FREE_MODELS if m != model]
-        last_error = None
+        call_kwargs = dict(kwargs)
+        api_key = call_kwargs.pop("api_key", self._api_key)
+        call_kwargs.pop("base_url", None)
+        return await super().tool_call(
+            messages=messages,
+            tools=tools,
+            model=model,
+            api_key=api_key,
+            base_url=self._base_url,
+            **call_kwargs,
+        )
 
-        for target_model in models_to_try:
-            try:
-                call_kwargs = dict(kwargs)
-                api_key = call_kwargs.pop("api_key", self._api_key)
-                call_kwargs.pop("base_url", None)
-                return await super().tool_call(
-                    messages=messages,
-                    tools=tools,
-                    model=target_model,
-                    api_key=api_key,
-                    base_url=self._base_url,
-                    **call_kwargs,
-                )
-            except Exception as exc:
-                last_error = exc
-                logger.warning(
-                    "Free tool call on %s failed (%s); trying fallback free model...",
-                    target_model,
-                    exc,
-                )
-        raise self.normalize_error(last_error or RuntimeError("Free models tool calling unavailable"))
+    async def stream_tool_call(
+        self, messages: List[ChatMessage], tools: List[Dict], model: str, **kwargs
+    ) -> ToolCallResponse:
+        call_kwargs = dict(kwargs)
+        api_key = call_kwargs.pop("api_key", self._api_key)
+        call_kwargs.pop("base_url", None)
+        return await super().stream_tool_call(
+            messages=messages,
+            tools=tools,
+            model=model,
+            api_key=api_key,
+            base_url=self._base_url,
+            **call_kwargs,
+        )
 
     def get_available_models(self) -> List[ModelDefinition]:
         return [
@@ -205,6 +186,18 @@ class OllamaProvider(OpenAIProvider):
 
     async def tool_call(self, messages: List[ChatMessage], tools: List[Dict], model: str, **kwargs) -> ToolCallResponse:
         return await super().tool_call(messages=messages, tools=tools, model=model, api_key="ollama", base_url=self.base_url, **kwargs)
+
+    async def stream_tool_call(
+        self, messages: List[ChatMessage], tools: List[Dict], model: str, **kwargs
+    ) -> ToolCallResponse:
+        return await super().stream_tool_call(
+            messages=messages,
+            tools=tools,
+            model=model,
+            api_key="ollama",
+            base_url=self.base_url,
+            **kwargs,
+        )
 
     def get_available_models(self) -> List[ModelDefinition]:
         return [

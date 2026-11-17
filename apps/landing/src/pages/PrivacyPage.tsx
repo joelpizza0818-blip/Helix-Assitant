@@ -98,7 +98,7 @@ export const PrivacyPage: React.FC = () => {
                 HELIX exposes supported desktop tools through local permission and confirmation checks:
               </p>
               <ul>
-                <li><strong>Action-specific controls:</strong> Shell-command execution requires confirmation in the local policy engine; requirements vary by tool and action. These checks do not replace operating-system permissions.</li>
+                <li><strong>Action-specific controls:</strong> Tool actions follow the configured approval mode; the explicit Allow All mode disables confirmation prompts. These checks do not replace operating-system permissions.</li>
                 <li><strong>Logs:</strong> Application logs are not a guaranteed complete audit trail. Review logs for sensitive information before sharing them.</li>
               </ul>
             </section>

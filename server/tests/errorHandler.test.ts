@@ -68,7 +68,10 @@ test('production hides internal 5xx details while retaining diagnostics safely',
 
     assert.equal(response.status, 503);
     assert.equal(body.error.code, 'INTERNAL_ERROR');
-    assert.equal(body.error.message, 'An unexpected error occurred');
+    assert.equal(
+      body.error.message,
+      'HELIX could not complete this request. Please try again; contact support if it continues.',
+    );
     assert.equal('stack' in body.error, false);
     assert.equal('cause' in body.error, false);
 
@@ -94,11 +97,12 @@ test('production hides internal 5xx details while retaining diagnostics safely',
   }
 });
 
-test('development responses retain error details for debugging', async () => {
+test('development responses do not expose internal messages, codes, or stacks', async () => {
   const error = Object.assign(new Error('Database unavailable in development'), {
     statusCode: 500,
     code: 'DB_UNAVAILABLE',
   });
+  error.stack = 'Error: internal details\n    at internalFunction (server.js:5:1)';
   const restoreNodeEnv = withNodeEnv('development');
   const { server, url } = await startServer(error);
 
@@ -107,9 +111,14 @@ test('development responses retain error details for debugging', async () => {
     const body = await response.json();
 
     assert.equal(response.status, 500);
-    assert.equal(body.error.code, 'DB_UNAVAILABLE');
-    assert.equal(body.error.message, 'Database unavailable in development');
-    assert.match(body.error.stack, /Database unavailable in development/);
+    assert.equal(body.error.code, 'INTERNAL_ERROR');
+    assert.equal(
+      body.error.message,
+      'HELIX could not complete this request. Please try again; contact support if it continues.',
+    );
+    assert.equal('stack' in body.error, false);
+    assert.equal(JSON.stringify(body).includes('internalFunction'), false);
+    assert.equal(JSON.stringify(body).includes('Database unavailable'), false);
   } finally {
     await stopServer(server);
     restoreNodeEnv();
@@ -153,7 +162,10 @@ test('production does not expose an unmarked 4xx error message', async () => {
 
     assert.equal(response.status, 400);
     assert.equal(body.error.code, 'REQUEST_ERROR');
-    assert.equal(body.error.message, 'The request could not be processed.');
+    assert.equal(
+      body.error.message,
+      'We could not process this request. Check the information and try again.',
+    );
     assert.equal(JSON.stringify(body).includes('Internal parser detail'), false);
   } finally {
     await stopServer(server);

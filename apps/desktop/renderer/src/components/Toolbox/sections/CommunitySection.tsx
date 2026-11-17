@@ -5,6 +5,7 @@ import {
   communityRequest,
   type HelixProfile,
 } from '../../../lib/desktopSupabase'
+import { getUserFacingError } from '../../../lib/userError'
 import '../Toolbox.css'
 
 type CommunityType = 'plugin' | 'skill' | 'agent'
@@ -139,7 +140,7 @@ export default function CommunitySection({
     try {
       setItems(await communityRequest<CommunityItem[]>('/'))
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo cargar Community.')
+      setError(getUserFacingError(cause, 'No se pudo cargar la comunidad. Comprueba la conexión e inténtalo de nuevo.'))
     } finally {
       setListBusy(false)
     }
@@ -155,7 +156,7 @@ export default function CommunitySection({
     try {
       setMyItems(await communityRequest<CommunityItem[]>('/mine', {}, true))
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudieron cargar tus publicaciones.')
+      setError(getUserFacingError(cause, 'No se pudieron cargar tus publicaciones. Comprueba la conexión e inténtalo de nuevo.'))
     } finally {
       setListBusy(false)
     }
@@ -167,7 +168,7 @@ export default function CommunitySection({
     try {
       setModerationItems(await communityRequest<CommunityItem[]>('/moderation', {}, true))
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo cargar la cola de revisión.')
+      setError(getUserFacingError(cause, 'No se pudo cargar la cola de revisión. Comprueba tus permisos e inténtalo de nuevo.'))
     } finally {
       setListBusy(false)
     }
@@ -219,7 +220,7 @@ export default function CommunitySection({
       setNotice(`${item.name} se añadió a tus plugins.`)
       setError(null)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo instalar el plugin.')
+      setError(getUserFacingError(cause, 'No se pudo instalar el plugin. Comprueba la conexión e inténtalo de nuevo.'))
     }
   }
 
@@ -257,7 +258,7 @@ export default function CommunitySection({
       })
       setNotice(`${item.name} se instaló como skill local.`)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo instalar la skill.')
+      setError(getUserFacingError(cause, 'No se pudo instalar la skill. Comprueba la conexión e inténtalo de nuevo.'))
     } finally {
       setBusyItem(null)
     }
@@ -282,6 +283,9 @@ export default function CommunitySection({
         capabilities: manifest.capabilities,
         color: manifest.color,
         instructions: manifest.instructions,
+        allowed_tools: [],
+        max_iterations: 10,
+        memory_enabled: true,
       })
       setInstalledAgentIds((ids) => ids.includes(item.id) ? ids : [...ids, item.id])
       setNotice(`${profile.name} se añadió a tus subagentes; puedes personalizar su perfil en el panel.`)
@@ -293,12 +297,13 @@ export default function CommunitySection({
         const next = [...new Set([...current, item.id])]
         localStorage.setItem(COMMUNITY_INSTALLED_AGENTS_KEY, JSON.stringify(next))
       } catch (cause) {
-        setError(cause instanceof Error
-          ? `El agente se instaló, pero no se pudo guardar su indicador local: ${cause.message}`
-          : 'El agente se instaló, pero no se pudo guardar su indicador local.')
+        setError(getUserFacingError(
+          cause,
+          'El agente se instaló, pero HELIX no pudo guardar su indicador local. Comprueba el almacenamiento e inténtalo de nuevo.',
+        ))
       }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo instalar el agente.')
+      setError(getUserFacingError(cause, 'No se pudo instalar el agente. Comprueba la conexión e inténtalo de nuevo.'))
     } finally {
       setBusyItem(null)
     }
@@ -316,7 +321,7 @@ export default function CommunitySection({
       await window.helix.openManagedBrowserTab(url)
       setNotice(`${item.name} se abrió o reutilizó en una pestaña HELIX.`)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : `No se pudo abrir ${item.name}.`)
+      setError(getUserFacingError(cause, `No se pudo abrir ${item.name}. Comprueba que esté instalado e inténtalo de nuevo.`))
     } finally {
       setBusyItem(null)
     }
@@ -359,7 +364,7 @@ export default function CommunitySection({
       setNotice('Publicación enviada. Será visible en el mercado cuando termine la revisión.')
       setView('mine')
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo enviar la publicación.')
+      setError(getUserFacingError(cause, 'No se pudo enviar la publicación. Revisa los datos e inténtalo de nuevo.'))
     } finally {
       setBusy(false)
     }
@@ -379,7 +384,7 @@ export default function CommunitySection({
       setModerationItems((current) => current.filter((entry) => entry.id !== item.id))
       setNotice(`Publicación ${status === 'APPROVED' ? 'aprobada' : 'rechazada'}.`)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo guardar la revisión.')
+      setError(getUserFacingError(cause, 'No se pudo guardar la revisión. Comprueba tus permisos e inténtalo de nuevo.'))
     } finally {
       setBusyItem(null)
     }

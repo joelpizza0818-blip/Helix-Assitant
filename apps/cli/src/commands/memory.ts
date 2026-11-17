@@ -10,6 +10,7 @@
 import chalk from 'chalk';
 import type { AgentClient } from '../client/agent-client';
 import { GREEN, YELLOW, RED, GRAY, DIM, BOLD, ORANGE_BOLD, CYAN } from '../ui/colors';
+import { getUserFacingError } from '../ui/userError';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -140,7 +141,7 @@ export async function handleMemoryReset(client: AgentClient): Promise<void> {
     }
     console.log('');
   } catch (err) {
-    console.log(RED(`  ✖ Error durante mantenimiento: ${(err as Error).message}\n`));
+    console.log(RED(`  ✖ ${getUserFacingError(err, 'No se pudo completar el mantenimiento de memoria. Inténtalo de nuevo.')}\n`));
   }
 }
 

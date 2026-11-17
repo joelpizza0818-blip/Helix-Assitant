@@ -1,8 +1,10 @@
 import React, { useCallback, useState, useEffect, useRef } from 'react'
 import { useSettings } from '../../hooks/useSettings'
 import { useAgent } from '../../hooks/useAgent'
+import { getUserFacingError } from '../../lib/userError'
 import { HelixLogo } from '../HelixLogo/HelixLogo'
 import AISection from './sections/AISection'
+import ModelStoreSection from './sections/ModelStoreSection'
 import VoiceSection from './sections/VoiceSection'
 import VisionSection from './sections/VisionSection'
 import ComputerSection from './sections/ComputerSection'
@@ -37,14 +39,14 @@ import {
 import type { TaskDefinition } from '../../types/global'
 import './Toolbox.css'
 
-class ToolboxErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: Error | null }> {
+class ToolboxErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
   constructor(props: { children: React.ReactNode }) {
     super(props)
-    this.state = { hasError: false, error: null }
+    this.state = { hasError: false }
   }
 
-  static getDerivedStateFromError(error: Error) {
-    return { hasError: true, error }
+  static getDerivedStateFromError() {
+    return { hasError: true }
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
@@ -56,15 +58,15 @@ class ToolboxErrorBoundary extends React.Component<{ children: React.ReactNode }
       return (
         <div className="toolbox-card" style={{ margin: 24, padding: 20 }}>
           <div className="toolbox-card__header">
-            <span className="toolbox-card__title" style={{ color: 'var(--red)' }}>Error en esta sección</span>
+            <span className="toolbox-card__title" style={{ color: 'var(--red)' }}>No se pudo cargar esta sección</span>
           </div>
           <p className="text-sm text-muted" style={{ margin: '8px 0' }}>
-            Se produjo un error inesperado al renderizar este panel ({this.state.error?.message || 'Error desconocido'}).
+            Recárgala. Si el problema continúa, cierra y vuelve a abrir HELIX.
           </p>
           <button
             type="button"
             className="validate-btn"
-            onClick={() => this.setState({ hasError: false, error: null })}
+            onClick={() => this.setState({ hasError: false })}
           >
             Reintentar
           </button>
@@ -77,6 +79,7 @@ class ToolboxErrorBoundary extends React.Component<{ children: React.ReactNode }
 
 type Section =
   | 'ai'
+  | 'model-store'
   | 'voice'
   | 'vision'
   | 'computer'
@@ -109,6 +112,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { id: 'ai',       category: 'Intelligence', label: 'AI & Models',   keywords: 'openai anthropic gemini api keys models ollama deepseek', icon: <NavIcon d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" /> },
+  { id: 'model-store', category: 'Intelligence', label: 'Model Store', keywords: 'download local ollama gguf llama.cpp models models store', icon: <NavIcon d="M12 3v12m0 0 4-4m-4 4-4-4M5 17v4h14v-4" /> },
   { id: 'skills',   category: 'Intelligence', label: 'Skills',        keywords: 'prompts triggers automated workflows tools', icon: <NavIcon d="M12 3v18m-9-9h18M5.6 5.6l12.8 12.8m0-12.8L5.6 18.4" /> },
   { id: 'workflows', category: 'Intelligence', label: 'Workflows', keywords: 'visual builder nodes trigger condition automation', icon: <NavIcon d="M4 5h6v6H4zM14 13h6v6h-6zM10 8h4v8h-4" /> },
   { id: 'plugins',  category: 'Intelligence', label: 'Plugins',       keywords: 'gmail chatgpt word excel powerpoint browser integrations', icon: <NavIcon d="M8 3v4m8-4v4M3 8h18M5 8v11h14V8M9 13h6" /> },
@@ -256,7 +260,7 @@ export default function Toolbox() {
           setProfileError(null)
         }
       } catch (cause) {
-        if (active) setProfileError(cause instanceof Error ? cause.message : 'No se pudo cargar el perfil.')
+        if (active) setProfileError(getUserFacingError(cause, 'No se pudo cargar el perfil. Comprueba la conexión e inténtalo de nuevo.'))
       }
     }
     const authSub = desktopSupabase?.auth.onAuthStateChange((_event, session) => {
@@ -275,7 +279,7 @@ export default function Toolbox() {
         await exchangeOAuthCallback(url)
         await refreshProfile()
       } catch (cause) {
-        setProfileError(cause instanceof Error ? cause.message : 'No se pudo completar el inicio de sesión.')
+        setProfileError(getUserFacingError(cause, 'No se pudo completar el inicio de sesión. Vuelve a intentarlo.'))
       } finally {
         setProfileBusy(false)
         setOauthPending(false)
@@ -304,7 +308,7 @@ export default function Toolbox() {
       }, 120_000)
     } catch (cause) {
       setOauthPending(false)
-      setProfileError(cause instanceof Error ? cause.message : 'No se pudo iniciar el acceso de GitHub.')
+      setProfileError(getUserFacingError(cause, 'No se pudo iniciar el acceso de GitHub. Comprueba la conexión e inténtalo de nuevo.'))
     } finally {
       setProfileBusy(false)
     }
@@ -335,7 +339,7 @@ export default function Toolbox() {
       setPendingReportsCount(0)
       setActiveSection('profiles')
     } catch (cause) {
-      setProfileError(cause instanceof Error ? cause.message : 'No se pudo cerrar sesión.')
+      setProfileError(getUserFacingError(cause, 'No se pudo cerrar la sesión. Inténtalo de nuevo.'))
     } finally {
       setProfileBusy(false)
     }
@@ -505,6 +509,9 @@ export default function Toolbox() {
                   onSave={saveOtherSettings}
                   onRefresh={() => { loadProviders(); loadModels(); void loadSettings() }}
                 />
+              )}
+              {activeSection === 'model-store' && (
+                <ModelStoreSection onModelStoreChanged={() => { loadProviders(); loadModels() }} />
               )}
               {activeSection === 'voice' && (
                 <VoiceSection settings={settings} onSave={saveOtherSettings} />

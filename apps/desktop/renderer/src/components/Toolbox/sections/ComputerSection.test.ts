@@ -32,3 +32,14 @@ test('sampling interval control exposes validated default and safe bounds', () =
   assert.match(component, /sampling pauses until the request ends/)
   assert.match(component, /Provider quotas or charges may still apply/)
 })
+
+test('main desktop mode fails closed and reuses an existing one-time consent', () => {
+  assert.match(component, /settings\.computer_use_host_consent !== true/)
+  assert.match(component, /if \(typeof consentFn !== 'function'\) return/)
+  assert.match(component, /if \(!result\?\.accepted\) return/)
+  assert.match(component, /computer_use_host_consent: true/)
+  assert.match(component, /await onSave\(\{ computer_use_mode: 'auto' \}\)/)
+  assert.match(component, /computer_use_mode: 'isolated',\s+computer_use_host_consent: false/s)
+  assert.match(component, /Prioriza el entorno principal cuando ya diste permiso/)
+  assert.match(component, /cursor visual separado/)
+})

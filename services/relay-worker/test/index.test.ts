@@ -254,6 +254,139 @@ describe('HELIX Cloudflare relay', () => {
     })).toBeNull()
   })
 
+  it('relays only local voice capture and never grants Desktop microphone access', () => {
+    const deviceId = 'abcdefghijklmnopqrstuvwxyz123456'
+    const sessionId = 'mobile_voice_session_0001'
+    expect(sanitizeMobileMessage({
+      type: 'VOICE_MESSAGE',
+      payload: {
+        voice_type: 'VOICE_SESSION_START',
+        voice_payload: {
+          session_id: sessionId,
+          mode: 'live',
+          server_audio: true,
+          language: 'es',
+          silence_ms: 600,
+          extra: 'discarded',
+        },
+      },
+    }, deviceId, 'Test phone')).toEqual({
+      type: 'VOICE_MESSAGE',
+      payload: {
+        voice_type: 'VOICE_SESSION_START',
+        voice_payload: {
+          session_id: sessionId,
+          mode: 'live',
+          server_audio: false,
+          language: 'es',
+          silence_ms: 600,
+        },
+      },
+      source_device_id: deviceId,
+      source_device_name: 'Test phone',
+    })
+    expect(sanitizeMobileMessage({
+      type: 'VOICE_MESSAGE',
+      payload: {
+        voice_type: 'VOICE_AUDIO_CHUNK',
+        voice_payload: {
+          session_id: sessionId,
+          audio_base64: 'AAAAAA==',
+          sample_rate: 16000,
+          channels: 1,
+          extra: 'discarded',
+        },
+      },
+    }, deviceId)?.payload.voice_payload).toEqual({
+      session_id: sessionId,
+      audio_base64: 'AAAAAA==',
+      sample_rate: 16000,
+      channels: 1,
+    })
+    expect(sanitizeMobileMessage({
+      type: 'VOICE_MESSAGE',
+      payload: {
+        voice_type: 'VOICE_AUDIO_CHUNK',
+        voice_payload: {
+          session_id: sessionId,
+          audio_base64: 'AAAAAA==',
+          sample_rate: 44100,
+          channels: 2,
+        },
+      },
+    }, deviceId)).toBeNull()
+    expect(sanitizeMobileMessage({
+      type: 'VOICE_MESSAGE',
+      payload: {
+        voice_type: 'VOICE_SERVER_AUDIO_START',
+        voice_payload: { session_id: sessionId },
+      },
+    }, deviceId)).toBeNull()
+  })
+
+  it('routes voice events back only to the owning device', () => {
+    const deviceId = 'abcdefghijklmnopqrstuvwxyz123456'
+    const sessionId = 'relay_voice_session_0001'
+    expect(sanitizeDesktopMessage({
+      type: 'VOICE_MESSAGE',
+      target_device_id: deviceId,
+      payload: {
+        voice_type: 'VOICE_TRANSCRIPT',
+        voice_payload: {
+          session_id: sessionId,
+          text: 'Hola',
+          final: true,
+          private_context: 'discarded by the relay',
+        },
+      },
+    })).toEqual({
+      type: 'VOICE_MESSAGE',
+      target_device_id: deviceId,
+      payload: {
+        voice_type: 'VOICE_TRANSCRIPT',
+        voice_payload: {
+          session_id: sessionId,
+          text: 'Hola',
+          final: true,
+        },
+      },
+    })
+    expect(sanitizeDesktopMessage({
+      type: 'VOICE_MESSAGE',
+      target_device_id: deviceId,
+      payload: {
+        voice_type: 'VOICE_AUDIO_SEGMENT',
+        voice_payload: {
+          session_id: sessionId,
+          index: 0,
+          audio_base64: 'UklGRg==',
+          mime_type: 'audio/wav',
+        },
+      },
+    })?.payload.voice_payload).toEqual({
+      session_id: sessionId,
+      index: 0,
+      audio_base64: 'UklGRg==',
+      mime_type: 'audio/wav',
+    })
+    expect(sanitizeDesktopMessage({
+      type: 'VOICE_MESSAGE',
+      target_device_id: deviceId,
+      payload: {
+        voice_type: 'VOICE_SERVER_AUDIO_START',
+        voice_payload: { session_id: sessionId },
+      },
+    })).toBeNull()
+    expect(sanitizeDesktopMessage({
+      type: 'VOICE_MESSAGE',
+      target_device_id: deviceId,
+      payload: {
+        voice_type: 'VOICE_AUDIO_SEGMENT',
+        voice_payload: { session_id: sessionId, audio_base64: '<script>' },
+      },
+    })).toBeNull()
+  })
+
   it('validates browser frames and per-device live-view controls', () => {
     const deviceId = 'abcdefghijklmnopqrstuvwxyz123456'
     expect(sanitizeMobileMessage({

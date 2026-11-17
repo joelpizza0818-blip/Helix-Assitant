@@ -9,17 +9,33 @@ import '../models/protocol_message.dart';
 import 'helix_transport.dart';
 
 class WebSocketHelixTransport implements HelixTransport {
-  WebSocketHelixTransport({required this.uri, required this.token});
+  WebSocketHelixTransport({
+    required this.uri,
+    required this.token,
+    int maxReconnectAttempts = _defaultMaxReconnectAttempts,
+  })  : _maxReconnectAttempts = maxReconnectAttempts,
+        assert(maxReconnectAttempts > 0) {
+    if (maxReconnectAttempts < 1) {
+      throw ArgumentError.value(
+        maxReconnectAttempts,
+        'maxReconnectAttempts',
+        'Must be greater than zero.',
+      );
+    }
+  }
 
   final Uri uri;
   final String token;
+  final int _maxReconnectAttempts;
   final _messages = StreamController<HelixMessage>.broadcast();
   final _states = StreamController<TransportState>.broadcast();
   WebSocketChannel? _channel;
   Timer? _reconnectTimer;
   bool _closed = false;
   int _reconnectAttempt = 0;
-  static const _maxReconnectAttempts = 8;
+  DateTime? _connectedSince;
+  static const _defaultMaxReconnectAttempts = 8;
+  static const _stableConnectionWindow = Duration(seconds: 30);
 
   @override
   Stream<HelixMessage> get messages => _messages.stream;
@@ -31,6 +47,7 @@ class WebSocketHelixTransport implements HelixTransport {
   Future<void> connect() async {
     if (_closed) throw StateError('HELIX transport is closed');
     _reconnectAttempt = 0;
+    _connectedSince = null;
     _states.add(TransportState.connecting);
     await _open();
   }
@@ -55,7 +72,7 @@ class WebSocketHelixTransport implements HelixTransport {
       await channel.sink.close();
       return;
     }
-    _reconnectAttempt = 0;
+    _connectedSince = DateTime.now();
     _states.add(TransportState.connected);
     channel.stream.listen(
       (value) {
@@ -79,6 +96,13 @@ class WebSocketHelixTransport implements HelixTransport {
 
   void _scheduleReconnect() {
     if (_closed || _reconnectTimer != null) return;
+    final connectedSince = _connectedSince;
+    if (connectedSince != null &&
+        DateTime.now().difference(connectedSince) >=
+            _stableConnectionWindow) {
+      _reconnectAttempt = 0;
+    }
+    _connectedSince = null;
     if (_reconnectAttempt >= _maxReconnectAttempts) {
       _states.add(TransportState.disconnected);
       return;

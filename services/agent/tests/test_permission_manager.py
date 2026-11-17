@@ -68,6 +68,29 @@ def test_auto_approve_mode_strictly_gates_critical_and_system(permission_manager
     assert critical_risk.level is PermissionLevel.CRITICAL
 
 
+def test_allow_all_bypasses_confirmation_for_every_level(permission_manager):
+    permission_manager.configure(mode="ALLOW_ALL")
+
+    evaluations = [
+        permission_manager.evaluate_risk("filesystem_tool", {"path": "C:\\Temp\\file.txt"}, "READ_ONLY"),
+        permission_manager.evaluate_risk("filesystem_tool", {"path": "C:\\Temp\\file.txt"}, "MODIFY"),
+        permission_manager.evaluate_risk("shell_tool", {"command": "git status"}, "EXECUTE"),
+        permission_manager.evaluate_risk("system_tool", {"action": "change_setting"}, "SYSTEM"),
+        permission_manager.evaluate_risk(
+            "filesystem_tool",
+            {"path": "C:\\Windows\\System32\\drivers\\etc\\hosts"},
+            "MODIFY",
+        ),
+        permission_manager.evaluate_risk(
+            "shell_tool",
+            {"command": "Remove-Item -Recurse C:\\secret"},
+            "EXECUTE",
+        ),
+    ]
+
+    assert all(not evaluation.requires_confirmation for evaluation in evaluations)
+
+
 def test_smart_approval_respects_configured_ceiling(permission_manager):
     permission_manager.configure(mode="SMART_APPROVAL", auto_approve_up_to="MODIFY")
 

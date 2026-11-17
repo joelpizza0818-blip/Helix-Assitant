@@ -10,6 +10,20 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_EDGE_VOICE = "en-US-AndrewMultilingualNeural"
 
+
+def _speech_safe_text(text: str) -> str:
+    """Defensive code-free policy for every TTS entry point."""
+    try:
+        try:
+            from ..voice.response_filter import filter_for_speech
+        except ImportError:
+            from services.agent.voice.response_filter import filter_for_speech
+    except ImportError:
+        return text
+    filtered = filter_for_speech(text).text
+    return filtered or "The technical result is shown on screen."
+
+
 @dataclass
 class VoiceInfo:
     id: str
@@ -32,6 +46,7 @@ class TextToSpeech:
         logger.info(f"TextToSpeech initialized with provider: {self.provider}")
 
     async def synthesize(self, text: str) -> bytes:
+        text = _speech_safe_text(text)
         if self.provider == 'openai':
             try:
                 from openai import AsyncOpenAI
@@ -92,6 +107,7 @@ class TextToSpeech:
         return b""
 
     async def speak(self, text: str):
+        text = _speech_safe_text(text)
         if self.provider == 'system':
             await asyncio.to_thread(self._speak_system, text)
             return
@@ -184,6 +200,7 @@ class TextToSpeech:
         sd.play(audio_samples, sample_rate, blocking=True)
 
     def _speak_system(self, text: str):
+        text = _speech_safe_text(text)
         if importlib.util.find_spec('pyttsx3') is not None:
             import pyttsx3
             engine = pyttsx3.init()

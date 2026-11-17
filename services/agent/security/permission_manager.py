@@ -21,6 +21,7 @@ class PermissionMode(str, Enum):
     ALWAYS_ASK = "ALWAYS_ASK"
     AUTO_APPROVE = "AUTO_APPROVE"
     SMART_APPROVAL = "SMART_APPROVAL"
+    ALLOW_ALL = "ALLOW_ALL"
 
 
 @dataclass(frozen=True)
@@ -182,9 +183,12 @@ class PermissionManager:
         if protected and level.value < PermissionLevel.CRITICAL.value:
             level = PermissionLevel.CRITICAL
 
-        if level.value >= PermissionLevel.SYSTEM.value:
+        if self.mode is PermissionMode.ALLOW_ALL:
+            requires = False
+            reason = "Allow All mode runs tool actions without confirmation prompts."
+        elif level.value >= PermissionLevel.SYSTEM.value:
             requires = True
-            reason = f"Explicit interactive confirmation is mandatory for {level.name} level operations in all approval modes."
+            reason = f"Explicit interactive confirmation is mandatory for {level.name} level operations in Always Ask, Smart Approval, and Auto Approve modes."
         elif self.mode is PermissionMode.ALWAYS_ASK:
             routine_interaction = (
                 level.value <= PermissionLevel.LOW_RISK.value

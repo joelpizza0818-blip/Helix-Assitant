@@ -107,6 +107,42 @@ class SpeechToText:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
 
+    async def transcribe_pcm16(
+        self,
+        pcm: bytes,
+        sample_rate: int = 16000,
+        language: str = None,
+        *,
+        beam_size: int = 1,
+        low_latency: bool = True,
+    ) -> str:
+        """Transcribe raw 16 kHz mono PCM16 without a temporary WAV file.
+
+        Live Voice already has the audio in memory, so skipping the WAV
+        round-trip removes disk I/O and a full encode/decode pass per turn.
+        """
+        if not pcm:
+            return ""
+        if self.provider != 'whisper_local':
+            raise RuntimeError("Raw PCM transcription requires whisper_local.")
+        if sample_rate != 16000:
+            raise ValueError("Raw PCM transcription expects 16 kHz audio.")
+        model = await self._get_local_model()
+        if self._local_backend == 'faster-whisper':
+            import numpy as np
+
+            audio = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
+            return await asyncio.to_thread(
+                self._transcribe_faster_whisper,
+                model,
+                audio,
+                language,
+                beam_size=beam_size,
+                low_latency=low_latency,
+            )
+        # The openai-whisper backend expects a file; reuse the WAV path.
+        return await self.transcribe(pcm, language=language)
+
     async def warmup(self) -> None:
         if self.provider == 'whisper_local':
             await self._get_local_model()
@@ -203,8 +239,26 @@ class SpeechToText:
         raise RuntimeError("No speech-to-text provider is available.")
 
     @staticmethod
-    def _transcribe_faster_whisper(model, audio, language: str = None) -> str:
-        options = {"beam_size": 5}
+    def _transcribe_faster_whisper(
+        model,
+        audio,
+        language: str = None,
+        *,
+        beam_size: int = 5,
+        low_latency: bool = False,
+    ) -> str:
+        options = {"beam_size": max(1, int(beam_size))}
+        if low_latency:
+            options.update(
+                {
+                    "best_of": 1,
+                    "temperature": 0.0,
+                    "condition_on_previous_text": False,
+                    "without_timestamps": True,
+                    # VAD already segments utterances before transcription.
+                    "vad_filter": False,
+                }
+            )
         if language:
             options["language"] = language
         segments, _ = model.transcribe(audio, **options)

@@ -1,87 +1,63 @@
-# Desktop Control — Windows
+# Desktop Control
 
-## Hyper-V virtual desktop status
+`computer.desktop_control` can drive one of two backends:
 
-The Toolbox checks whether the Windows edition, Hyper-V feature, management module, and VM management service are available. This is a read-only preflight: HELIX does not enable Windows features or change host settings. VM provisioning, guest streaming, and guest-only input are not yet implemented; until they are, the existing `pyvda` UI Automation path remains limited and must not be described as an isolated VM or as a live preview.
+- **Isolated Docker desktop:** a Debian Stable container running XFCE on a virtual X display. HELIX builds the image on first setup, stores the desktop home in a named Docker volume, and starts the container on demand.
+- **Windows host (explicit consent only):** the real Windows desktop, for users who deliberately choose it.
 
-`computer.desktop_control` ejecuta una acción por llamada y se activa ante una solicitud explícita de control del escritorio o una interacción con la pantalla. Para estas solicitudes HELIX omite el planificador general, prepara el escritorio virtual y ejecuta `list_windows` antes de llamar al modelo. El resultado se proporciona al modelo y se ofrecen `computer.desktop_control` para apps nativas y `browser_control` para páginas web; no se repite el listado salvo que haga falta actualizarlo. La GUI de HELIX permanece en el escritorio actual del usuario y no necesita moverse al escritorio dedicado. Si el preflight falla, la tarea se detiene con el error real en vez de inventar que el entorno no tiene GUI o cambiar a shell. La opción general `screen_context_enabled` no bloquea este flujo: no se toma una captura inicial, y UI Automation puede usarse sin un modelo de visión. HELIX solicita una aprobación para activar el control en la conversación; las acciones sensibles siguen requiriendo confirmaciones separadas.
+## Selecting a backend
 
-En Windows, HELIX crea o reutiliza un escritorio virtual dedicado con `pyvda`. Solo controla ventanas que abrió en esta sesión; las ventanas que ya estaban abiertas se dejan en su escritorio y no se ofrecen como objetivos. Al iniciar una aplicación, HELIX pide que no se active, detecta una ventana nueva del proceso lanzado y la mueve al escritorio dedicado sin cambiar de escritorio.
+Settings control the backend:
 
-`observe_ui`, `click_element` e ingreso mediante `ValuePattern` usan UI Automation sin activar el escritorio ni enfocar la ventana. El schema de `computer.desktop_control` no expone acciones de mouse/teclado ni captura visual, y `DesktopExecutor` también las rechaza antes de preparar o invocar la plataforma como defensa adicional. Los escritorios virtuales de Windows comparten el cursor y el estado de primer plano del sistema; no se puede asumir que proporcionen un cursor separado. Si UIA no puede realizar la acción, HELIX informa el límite y se detiene: no cambia al escritorio del usuario ni usa PyAutoGUI, entrada simulada o capturas de ventana como fallback.
+- `computer_use_mode`: `auto` (default), `isolated`, or `host`.
+- `computer_use_host_consent`: must be `true` before any host action; `mode=host` alone is not enough.
 
-La apertura de aplicaciones se limita a procesos iniciados por HELIX; las ventanas ya abiertas no se mueven ni se consideran objetivos propios. La apertura se solicita sin activación y la ventana nueva se asigna al escritorio dedicado. Las acciones UIA se validan contra el HWND propio y la identidad del proceso.
+In `auto`, the consented Windows desktop is selected when the user has granted host consent; otherwise HELIX selects the isolated container. The desktop image and container are prepared automatically at app startup when host consent is absent, and the selected backend is cached for 300 seconds so a task cannot switch desktops mid-flight. If Docker is unavailable or still preparing, the action reports Docker readiness and never falls back to the Windows host. Direct host actions always require consent, and host actions are rejected while isolated mode is selected.
 
-Los objetivos descritos como sensibles o consecuenciales (banca, credenciales, enviar, publicar, borrar, comprar, instalar/desinstalar o cambiar la configuración del sistema) elevan el permiso a `SYSTEM`, que requiere confirmación incluso en modo Auto Approve. La identificación de una aplicación bancaria sigue dependiendo del nombre/contexto que el modelo o el usuario proporcione; no existe aún detección integral por HWND/proceso ni una política completa de allowlist por app/carpeta. El contenido UIA es dato no confiable, nunca instrucciones.
+## Isolated Docker desktop
 
-Las pruebas automatizadas cubren la selección de ventanas, las rutas UIA y el rechazo de acciones físicas. No se afirma que estas pruebas demuestren el comportamiento interactivo de `pyvda` o la compatibilidad UIA de aplicaciones reales; DPI, monitores múltiples, privilegios elevados y compatibilidad por aplicación requieren validación específica. La ruta visual no está disponible.
+Docker Desktop with its Linux container engine must be installed and running. Setup builds `apps/desktop/computer-use-image/Dockerfile` from Debian Stable, installs XFCE, Xvfb, `xdotool`, FFmpeg, and the authenticated guest agent, then creates `helix-computer-desktop`. The Xfce desktop runs at 1440x900 on the container's virtual display. This desktop backend uses a Docker image and container; it does not provision or start a Hyper-V virtual machine.
 
-## UI Automation
+Only the guest agent's WebSocket port is published, bound to a dynamically selected `127.0.0.1` host port. The container's `/home/helix` is persisted at `Desktop\helix-storage\computer-home`; no other Windows folder or the Docker socket is mounted into the container. A random 256-bit token authenticates control. Desktop screenshots are sent through the existing agent event stream to the Desktop Preview; screenshots contain only the container's virtual display.
 
-En Windows, `observe_ui` consulta el árbol accesible de la ventana objetivo mediante `uiautomation`. Devuelve un listado compacto de elementos con `element_id`, nombre, rol, estado y bounding box, limitado por `max_accessibility_elements` y `max_accessibility_depth` en `config/defaults.json`. La instantánea se reutiliza por hasta 30 segundos para la misma ventana; otras acciones de escritorio la invalidan.
+The assistant can screenshot, move/click, type, press keys, scroll, and launch a desktop-file identifier. Arbitrary shell execution is not exposed as a computer-use action. The container has normal outbound network access, but no host files or host application windows are shared with it.
 
-Cuando un control accesible está disponible, el agente debe usar `click_element` o `type_into_element` con el ID de la última observación. Los IDs son únicos por instantánea y se rechazan si cambió la ventana, venció la observación o cambió la identidad del control. Click requiere InvokePattern y escritura requiere ValuePattern; no se enfoca ni se escribe con teclado si el patrón no existe. Si UIA no expone un control adecuado, la acción no está disponible y el agente informa el límite. Las acciones UIA se verifican con una observación UIA posterior.
+The container persists after it is stopped. Its user home and installed applications are kept under `helix-storage\computer-home`; after two hours idle the container is stopped, not deleted. During setup, an existing HELIX container that uses the previous named Docker volume is copied into this folder before the container is recreated; the old volume is left untouched. The Docker image and Docker Engine's own internal cache remain managed by Docker Desktop. HELIX does not delete older VM files as part of normal operation.
 
-Los nombres y textos del árbol de accesibilidad se consideran datos no confiables. La observación UIA solo se habilita durante una tarea explícita. Las pruebas automatizadas simulan la API UIA; la prueba real cubrió Bloc de notas, pero hace falta probar otras aplicaciones en una sesión interactiva de Windows.
+## HELIX storage
 
-## Pruebas automatizadas
+On Windows, HELIX writes generated data under `%USERPROFILE%\Desktop\helix-storage` (or the absolute path configured by `HELIX_STORAGE_DIR`):
 
-Desde la raíz del repositorio:
+- `desktop`: Electron settings, pairing state, capabilities, and Docker session metadata.
+- `agent`: learned profile, memories, skills, and browser profile.
+- `models` and `bin`: local GGUF models and llama.cpp binaries.
+- `computer-home`: persistent home directory for the isolated Docker desktop.
+- `cache`, `logs`, and `temp`: Electron/AI model caches, application logs, and temporary files.
+
+Existing Electron settings and Python agent data are copied to the new location on first launch without deleting their old copies. Existing GGUF models in `%APPDATA%\Helix\models` remain discoverable; new downloads use `helix-storage\models`.
+
+## Windows application recommendations
+
+The Toolbox can explicitly scan installed-app registry entries, Start Menu shortcuts, and AppX package names. It returns application display names only; it does not copy Windows executables, app settings, credentials, or user data. Known apps can be mapped to Debian equivalents. The user selects recommendations and confirms installation in a native confirmation dialog before HELIX runs `apt-get` for the fixed, allow-listed package IDs inside the isolated container. Unknown apps remain suggestions without an install action.
+
+## Windows host backend
+
+Host actions use the existing Windows UI Automation and input tools. The real host is controlled only after explicit user consent. In `auto`, an explicit host consent selects the host; without consent, HELIX stays in the isolated container and never silently falls back to the host.
+
+Host preflight lists open application windows without capturing the monitor, and excludes windows titled as HELIX. HELIX prefers UI Automation for the selected app, including when another window obscures it. When visual details are needed, `host_screenshot` requires that app's `window_handle` and uses Windows `PrintWindow` to capture only that window; it never substitutes a full-monitor image. Minimized windows and apps that cannot render through `PrintWindow` return an explicit error. Multiple apps can be compared through separate, sequential captures. Host actions do not attach incidental monitor screenshots.
+
+On-demand `computer.observe_screen` also selects one non-HELIX application window using the request context (or the foremost app when no title matches), attaches only that window image, and returns the available window handles. The model can request additional apps by handle in sequential observations. The legacy `screenshot_tool` still supports a deliberate full-monitor capture; use `capture_window` when an unobstructed app view is needed.
+
+## Boundaries and verification
+
+- The desktop preview is fed by authenticated frames from the Docker container; host frames are not included.
+- A targeted host capture is limited to the requested native window. Some hardware-accelerated or protected apps may not support `PrintWindow`; those captures fail instead of returning an obstructed monitor image.
+- Docker setup requires a running Docker Engine and network access to build the image and fetch Debian packages.
+- Docker containers share the Docker Engine's Linux kernel; this is not the same isolation boundary as a dedicated VM. HELIX does not mount the Docker socket or any host directories into this container.
+- The Docker backend does not create, start, or manage virtual machines. The Windows host backend remains available only with explicit user consent.
+
+Run the focused agent tests from the repository root:
 
 ```powershell
-python -m pytest services/agent/desktop_control/tests -q
+python -m pytest services/agent/tests/test_desktop_control_tool.py services/agent/desktop_control/tests -q
 ```
-
-## Prueba manual de captura
-
-La captura respeta `screen_observation_scope`; una llamada directa fuera de una tarea autorizada falla. En una terminal de desarrollo, habilita explícitamente el scope solo para la prueba y guarda la captura en una ruta privada:
-
-```python
-import asyncio
-from pathlib import Path
-
-from services.agent.desktop_control import DesktopControlConfig
-from services.agent.desktop_control.perception.capture import DesktopScreenCapture
-from services.agent.perception.screen_observation_policy import screen_observation_scope
-
-async def main():
-    config = DesktopControlConfig.load()
-    with screen_observation_scope(True):
-        image = await DesktopScreenCapture(config).capture_monitor(config.monitor_index)
-    Path.home().joinpath("helix-desktop-phase1.png").write_bytes(image.image)
-
-asyncio.run(main())
-```
-
-La imagen puede contener información privada. El módulo no guarda capturas por sí solo.
-
-## Prueba manual de selección y UIA
-
-Desde una sesión Windows interactiva, el siguiente ejemplo abre Bloc de notas en el escritorio HELIX y obtiene su árbol UIA. El ejemplo no escribe ni guarda datos:
-
-```python
-import asyncio
-import json
-
-from services.agent.desktop_control import DesktopControlConfig, DesktopExecutor
-from services.agent.perception.screen_observation_policy import screen_observation_scope
-
-async def main():
-    config = DesktopControlConfig.load()
-    executor = DesktopExecutor(config)
-    with screen_observation_scope(True):
-        opened = await executor.execute({
-            "action": "open_application",
-            "application": "notepad.exe",
-        })
-        window_handle = opened.result["window_handle"]
-        observed = await executor.execute({
-            "action": "observe_ui",
-            "window_handle": window_handle,
-        })
-    print(json.dumps(observed.result, ensure_ascii=False, indent=2))
-
-asyncio.run(main())
-```
-
-Para una prueba de escritura, elige el `element_id` del control de documento que aparezca en la observación y llama a `type_into_element`; no guardes el documento. La configuración inicial está en `config/defaults.json` y puede sustituirse mediante `HELIX_DESKTOP_CONTROL_CONFIG`. Las opciones de límite de accesibilidad son opcionales en configuraciones existentes y reciben valores por defecto si se omiten.

@@ -137,6 +137,64 @@ def test_subagent_tool_registration_uses_the_active_provider_session():
     assert registry.get_tool(tool.name) is None
 
 
+@pytest.mark.asyncio
+async def test_new_agent_profile_can_set_tools_budget_and_memory():
+    manager = StubAgentManager()
+    tool = DelegateTaskTool(manager, StubKeyManager(1, {"google": [(0, "key")]}))
+    new_profile = {
+        "name": "Release Verifier",
+        "role": "research",
+        "description": "Checks release evidence.",
+        "capabilities": ["research", "verification"],
+        "color": "#a0ca92",
+        "allowed_tools": ["read_active_browser_page"],
+        "max_iterations": 4,
+        "memory_enabled": False,
+    }
+
+    assert tool.validate_params({
+        "task": "Verify this release",
+        "new_agent": new_profile,
+    })
+    schema = tool.get_schema()["parameters"]["properties"]["new_agent"]
+    assert set(schema["required"]) >= {
+        "allowed_tools",
+        "max_iterations",
+        "memory_enabled",
+    }
+
+    result = await tool.execute_with_context(
+        {"task": "Verify this release", "new_agent": new_profile},
+        parent_id="parent-id",
+        parent_credential=None,
+    )
+
+    assert result.success is True
+    assert manager.calls[0][1]["new_profile"] == new_profile
+
+
+def test_new_agent_profile_rejects_invalid_budget_and_memory_flag():
+    tool = DelegateTaskTool(
+        StubAgentManager(),
+        StubKeyManager(1, {"google": [(0, "key")]}),
+    )
+    profile = {
+        "name": "Release Verifier",
+        "role": "research",
+        "description": "Checks release evidence.",
+        "capabilities": ["research"],
+        "color": "#a0ca92",
+        "allowed_tools": [],
+        "max_iterations": True,
+        "memory_enabled": "yes",
+    }
+
+    assert not tool.validate_params({
+        "task": "Verify this release",
+        "new_agent": profile,
+    })
+
+
 def test_subagent_lifecycle_event_exposes_only_safe_metadata():
     secret = "configured-private-credential"
     event = safe_subagent_lifecycle_payload({

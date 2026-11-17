@@ -8,6 +8,7 @@ import type {
   TaskDefinition,
 } from '../../../types/global'
 import type { SettingsSaveResult } from '../../../hooks/settingsSave'
+import { getUserFacingError } from '../../../lib/userError'
 import ProjectFilesPanel from './ProjectFilesPanel'
 import './DeveloperModeSection.css'
 
@@ -101,7 +102,9 @@ export default function DeveloperModeSection({
         }
       })
       .catch((reason: unknown) => {
-        if (active) setError(reason instanceof Error ? reason.message : 'Could not detect local terminal shells.')
+        if (active) {
+          setError(getUserFacingError(reason, 'No se pudieron detectar las terminales instaladas. Revisa la configuración.'))
+        }
       })
     return () => { active = false }
   }, [])
@@ -113,7 +116,7 @@ export default function DeveloperModeSection({
         if (active) setProjects(result)
       })
       .catch((reason: unknown) => {
-        if (active) setError(reason instanceof Error ? reason.message : 'Could not load projects.')
+        if (active) setError(getUserFacingError(reason, 'No se pudieron cargar los proyectos. Inténtalo de nuevo.'))
       })
       .finally(() => {
         if (active) setLoadingProjects(false)
@@ -129,7 +132,7 @@ export default function DeveloperModeSection({
         if (isEditorPreferences(parsed)) setPreferences(parsed)
       }
     } catch (reason) {
-      setError(reason instanceof Error ? `Could not load editor preferences: ${reason.message}` : 'Could not load editor preferences.')
+      setError(getUserFacingError(reason, 'No se pudieron cargar las preferencias del editor.'))
     } finally {
       setPreferencesReady(true)
     }
@@ -140,7 +143,7 @@ export default function DeveloperModeSection({
     try {
       window.localStorage.setItem(PREFERENCES_KEY, JSON.stringify(preferences))
     } catch (reason) {
-      setError(reason instanceof Error ? `Could not save editor preferences: ${reason.message}` : 'Could not save editor preferences.')
+      setError(getUserFacingError(reason, 'No se pudieron guardar las preferencias del editor.'))
     }
   }, [preferences, preferencesReady])
 
@@ -207,7 +210,9 @@ export default function DeveloperModeSection({
         if (active) setSuggestions(found.slice(0, 8))
       })
       .catch((reason: unknown) => {
-        if (active) setError(reason instanceof Error ? `Could not inspect project test scripts: ${reason.message}` : 'Could not inspect project test scripts.')
+        if (active) {
+          setError(getUserFacingError(reason, 'No se pudieron revisar los scripts de prueba del proyecto.'))
+        }
       })
     return () => { active = false }
   }, [projects.active_project_id])
@@ -233,7 +238,7 @@ export default function DeveloperModeSection({
     try {
       sendMessage(request)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not send the command to the agent.')
+      setError(getUserFacingError(reason, 'No se pudo enviar la solicitud al agente. Inténtalo de nuevo.'))
     }
   }
 
@@ -249,7 +254,7 @@ export default function DeveloperModeSection({
         setEditorDirty(false)
       }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not update Developer Mode.')
+      setError(getUserFacingError(reason, 'No se pudo actualizar el modo de desarrollador. Inténtalo de nuevo.'))
     } finally {
       setBusy(false)
     }
@@ -265,7 +270,7 @@ export default function DeveloperModeSection({
       setSelectedFile(null)
       setEditorDirty(false)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not select the project.')
+      setError(getUserFacingError(reason, 'No se pudo seleccionar el proyecto. Inténtalo de nuevo.'))
     } finally {
       setBusy(false)
     }
@@ -283,7 +288,7 @@ export default function DeveloperModeSection({
       setSelectedFile(null)
       setEditorDirty(false)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not add this project folder.')
+      setError(getUserFacingError(reason, 'No se pudo añadir la carpeta del proyecto. Comprueba la ruta e inténtalo de nuevo.'))
     } finally {
       setBusy(false)
     }

@@ -693,6 +693,62 @@
   box-shadow: 0 0 6px var(--color-pulse-green);
 }
 
+/* ── Live Voice Call Button ────────────────────────────────────────── */
+.floating-ui__live-voice-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--radius-buttons);
+  border: 1px solid var(--color-graphite);
+  background: var(--color-obsidian);
+  color: var(--color-mist);
+  font-size: 12px;
+  font-weight: var(--font-weight-w510);
+  font-family: var(--font-sans);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--duration-fast) var(--ease);
+  user-select: none;
+}
+
+.floating-ui__live-voice-btn:hover {
+  background: var(--color-carbon);
+  border-color: var(--color-smoke);
+  color: var(--color-paper);
+}
+
+.floating-ui__live-voice-btn:active {
+  transform: translateY(1px);
+}
+
+.floating-ui__live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-accent, #ee6018);
+  box-shadow: 0 0 6px rgba(238, 96, 24, 0.6);
+  animation: liveDotPulse 2s infinite ease-in-out;
+}
+
+@keyframes liveDotPulse {
+  0%, 100% {
+    opacity: 0.6;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+}
+
 /* ── Primary Action Button (Acid Lime) ───────────────────────────────── */
 .send-btn {
   width: 32px;
@@ -752,6 +808,14 @@
 /* ── Suppressed / Compact Floating HUD Mode ──────────────────────────── */
 .floating-ui--suppressed {
   background: transparent;
+}
+
+.floating-ui--live-suppressed {
+  background: transparent;
+}
+
+.floating-ui--live-suppressed > :not(.live-voice-overlay) {
+  display: none;
 }
 
 .floating-ui--suppressed .floating-ui__header,

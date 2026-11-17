@@ -21,6 +21,8 @@ export interface HelixAPI {
     attachments?: ChatAttachment[]
   }) => Promise<void>
   cancelTask: (taskId: string) => void
+  pauseTask: (taskId: string) => void
+  resumeTask: (taskId: string) => void
   emergencyStop: () => void
   confirmAction: (requestId: string) => void
   rejectAction: (requestId: string) => void
@@ -56,7 +58,14 @@ export interface HelixAPI {
     output: string
   }>
   getDeveloperTerminalStatus: () => Promise<DeveloperTerminalStatus>
-  getHyperVPreflight: () => Promise<HyperVPreflight>
+  getComputerUseStatus: () => Promise<ComputerUseStatus>
+  startComputerUseSetup: () => Promise<ComputerUseSetupResult>
+  requestHostDesktopConsent: () => Promise<{ accepted: boolean }>
+  onDockerDesktopProgress: (fn: (progress: DockerDesktopProgress) => void) => () => void
+  startDockerDesktop: () => Promise<DockerDesktopStatus>
+  stopDockerDesktop: () => Promise<DockerDesktopStatus>
+  detectDesktopApps: () => Promise<DesktopAppRecommendation[]>
+  installDesktopApps: (ids: string[]) => Promise<{ installed: boolean }>
   startDeveloperTerminal: (options: {
     project_id: string
     shell: DeveloperTerminalShell
@@ -67,7 +76,7 @@ export interface HelixAPI {
   closeDeveloperTerminal: (sessionId: string) => Promise<void>
   onDeveloperTerminalData: (fn: (event: DeveloperTerminalDataEvent) => void) => () => void
   onDeveloperTerminalExit: (fn: (event: DeveloperTerminalExitEvent) => void) => () => void
-  testTts: (text?: string) => Promise<TtsTestResult>
+  testTts: (payload?: string | { text?: string; provider?: string; voice_id?: string }) => Promise<TtsTestResult>
   getMemoryStatus: () => Promise<MemoryStatus>
   getProjects: () => Promise<ProjectRegistry>
   importProjectFolder: (folderPath: string) => Promise<ProjectRegistry>
@@ -158,8 +167,13 @@ export interface HelixAPI {
   getWorkflowAgents: () => Promise<AgentProfile[]>
   getWorkflowCapabilities: () => Promise<WorkflowCapabilityOption[]>
   saveWorkflow: (workflow: WorkflowDefinition) => Promise<WorkflowDefinition>
+  saveWorkflowSkill: (id: string, triggers?: string[]) => Promise<SkillSummary>
   deleteWorkflow: (id: string) => Promise<{ deleted: boolean }>
   runWorkflow: (id: string, input: string) => Promise<{ task_id: string }>
+
+  voiceSend: (message: { type: string; payload: Record<string, unknown> }) => Promise<boolean>
+  onVoiceEvent: (fn: (event: { type: string; payload: Record<string, unknown> }) => void) => () => void
+  setLiveVoiceMode: (enabled: boolean, suppressed?: boolean) => Promise<boolean>
 
   onAgentMessage: (fn: (msg: AgentMessage) => void) => () => void
   onAgentUpdate: (fn: (event: AgentLifecycleEvent) => void) => () => void
@@ -170,6 +184,9 @@ export interface HelixAPI {
   onFallbackEvent: (fn: (event: FallbackEvent) => void) => () => void
   onBrowserProgress: (fn: (event: BrowserProgressEvent) => void) => () => void
   onBrowserFrame: (fn: (event: BrowserFrameEvent) => void) => () => void
+  onDesktopFrame: (fn: (event: DesktopFrameEvent) => void) => () => void
+  onDesktopControlStatus: (fn: (event: DesktopControlStatusEvent) => void) => () => void
+  stopDesktopControl: () => void
   onModelRequest: (fn: (request: ModelRequestEvent) => void) => () => void
   onConfirmationRequest: (fn: (req: ConfirmationRequest) => void) => () => void
   onConfirmationResolved: (fn: (request: { request_id: string }) => void) => () => void
@@ -219,6 +236,9 @@ export interface AgentProfile {
     model: string
     key_slot: number
   } | null
+  allowed_tools: string[]
+  max_iterations: number
+  memory_enabled: boolean
   created_by: string
   created_at: string
 }
@@ -232,6 +252,9 @@ export interface AgentProfileDraft {
   capabilities: string[]
   color: string
   instructions: string
+  allowed_tools: string[]
+  max_iterations: number
+  memory_enabled: boolean
 }
 
 export interface AgentRoutingOptions {
@@ -446,18 +469,37 @@ export interface GgufModelInfo {
   name: string
   path: string
   size_gb: number
+  model_id?: string | null
+  source?: string
+}
+
+export interface LlamaCatalogModel {
+  id: string
+  repo: string
+  filename: string
+  display_name: string
+  parameters: string
+  quantization: string
+  size_gb: number
+  recommended_ram_gb: number
+  category: 'Ligero' | 'Estándar' | 'Medio-alto' | 'Alto'
+  url: string
+  description: string
 }
 
 export interface LlamaServerStatus {
   installed: boolean
   binary_path: string | null
+  llama_cpp_installed: boolean
+  llama_cpp_path: string | null
   running: boolean
   port: number
   base_url: string
   active_model: string | null
   models_dir: string
   models: GgufModelInfo[]
-  curated_catalog: Array<Record<string, unknown>>
+  scan_errors: string[]
+  curated_catalog: LlamaCatalogModel[]
 }
 
 export interface LlamaServerActionResult {
@@ -498,6 +540,9 @@ export interface TaskDefinition {
   task_type?: string
   is_subagent?: boolean
   profile_id?: string
+  interrupted?: boolean
+  resume_mode?: string
+  workflow_id?: string
   model_requests?: ModelRequestEvent[]
   progress: number
   execution_summary: TaskExecutionSummary
@@ -562,6 +607,7 @@ export interface SkillDraft {
 export interface SkillSummary extends SkillDraft {
   version: string
   custom: boolean
+  workflow_id?: string
 }
 
 export type WorkflowNodeType =
@@ -665,6 +711,23 @@ export interface BrowserFrameEvent {
   image_base64: string
 }
 
+export interface DesktopFrameEvent {
+  task_id: string
+  mime_type: 'image/jpeg'
+  image_base64: string
+  source?: 'windows_host' | 'docker_guest'
+  window_title?: string
+  cursor?: { x: number; y: number; visible: boolean }
+  captured_at: string
+}
+
+export interface DesktopControlStatusEvent {
+  active: boolean
+  task_id?: string
+  action?: string
+  desktop_backend?: 'windows_host' | 'docker_guest'
+}
+
 export interface ConfirmationRequest {
   id: string
   action: string
@@ -760,10 +823,12 @@ export interface HelixSettings {
   custom_wake_words?: string[]
   wake_word_threshold?: number
   voice_stt_provider?: string
+  voice_stt_mode?: 'speed' | 'accuracy'
   voice_tts_provider?: string
   voice_tts_voice?: string
   voice_response_enabled?: boolean
   vad_threshold?: number
+  voice_live_silence_ms?: number
   mcp_servers?: MCPServerConfig[]
   camera_enabled: boolean
   camera_device_index: number
@@ -778,7 +843,7 @@ export interface HelixSettings {
   cross_provider_fallback: boolean
   model_request_timeout_seconds?: number
   auto_approve_up_to: 'READ_ONLY' | 'LOW_RISK' | 'MODIFY'
-  permissions_mode?: 'ALWAYS_ASK' | 'AUTO_APPROVE' | 'SMART_APPROVAL'
+  permissions_mode?: 'ALWAYS_ASK' | 'AUTO_APPROVE' | 'SMART_APPROVAL' | 'ALLOW_ALL'
   cost_preference: 'low' | 'balanced' | 'high'
   speed_preference: 'low' | 'balanced' | 'high'
   quality_preference: 'low' | 'balanced' | 'high'
@@ -789,6 +854,8 @@ export interface HelixSettings {
   display_index?: number
   screen_capture_interval_ms?: number
   screen_context_enabled?: boolean
+  computer_use_mode?: 'auto' | 'isolated' | 'host'
+  computer_use_host_consent?: boolean
   model_decides_screen_vision_enabled?: boolean
   continuous_screen_vision_enabled?: boolean
   continuous_screen_vision_interval_ms?: number
@@ -803,7 +870,7 @@ export interface HelixSettings {
   shell_timeout_seconds?: number
   block_elevated_execution?: boolean
   sandbox_enabled?: boolean
-  sandbox_mode?: 'restricted' | 'isolated' | 'windows_sandbox' | 'docker'
+  sandbox_mode?: 'restricted' | 'isolated'
   sound_effects_enabled?: boolean
   success_sound_preset?: string
   error_sound_preset?: string
@@ -840,15 +907,45 @@ export interface DeveloperTerminalStatus {
   reason?: string
 }
 
-export interface HyperVPreflight {
-  supportedHost: boolean
-  edition: string | null
-  featureState: 'Enabled' | 'Disabled' | 'EnablePending' | 'DisablePending' | 'Unknown'
-  moduleAvailable: boolean
-  serviceRunning: boolean | null
+export interface DockerDesktopProgress {
+  phase: 'checking' | 'building' | 'starting' | 'ready'
+  message: string
+}
+
+export interface DockerDesktopStatus {
+  supported: boolean
+  engineAvailable: boolean
+  imageReady: boolean
+  containerExists: boolean
+  running: boolean
   ready: boolean
-  blockers: string[]
-  featureCheckError?: string
+  provisioning: boolean
+  resourceConflict: boolean
+  lastError: string | null
+}
+
+export interface DesktopAppRecommendation {
+  id: string
+  sourceName: string
+  equivalent: string | null
+  packageName: string | null
+}
+
+export interface ComputerUseStatus {
+  mode: 'auto' | 'isolated' | 'host'
+  hostConsent: boolean
+  isolatedSupported: boolean
+  isolatedReady: boolean
+  installationComplete: boolean
+  guestRunning: boolean
+  preparing: boolean
+  progressPhase: DockerDesktopProgress['phase'] | null
+  lastError: string | null
+}
+
+export interface ComputerUseSetupResult {
+  status: 'in_progress' | 'unsupported' | 'unavailable'
+  message: string
 }
 
 export interface DeveloperTerminalDataEvent {

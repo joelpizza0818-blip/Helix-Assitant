@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { ProjectFileEntry, ProjectFilesResult } from '../../../types/global'
+import { getUserFacingError } from '../../../lib/userError'
 import './ProjectFilesPanel.css'
 
 interface Props {
@@ -44,7 +45,7 @@ export default function ProjectFilesPanel({ projectId, selectedFilePath, onOpenF
         setTruncated(Boolean(result.truncated))
       })
       .catch((reason: unknown) => {
-        if (active) setError(reason instanceof Error ? reason.message : 'Could not load project files.')
+        if (active) setError(getUserFacingError(reason, 'No se pudieron cargar los archivos del proyecto.'))
       })
     return () => { active = false }
   }, [projectId])
@@ -61,7 +62,7 @@ export default function ProjectFilesPanel({ projectId, selectedFilePath, onOpenF
       }
       return false
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not update project files.')
+      setError(getUserFacingError(reason, 'No se pudieron actualizar los archivos del proyecto. Inténtalo de nuevo.'))
       return false
     } finally {
       setBusy(false)

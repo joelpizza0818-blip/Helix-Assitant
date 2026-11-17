@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState, useRef } from 'react'
 import type { HelixSettings, MemoryStatus, ProjectRegistry } from '../../../types/global'
 import ProjectGraphEditor, { type ProjectGraphEditorHandle } from './ProjectGraphEditor'
 import ProjectFilesPanel from './ProjectFilesPanel'
+import { getUserFacingError } from '../../../lib/userError'
 import '../Toolbox.css'
 
 const ProjectFileEditor = lazy(() => import('./ProjectFileEditor'))
@@ -74,7 +75,7 @@ export default function MemorySection({ settings, onSave }: Props) {
         if (active) setProjectRegistry(projects)
       } catch (error) {
         if (active) {
-          setMaintenanceError(error instanceof Error ? error.message : 'Could not load memory.')
+          setMaintenanceError(getUserFacingError(error, 'No se pudo cargar la memoria. Inténtalo de nuevo.'))
         }
       }
     }
@@ -95,7 +96,7 @@ export default function MemorySection({ settings, onSave }: Props) {
       setProjectRegistry(projects)
       setProjectFolderPath('')
     } catch (error) {
-      setMaintenanceError(error instanceof Error ? error.message : 'Could not import project folder.')
+      setMaintenanceError(getUserFacingError(error, 'No se pudo importar la carpeta del proyecto. Comprueba el acceso e inténtalo de nuevo.'))
     } finally {
       setProjectBusy(false)
     }
@@ -112,7 +113,7 @@ export default function MemorySection({ settings, onSave }: Props) {
         active_project_id: result.active_project_id,
       }))
     } catch (error) {
-      setMaintenanceError(error instanceof Error ? error.message : 'Could not select project.')
+      setMaintenanceError(getUserFacingError(error, 'No se pudo seleccionar el proyecto. Inténtalo de nuevo.'))
     } finally {
       setProjectBusy(false)
     }
@@ -132,7 +133,7 @@ export default function MemorySection({ settings, onSave }: Props) {
       setEditingSummary(false)
       await refreshProfile()
     } catch (error) {
-      setMaintenanceError(error instanceof Error ? error.message : 'Could not save summary.')
+      setMaintenanceError(getUserFacingError(error, 'No se pudo guardar el resumen. Inténtalo de nuevo.'))
     } finally {
       setSavingSummary(false)
     }
@@ -167,7 +168,7 @@ export default function MemorySection({ settings, onSave }: Props) {
       setProfile({ summary: '', user_notes: '', updated_at: '' })
       setUserNotesDraft('')
     } catch (error) {
-      setMaintenanceError(error instanceof Error ? error.message : 'Could not clear memory.')
+      setMaintenanceError(getUserFacingError(error, 'No se pudo limpiar la memoria. Inténtalo de nuevo.'))
     }
   }
 
@@ -178,7 +179,7 @@ export default function MemorySection({ settings, onSave }: Props) {
       setClearedNotice(true)
       setTimeout(() => setClearedNotice(false), 3000)
     } catch (error) {
-      setMaintenanceError(error instanceof Error ? error.message : 'Could not clear conversation memory.')
+      setMaintenanceError(getUserFacingError(error, 'No se pudo limpiar la memoria de conversación. Inténtalo de nuevo.'))
     }
   }
 

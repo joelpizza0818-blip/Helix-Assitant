@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import threading
 from typing import List, Optional, Tuple
 from .capability_registry import CapabilityRegistry
@@ -111,13 +111,23 @@ class ModelRouter:
             return sorted(
                 valid,
                 key=lambda candidate: (
+                    candidate.provider_id != "llama_server",
                     -candidate.key_slot,
                     -candidate.score,
                     candidate.provider_id,
                     candidate.model_id,
                 ),
             )
-        return sorted(valid, key=lambda c: c.score, reverse=True)
+        return sorted(
+            valid,
+            key=lambda candidate: (
+                candidate.provider_id != "llama_server",
+                -candidate.score,
+                candidate.provider_id,
+                candidate.model_id,
+                candidate.key_slot,
+            ),
+        )
 
     def get_separate_vision_candidates(
         self,
@@ -170,7 +180,7 @@ class ModelRouter:
             if getattr(reqs, attr): required_caps[attr] = True
 
         configured_providers = set(self.key_manager.get_configured_providers())
-        for pid in ["free", "ollama"]:
+        for pid in ["free", "ollama", "llama_server"]:
             if self.provider_registry.is_provider_available(pid):
                 configured_providers.add(pid)
         providers_to_check = [
@@ -180,6 +190,34 @@ class ModelRouter:
         ]
         
         models = self.capability_registry.filter_by_capabilities(required_caps, provider_filter=providers_to_check)
+
+        llama_models = [model for model in models if model.provider == "llama_server"]
+        if llama_models:
+            from .llama_server_manager import get_llama_server_manager
+
+            local_ggufs = get_llama_server_manager().list_local_models()
+            if local_ggufs:
+                template = llama_models[0]
+                models.extend(
+                    replace(template, id=gguf.path, display_name=gguf.name)
+                    for gguf in local_ggufs
+                )
+            else:
+                models = [model for model in models if model.provider != "llama_server"]
+
+        if preferred_provider == "ollama" and preferred_model and not any(
+            model.provider == "ollama" and model.id == preferred_model
+            for model in models
+        ):
+            ollama_models = [model for model in models if model.provider == "ollama"]
+            if ollama_models:
+                models.append(
+                    replace(
+                        ollama_models[0],
+                        id=preferred_model,
+                        display_name=preferred_model,
+                    )
+                )
         
         candidates = []
         for model in models:
@@ -195,6 +233,11 @@ class ModelRouter:
                 score += 500
             if preferred_provider == model.provider:
                 score += 100
+            elif model.provider == "llama_server":
+                # Local GGUF is a fallback route unless the user chose it as
+                # the primary model. Fallback candidate ordering promotes it
+                # after the primary route fails.
+                score -= 1000
             if cost_preference == model.capabilities.cost_tier:
                 score += 50
             if speed_preference == "low":
