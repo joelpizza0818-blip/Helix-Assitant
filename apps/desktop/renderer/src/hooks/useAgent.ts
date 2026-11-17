@@ -16,9 +16,13 @@ import { getUserFacingError } from '../lib/userError'
 
 // D-03: durante el streaming cada fragmento reemplaza el último mensaje y antes se reescribía
 // todo el histórico (JSON.parse + JSON.stringify + localStorage.setItem) por token, O(histórico)
-// por chunk. Se agrupa la escritura; el volcado inmediato al cambiar de conversación o al
-// desmontar garantiza que no se pierda el último mensaje. 500 ms es imperceptible para el usuario
-// y suficiente para agrupar una ráfaga de chunks.
+// por chunk. Se agrupa la escritura en 500 ms, imperceptible para el usuario y suficiente para
+// agrupar una ráfaga de chunks. Ese debounce abre una ventana en la que puede haber datos sin
+// persistir; se cubre en tres puntos, y ninguno más: (1) el volcado al cambiar de conversación,
+// (2) el volcado al desmontar un componente que sí se desmonte, y (3) el flush de
+// `pagehide`/`visibilitychange` del efecto de cierre. El caso (2) NO cubre el cierre de la
+// aplicación: en producción FloatingUI es la raíz y nunca se desmonta, y al cerrar la ventana el
+// renderer termina sin ejecutar los cleanups de React.
 const CONVERSATION_PERSIST_DEBOUNCE_MS = 500
 
 interface UseAgentReturn {
@@ -89,8 +93,11 @@ export function useAgent(options: UseAgentOptions = {}): UseAgentReturn {
   const pendingConversationRef = useRef<{ id: string; messages: AgentMessage[] } | null>(null)
 
   // Vuelca de inmediato lo que el debounce tenga pendiente. Es síncrono a propósito: se invoca en
-  // el cleanup de los efectos (cambio de conversación y desmontaje), donde ya no habrá otra
-  // oportunidad de escribir.
+  // el cleanup de los efectos (cambio de conversación y desmontaje de un componente que sí se
+  // desmonte) y en el cierre de la ventana, donde ya no habrá otra oportunidad de escribir.
+  // Es idempotente: la ref se vacía antes de escribir y el temporizador se cancela, así que dos
+  // llamadas seguidas no duplican ni corrompen nada (la segunda sale por el `if (!pending)`).
+  // Debe seguir siendo estable (deps []): la identidad del callback es la que depende el debounce.
   const flushPendingConversation = useCallback(() => {
     const pending = pendingConversationRef.current
     if (!pending) return
@@ -139,6 +146,24 @@ export function useAgent(options: UseAgentOptions = {}): UseAgentReturn {
   // Volcado inmediato al cambiar de conversación y al desmontar. Vive en un efecto aparte porque
   // el cleanup del efecto anterior también corre en cada chunk de streaming y escribiría siempre.
   useEffect(() => flushPendingConversation, [conversationId, flushPendingConversation])
+
+  // Cierre de ventana: React no ejecuta cleanups cuando el renderer termina, así que el debounce
+  // podría dejar sin guardar el último tramo (o una conversación nueva entera). `pagehide` es el
+  // que dispara Chromium al cerrar/navegar; `visibilitychange` a `hidden` se añade porque en
+  // Electron la ventana puede pasar a oculta antes del desmontaje. Ambos son seguros de repetir:
+  // `flushPendingConversation` vacía la ref y cancela el temporizador antes de escribir.
+  useEffect(() => {
+    if (!persistConversation) return
+    const flushOnHide = () => {
+      if (document.visibilityState === 'hidden') flushPendingConversation()
+    }
+    window.addEventListener('pagehide', flushPendingConversation)
+    document.addEventListener('visibilitychange', flushOnHide)
+    return () => {
+      window.removeEventListener('pagehide', flushPendingConversation)
+      document.removeEventListener('visibilitychange', flushOnHide)
+    }
+  }, [persistConversation, flushPendingConversation])
 
   const selectConversation = useCallback((id: string) => {
     try {
@@ -204,6 +229,10 @@ export function useAgent(options: UseAgentOptions = {}): UseAgentReturn {
 
     cleanups.push(
       window.helix.onAgentMessage((msg) => {
+        // TODO(jornada): el evento no se filtra por `conversation_id`, así que un chunk tardío de
+        // la conversación anterior puede acabar en la nueva (y persistirse en ella). No se corrige
+        // aquí porque exige cambiar el contrato del evento en el preload/agente y no en este hook;
+        // se documenta para no dejarlo como deuda invisible.
         setMessages((prev) => {
           // Avoid duplicates for streaming
           const last = prev[prev.length - 1]
