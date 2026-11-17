@@ -259,6 +259,16 @@ export default function FloatingUI() {
     })),
   ]
   const filteredMentionOptions = filterMentionOptions(mentionOptions, activeMention)
+
+  // La recarga asíncrona de workflows/MCP puede encoger la lista filtrada y dejar el índice
+  // guardado fuera de rango: se acota para que la opción resaltada y el teclado sigan
+  // coherentes (el guardado de la selección ya está protegido en handleKeyDown).
+  useEffect(() => {
+    setSelectedMentionIndex((current) => (
+      current < filteredMentionOptions.length ? current : 0
+    ))
+  }, [filteredMentionOptions.length])
+
   const inputSegments = splitSkillMentions(
     inputText,
     skills.map((skill) => skill.name),
@@ -391,7 +401,19 @@ export default function FloatingUI() {
     }
     if (action === 'select-mention') {
       e.preventDefault()
-      selectMention(filteredMentionOptions[selectedMentionIndex])
+      // Caso borde: los workflows y los servidores MCP se recargan de forma asíncrona mientras se
+      // teclea, así que la lista filtrada puede encogerse y dejar el índice seleccionado fuera de
+      // rango. Sin esta comprobación, replaceActiveMention recibiría undefined y leería
+      // option.trigger sobre undefined (TypeError) al pulsar Tab/Enter.
+      const mentionOption = filteredMentionOptions[selectedMentionIndex]
+      if (mentionOption) {
+        selectMention(mentionOption)
+      } else {
+        // No hay nada que insertar: se cierra el menú y se reinicia el índice para que el
+        // siguiente Enter envíe el mensaje en lugar de quedar bloqueado.
+        setActiveMention(null)
+        setSelectedMentionIndex(0)
+      }
       return
     }
     if (action === 'dismiss-mentions') {
