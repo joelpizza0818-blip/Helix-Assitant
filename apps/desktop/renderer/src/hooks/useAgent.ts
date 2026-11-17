@@ -14,6 +14,13 @@ import {
 } from './conversationHistory'
 import { getUserFacingError } from '../lib/userError'
 
+// D-03: durante el streaming cada fragmento reemplaza el último mensaje y antes se reescribía
+// todo el histórico (JSON.parse + JSON.stringify + localStorage.setItem) por token, O(histórico)
+// por chunk. Se agrupa la escritura; el volcado inmediato al cambiar de conversación o al
+// desmontar garantiza que no se pierda el último mensaje. 500 ms es imperceptible para el usuario
+// y suficiente para agrupar una ráfaga de chunks.
+const CONVERSATION_PERSIST_DEBOUNCE_MS = 500
+
 interface UseAgentReturn {
   messages: AgentMessage[]
   conversationHistory: StoredConversation[]
@@ -78,6 +85,27 @@ export function useAgent(options: UseAgentOptions = {}): UseAgentReturn {
   const [models, setModels] = useState<ModelDefinition[]>([])
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const modelRequestsByTaskRef = useRef<Record<string, ModelRequestEvent[]>>({})
+  const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingConversationRef = useRef<{ id: string; messages: AgentMessage[] } | null>(null)
+
+  // Vuelca de inmediato lo que el debounce tenga pendiente. Es síncrono a propósito: se invoca en
+  // el cleanup de los efectos (cambio de conversación y desmontaje), donde ya no habrá otra
+  // oportunidad de escribir.
+  const flushPendingConversation = useCallback(() => {
+    const pending = pendingConversationRef.current
+    if (!pending) return
+    pendingConversationRef.current = null
+    if (persistTimerRef.current) {
+      clearTimeout(persistTimerRef.current)
+      persistTimerRef.current = null
+    }
+    try {
+      const current = readConversationHistory()
+      setConversationHistory(saveConversation(current, pending.id, pending.messages))
+    } catch (error) {
+      console.error('Failed to save conversation history:', error)
+    }
+  }, [])
 
   useEffect(() => {
     if (!persistConversation) return
@@ -90,13 +118,27 @@ export function useAgent(options: UseAgentOptions = {}): UseAgentReturn {
 
   useEffect(() => {
     if (!persistConversation || messages.length === 0) return
-    try {
-      const current = readConversationHistory()
-      setConversationHistory(saveConversation(current, conversationId, messages))
-    } catch (error) {
-      console.error('Failed to save conversation history:', error)
+    // Se guarda el último estado en la ref en lugar de escribir: el temporizador se reinicia con
+    // cada chunk y solo persiste cuando el streaming se queda quieto.
+    pendingConversationRef.current = { id: conversationId, messages }
+    if (persistTimerRef.current) clearTimeout(persistTimerRef.current)
+    persistTimerRef.current = setTimeout(() => {
+      persistTimerRef.current = null
+      flushPendingConversation()
+    }, CONVERSATION_PERSIST_DEBOUNCE_MS)
+    // El cleanup solo cancela el temporizador: la ref se conserva para que el volcado de los
+    // efectos de abajo no pierda el último estado.
+    return () => {
+      if (persistTimerRef.current) {
+        clearTimeout(persistTimerRef.current)
+        persistTimerRef.current = null
+      }
     }
-  }, [conversationId, messages, persistConversation])
+  }, [conversationId, messages, persistConversation, flushPendingConversation])
+
+  // Volcado inmediato al cambiar de conversación y al desmontar. Vive en un efecto aparte porque
+  // el cleanup del efecto anterior también corre en cada chunk de streaming y escribiría siempre.
+  useEffect(() => flushPendingConversation, [conversationId, flushPendingConversation])
 
   const selectConversation = useCallback((id: string) => {
     try {
@@ -130,6 +172,15 @@ export function useAgent(options: UseAgentOptions = {}): UseAgentReturn {
   }, [])
 
   const deleteConversation = useCallback((id: string): boolean => {
+    // Si el debounce aún tenía mensajes de esta conversación, se descartan antes de borrarla: el
+    // volcado del cambio de conversación la resucitaría en localStorage.
+    if (pendingConversationRef.current?.id === id) {
+      pendingConversationRef.current = null
+      if (persistTimerRef.current) {
+        clearTimeout(persistTimerRef.current)
+        persistTimerRef.current = null
+      }
+    }
     try {
       const persistedHistory = readConversationHistory()
       const nextHistory = deleteStoredConversation(persistedHistory, id)
