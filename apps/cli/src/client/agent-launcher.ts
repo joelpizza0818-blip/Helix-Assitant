@@ -12,6 +12,7 @@ let startupPromise: Promise<boolean> | null = null;
 // Motivo ya saneado del último fallo de lanzamiento. Se guarda para que la
 // espera de arranque pueda abortar en lugar de quedarse el tiempo máximo
 // esperando un proceso que nunca llegó a existir.
+// TODO(jornada): exponer el motivo en agent_start_failed — requiere aprobación por cambio de texto visible.
 let agentSpawnFailure: string | null = null;
 
 export function getTokenFilePath(): string {
