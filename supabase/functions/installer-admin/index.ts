@@ -326,13 +326,23 @@ function historyRows(releases: GitHubReleaseRecord[], profileId: string): Instal
     if (tagUrl.hostname !== 'github.com') continue
     const releaseDate = release.published_at ?? release.created_at
     const normal = release.tag_name.match(/^v(\d+\.\d+\.\d+)$/)
+    const linux = release.tag_name.match(/^desktop-linux-v(\d+\.\d+\.\d+)$/)
+    const macos = release.tag_name.match(/^desktop-macos-v(\d+\.\d+\.\d+)$/)
     const mobile = release.tag_name.match(/^mobile-v(\d+\.\d+\.\d+)$/)
-    const assetsFor = (platform: 'windows' | 'android' | 'ios', edition: 'normal' | 'mobile', version: string) => {
+    const assetsFor = (
+      platform: 'windows' | 'linux' | 'macos' | 'android' | 'ios',
+      edition: 'normal' | 'mobile',
+      version: string,
+    ) => {
       let installerNames: string[]
-      if (edition === 'normal') installerNames = ['HELIX-Setup.exe', `HELIX-Setup-${version}.exe`]
-      else installerNames = platform === 'android'
-        ? ['HELIX-Mobile-arm64-v8a.apk', 'HELIX-Mobile.apk']
-        : ['HELIX-Mobile.ipa']
+      if (platform === 'windows') installerNames = ['HELIX-Setup.exe', `HELIX-Setup-${version}.exe`]
+      else if (platform === 'linux') installerNames = [
+        `HELIX-${version}-x86_64.AppImage`,
+        `HELIX-${version}-amd64.AppImage`,
+      ]
+      else if (platform === 'macos') installerNames = [`HELIX-${version}-arm64.dmg`]
+      else if (platform === 'android') installerNames = ['HELIX-Mobile-arm64-v8a.apk', 'HELIX-Mobile.apk']
+      else installerNames = ['HELIX-Mobile.ipa']
       const installerName = installerNames.find((name) => (
         findReleaseAsset(release, [name]) !== null
         && findReleaseAsset(release, [`${name}.sha256`]) !== null
@@ -354,7 +364,22 @@ function historyRows(releases: GitHubReleaseRecord[], profileId: string): Instal
     }
 
     if (normal) assetsFor('windows', 'normal', normal[1])
-    else if (mobile) {
+    else if (linux) {
+      // Linux desktop releases live in the private installer repository and
+      // ship an AppImage plus a .deb. The catalog exposes the AppImage as the
+      // primary download; the release notes link carries the rest.
+      const version = linux[1]
+      const installerName = `HELIX-${version}-x86_64.AppImage`
+      const hasAssets = findReleaseAsset(release, [installerName]) !== null
+        && findReleaseAsset(release, [`${installerName}.sha256`]) !== null
+      if (hasAssets) assetsFor('linux', 'normal', version)
+    } else if (macos) {
+      const version = macos[1]
+      const installerName = `HELIX-${version}-arm64.dmg`
+      const hasAssets = findReleaseAsset(release, [installerName]) !== null
+        && findReleaseAsset(release, [`${installerName}.sha256`]) !== null
+      if (hasAssets) assetsFor('macos', 'normal', version)
+    } else if (mobile) {
       const hasAndroid = findReleaseAsset(release, ['HELIX-Mobile-arm64-v8a.apk', 'HELIX-Mobile.apk']) !== null
       const hasIos = findReleaseAsset(release, ['HELIX-Mobile.ipa']) !== null
       if (hasAndroid || !hasIos) assetsFor('android', 'mobile', mobile[1])
@@ -507,6 +532,84 @@ async function verifyRelease(
   }
   if (requiredAssets.size) {
     return { ok: false, error: `Installer release ${tag} is missing required update assets.` }
+  }
+  return { ok: true }
+}
+
+async function verifyDesktopRelease(
+  version: string,
+  platform: 'linux' | 'macos',
+  installerUrl: string,
+  checksumUrl: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const token = Deno.env.get('GITHUB_INSTALLER_TOKEN')
+  if (!token) {
+    return { ok: false, error: 'Private installer release access is not configured.' }
+  }
+  const tag = platform === 'linux' ? `desktop-linux-v${version}` : `desktop-macos-v${version}`
+  let response: Response
+  try {
+    response = await fetch(
+      `${GITHUB_API}/repos/${INSTALLER_RELEASE_OWNER}/${INSTALLER_RELEASE_REPOSITORY}/releases/tags/${encodeURIComponent(tag)}`,
+      {
+        headers: {
+          Accept: 'application/vnd.github+json',
+          Authorization: `Bearer ${token}`,
+          'X-GitHub-Api-Version': '2022-11-28',
+          'User-Agent': 'HELIX-installer-admin',
+        },
+        signal: AbortSignal.timeout(8000),
+      },
+    )
+  } catch (error) {
+    console.error('Could not verify the desktop installer release:', error)
+    return { ok: false, error: 'Could not verify the desktop installer release right now.' }
+  }
+  if (response.status === 404) return { ok: false, error: `Installer release ${tag} does not exist.` }
+  if (!response.ok) return { ok: false, error: `Installer release verification failed (HTTP ${response.status}).` }
+
+  const release: unknown = await response.json().catch(() => null)
+  if (
+    !isRecord(release)
+    || release.tag_name !== tag
+    || release.draft !== false
+    || release.prerelease !== false
+    || !Array.isArray(release.assets)
+  ) {
+    return { ok: false, error: `Installer release ${tag} is not a stable, published release.` }
+  }
+
+  const assetBase = `https://github.com/${INSTALLER_RELEASE_OWNER}/${INSTALLER_RELEASE_REPOSITORY}/releases/download/${tag}/`
+  if (!installerUrl.startsWith(assetBase) || !checksumUrl.startsWith(assetBase)) {
+    return { ok: false, error: `Installer assets must come from release ${tag}.` }
+  }
+
+  const requiredAssets = platform === 'linux'
+    ? [
+      `HELIX-${version}-x86_64.AppImage`,
+      `HELIX-${version}-x86_64.AppImage.sha256`,
+      `HELIX-${version}-amd64.deb`,
+      `HELIX-${version}-amd64.deb.sha256`,
+    ]
+    : [
+      `HELIX-${version}-arm64.dmg`,
+      `HELIX-${version}-arm64.dmg.sha256`,
+      `HELIX-${version}-arm64.zip`,
+      `HELIX-${version}-arm64.zip.sha256`,
+    ]
+  const publishedAssets = new Set(
+    release.assets
+      .filter((asset): asset is { name: string } => (
+        isRecord(asset) && typeof asset.name === 'string'
+      ))
+      .map((asset) => asset.name),
+  )
+  const missing = requiredAssets.filter((name) => !publishedAssets.has(name))
+  if (missing.length) {
+    return {
+      ok: false,
+      error: `Installer release ${tag} is missing required assets: ${missing.join(', ')}.`,
+    }
   }
   return { ok: true }
 }
@@ -1121,9 +1224,13 @@ async function handleRequest(request: Request): Promise<Response> {
           return jsonResponse(422, { error: 'Pre-releases cannot be selected for public distribution.' })
         }
         if (installer.platform === 'linux' || installer.platform === 'macos') {
-          return jsonResponse(422, {
-            error: 'Linux and macOS installers cannot be published until their packaging workflow and artifacts are verified.',
-          })
+          const verified = await verifyDesktopRelease(
+            installer.version,
+            installer.platform,
+            installer.installer_url,
+            installer.checksum_url,
+          )
+          if (!verified.ok) return jsonResponse(422, { error: verified.error })
         }
         if (installer.platform === 'windows' && installer.edition === 'normal') {
           const verified = await verifyRelease(installer.version, 'stable')

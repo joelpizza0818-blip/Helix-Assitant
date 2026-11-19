@@ -417,8 +417,8 @@ export function AdminPage() {
                                 <button
                                   className="admin-button"
                                   type="button"
-                                  disabled={saving || !installer.installerUrl || !installer.checksumUrl || installer.isPrerelease || (!installer.isPublished && (platform === 'linux' || platform === 'macos')) || (installer.isPublished && platform === 'windows' && edition !== 'mobile')}
-                                  title={!installer.isPublished && (platform === 'linux' || platform === 'macos') ? 'Requiere un workflow de empaquetado y activos oficiales verificados.' : !installer.installerUrl || !installer.checksumUrl ? 'El instalador y checksum deben existir antes de publicar.' : installer.isPrerelease ? 'Las versiones prerelease no se pueden publicar.' : installer.isPublished && platform === 'windows' && edition !== 'mobile' ? 'Publica un reemplazo para cambiar la versión pública.' : undefined}
+                                  disabled={saving || !installer.installerUrl || !installer.checksumUrl || installer.isPrerelease || (installer.isPublished && platform === 'windows' && edition !== 'mobile')}
+                                  title={!installer.installerUrl || !installer.checksumUrl ? 'El instalador y checksum deben existir antes de publicar.' : installer.isPrerelease ? 'Las versiones prerelease no se pueden publicar.' : installer.isPublished && platform === 'windows' && edition !== 'mobile' ? 'Publica un reemplazo para cambiar la versión pública.' : undefined}
                                   onClick={() => { void changeInstallerPublication(installer) }}
                                 >
                                   {installer.isPublished ? 'Versión pública' : 'Publicar esta versión'}
