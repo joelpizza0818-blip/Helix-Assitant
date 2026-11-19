@@ -375,7 +375,9 @@ class TestBridgeIpcHandlers:
         from services.agent.ai.ollama_manager import OllamaManager
         DesktopBridge = _get_bridge_class()
         stub = MagicMock()
-        with patch.object(OllamaManager, "is_pulling", return_value=True):
+        with patch.object(OllamaManager, "is_pulling", return_value=True), \
+             patch.object(OllamaManager, "is_running", new=AsyncMock(return_value=True)), \
+             patch.object(OllamaManager, "is_model_installed", new=AsyncMock(return_value=False)):
             result = await DesktopBridge._pull_ollama_model(stub, {"model": "llama3.2:3b"})
             assert result["status"] == "INSTALLING"
 
