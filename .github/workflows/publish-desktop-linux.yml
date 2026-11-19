@@ -107,7 +107,9 @@ jobs:
       - name: Install smoke-test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb libfuse2
+          sudo apt-get install -y xvfb libnss3 libgbm1 libxss1
+          sudo apt-get install -y libgtk-3-0t64 || sudo apt-get install -y libgtk-3-0
+          sudo apt-get install -y libasound2t64 || sudo apt-get install -y libasound2
 
       - name: Smoke-test the packaged AppImage
         env:

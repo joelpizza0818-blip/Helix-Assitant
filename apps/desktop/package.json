@@ -3,6 +3,8 @@
   "version": "0.9.0",
   "description": "HELIX - Persistent AI desktop agent",
   "author": "HELIX Team",
+  "homepage": "https://helix-assistant.vercel.app",
+  "desktopName": "helix.desktop",
   "private": true,
   "main": "dist-electron/main.js",
   "scripts": {
@@ -100,6 +102,7 @@
       ],
       "category": "Utility",
       "executableName": "helix",
+      "syncDesktopName": true,
       "artifactName": "HELIX-${version}-${arch}.${ext}",
       "icon": "assets/icon.png",
       "maintainer": "HELIX Team",
