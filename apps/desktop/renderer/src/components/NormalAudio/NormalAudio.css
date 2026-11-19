@@ -1,0 +1,43 @@
+/* ── Normal Audio Button (Integrated into Helix Input Bar) ───────── */
+
+.normal-audio-btn {
+  position: relative;
+  overflow: visible;
+  transition: all var(--duration-fast, 0.15s) var(--ease, ease);
+}
+
+.normal-audio-btn--recording {
+  border-color: var(--color-accent, #ee6018) !important;
+  background: rgba(238, 96, 24, 0.12) !important;
+  color: var(--color-accent, #ee6018) !important;
+  box-shadow: 0 0 8px rgba(238, 96, 24, 0.3);
+}
+
+.normal-audio-btn--processing {
+  border-color: var(--color-signal-teal, #02b8cc) !important;
+  background: rgba(2, 184, 204, 0.1) !important;
+  color: var(--color-signal-teal, #02b8cc) !important;
+  animation: normalAudioPulse 1.2s infinite ease-in-out;
+}
+
+@keyframes normalAudioPulse {
+  0%, 100% {
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 10px rgba(2, 184, 204, 0.35);
+  }
+}
+
+.normal-audio-recording-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-accent, #ee6018);
+  box-shadow: 0 0 6px var(--color-accent, #ee6018);
+  pointer-events: none;
+}

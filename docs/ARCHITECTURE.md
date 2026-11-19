@@ -67,7 +67,7 @@ Voice responses have Markdown presentation syntax removed before text-to-speech 
 ## Security invariants
 
 - The renderer does not receive unrestricted Node.js access.
-- System and critical actions require human confirmation, including automatic modes.
+- System and critical actions require human confirmation in Always Ask, Smart Approval, and Auto Approve. Only the explicit Allow All mode bypasses confirmation prompts; shell validation still rejects encoded, elevated, and dynamic-execution command forms.
 - Tool subprocesses receive a sanitized environment and reject disallowed command forms.
 - External MCP URLs are not an implicit capability; local stdio servers are the supported boundary.
 - Credentials are never written to logs, prompts, documentation, or release notes.

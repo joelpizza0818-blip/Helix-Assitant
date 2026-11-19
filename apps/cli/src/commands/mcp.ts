@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import type { AgentClient } from '../client/agent-client';
 import type { McpServerConfig } from '../client/types';
 import { formatMcp, CYAN_BOLD, GREEN, RED, YELLOW, GRAY, BOLD, DIM } from '../ui/colors';
+import { getUserFacingError } from '../ui/userError';
 import { MCP_DEFAULTS } from '../config/mcp-defaults';
 
 export function handleMcpDefaults(): void {
@@ -38,7 +39,7 @@ export async function handleListMcp(client: AgentClient): Promise<void> {
       console.log(`  ${CYAN_BOLD('◈')} ${formatMcp(server.name)}  [${statusBadge}]`);
       console.log(`    ${GRAY('Comando:')} ${chalk.white(server.command)}`);
       if (server.error) {
-        console.log(`    ${RED('Error:')} ${server.error}`);
+        console.log(`    ${RED('Error:')} ${getUserFacingError(server.error, 'No se pudo iniciar este servidor. Revisa su configuración y vuelve a intentarlo.')}`);
       }
       if (server.tools && server.tools.length > 0) {
         console.log(`    ${DIM('Herramientas provistas:')}`);
@@ -49,7 +50,7 @@ export async function handleListMcp(client: AgentClient): Promise<void> {
       console.log('');
     }
   } catch (err) {
-    console.log(RED(`  Error al obtener servidores MCP: ${(err as Error).message}\n`));
+    console.log(RED(`  ${getUserFacingError(err, 'No se pudieron cargar los servidores MCP. Comprueba que HELIX esté conectado e inténtalo de nuevo.')}\n`));
   }
 }
 
@@ -110,6 +111,6 @@ export async function handleCreateMcp(client: AgentClient): Promise<void> {
     console.log(GREEN(`✔ ¡Servidor MCP ${formatMcp(answers.name)} registrado con éxito!`));
     console.log(DIM(`  HELIX sincronizará las herramientas automáticamente.\n`));
   } catch (err) {
-    console.log(RED(`✖ Error al registrar servidor MCP: ${(err as Error).message}\n`));
+    console.log(RED(`✖ ${getUserFacingError(err, 'No se pudo registrar el servidor MCP. Revisa los datos e inténtalo de nuevo.')}\n`));
   }
 }

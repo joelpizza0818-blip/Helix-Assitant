@@ -10,8 +10,11 @@ from typing import Optional
 
 _PROFILE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{1,39}$")
 _COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
+_TOOL_NAME = re.compile(r"^[A-Za-z0-9_.-]{1,80}$")
 _ROUTES = {"planning", "coding", "automation", "research", "analysis", "general"}
 _MAX_PROFILES = 100
+_MAX_ALLOWED_TOOLS = 30
+_MAX_EXECUTION_BUDGET = 50
 _DEFAULT_PROFILES = (
     {
         "profile_id": "harvey",
@@ -58,6 +61,9 @@ class AgentProfile:
     color: str
     instructions: str = ""
     model_route: Optional[dict] = None
+    allowed_tools: list[str] = field(default_factory=list)
+    max_iterations: int = 10
+    memory_enabled: bool = True
     promotion_history: list[str] = field(default_factory=list)
     created_by: str = "default"
     created_at: str = field(
@@ -138,6 +144,28 @@ class AgentProfileStore:
             raise ValueError("Subagent profile color must be a six-digit hex color.")
         if not isinstance(instructions, str) or len(instructions) > 6000:
             raise ValueError("Subagent profile instructions must contain at most 6000 characters.")
+        allowed_tools = value.get("allowed_tools", [])
+        if (
+            not isinstance(allowed_tools, list)
+            or len(allowed_tools) > _MAX_ALLOWED_TOOLS
+            or any(
+                not isinstance(item, str) or not _TOOL_NAME.fullmatch(item)
+                for item in allowed_tools
+            )
+        ):
+            raise ValueError("Subagent allowed tools are invalid.")
+        max_iterations = value.get("max_iterations", 10)
+        if (
+            isinstance(max_iterations, bool)
+            or not isinstance(max_iterations, int)
+            or not 1 <= max_iterations <= _MAX_EXECUTION_BUDGET
+        ):
+            raise ValueError(
+                f"Subagent execution budget must be between 1 and {_MAX_EXECUTION_BUDGET}."
+            )
+        memory_enabled = value.get("memory_enabled", True)
+        if not isinstance(memory_enabled, bool):
+            raise ValueError("Subagent memory flag must be a boolean.")
         model_route = value.get("model_route")
         if model_route is not None:
             if not isinstance(model_route, dict):
@@ -185,6 +213,9 @@ class AgentProfileStore:
             color=color.lower(),
             instructions=instructions.strip(),
             model_route=model_route,
+            allowed_tools=list(dict.fromkeys(allowed_tools)),
+            max_iterations=max_iterations,
+            memory_enabled=memory_enabled,
             promotion_history=list(promotion_history),
             created_by=created_by,
             created_at=value.get("created_at") or datetime.now(timezone.utc).isoformat(),
@@ -205,6 +236,9 @@ class AgentProfileStore:
         capabilities: list[str],
         color: str,
         instructions: str = "",
+        allowed_tools: Optional[list[str]] = None,
+        max_iterations: int = 10,
+        memory_enabled: bool = True,
         created_by: str = "model",
     ) -> AgentProfile:
         if not isinstance(name, str):
@@ -226,6 +260,9 @@ class AgentProfileStore:
             "capabilities": capabilities,
             "color": color,
             "instructions": instructions,
+            "allowed_tools": list(allowed_tools or []),
+            "max_iterations": max_iterations,
+            "memory_enabled": memory_enabled,
             "created_by": created_by,
         })
         self._profiles[profile_id] = profile
@@ -242,6 +279,9 @@ class AgentProfileStore:
         capabilities: list[str],
         color: str,
         instructions: str,
+        allowed_tools: Optional[list[str]] = None,
+        max_iterations: Optional[int] = None,
+        memory_enabled: Optional[bool] = None,
     ) -> AgentProfile:
         profile = self._profiles.get(profile_id)
         if profile is None:
@@ -254,6 +294,15 @@ class AgentProfileStore:
             "capabilities": capabilities,
             "color": color,
             "instructions": instructions,
+            "allowed_tools": (
+                profile.allowed_tools if allowed_tools is None else allowed_tools
+            ),
+            "max_iterations": (
+                profile.max_iterations if max_iterations is None else max_iterations
+            ),
+            "memory_enabled": (
+                profile.memory_enabled if memory_enabled is None else memory_enabled
+            ),
         })
         if any(
             item.profile_id != profile_id and item.name.casefold() == updated.name.casefold()
@@ -266,6 +315,9 @@ class AgentProfileStore:
         profile.capabilities = updated.capabilities
         profile.color = updated.color
         profile.instructions = updated.instructions
+        profile.allowed_tools = updated.allowed_tools
+        profile.max_iterations = updated.max_iterations
+        profile.memory_enabled = updated.memory_enabled
         self._persist()
         return profile
 

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { useAuth } from '../hooks/useAuth';
+import { getAuthErrorMessage, useAuth } from '../hooks/useAuth';
 import { HelixLogo } from '../components/HelixLogo/HelixLogo';
 import { getPostAuthRedirect } from '../lib/authRedirect';
 import './AuthPage.css';
@@ -20,8 +20,8 @@ export const RegisterPage: React.FC = () => {
     setAuthError(null);
     try {
       await signInWithGitHub(redirectTo);
-    } catch (err: any) {
-      setAuthError(err.message || 'Failed to register with GitHub');
+    } catch (err: unknown) {
+      setAuthError(getAuthErrorMessage(err, 'No se pudo crear la cuenta con GitHub. Inténtalo de nuevo.'));
     }
   };
 

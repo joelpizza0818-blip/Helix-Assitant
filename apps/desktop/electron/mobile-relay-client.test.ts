@@ -70,6 +70,11 @@ test('registers the Desktop, approves pairing, and routes messages to one device
     profileId?: string
     message?: string
   } | null = null
+  let receivedMobileVoice: {
+    deviceId: string
+    voiceType: string
+    payload: Record<string, unknown>
+  } | null = null
   const client = new MobileRelayClient(configPath, {
     approvePairing: async (deviceName) => {
       approvedDeviceName = deviceName
@@ -89,6 +94,10 @@ test('registers the Desktop, approves pairing, and routes messages to one device
     queryMobileSubagent: async (action, payload) => {
       receivedMobileSubagentQuery = { action, ...payload }
       return { response: 'Subagent ready' }
+    },
+    receiveMobileVoice: (deviceId, voiceType, payload) => {
+      receivedMobileVoice = { deviceId, voiceType, payload }
+      return true
     },
   }, {
     encrypt: (value) => Buffer.from(value).toString('base64'),
@@ -232,6 +241,71 @@ test('registers the Desktop, approves pairing, and routes messages to one device
       payload: {
         conversation_id: 'mobile_abcdefghijklmnopqrstuvwxyz123456',
         text: 'Approved response',
+      },
+    })
+
+    const mobileVoiceSessionId = 'mobile_voice_session_0001'
+    socket.send(JSON.stringify({
+      type: 'VOICE_MESSAGE',
+      source_device_id: 'abcdefghijklmnopqrstuvwxyz123456',
+      source_device_name: 'Test phone',
+      payload: {
+        voice_type: 'VOICE_SESSION_START',
+        voice_payload: {
+          session_id: mobileVoiceSessionId,
+          mode: 'live',
+          server_audio: true,
+          language: 'es',
+          silence_ms: 600,
+        },
+      },
+    }))
+    for (let attempt = 0; attempt < 20 && !receivedMobileVoice; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    const voiceStart = receivedMobileVoice as {
+      deviceId: string
+      voiceType: string
+      payload: Record<string, unknown>
+    } | null
+    assert.ok(voiceStart)
+    assert.equal(voiceStart.deviceId, 'abcdefghijklmnopqrstuvwxyz123456')
+    assert.equal(voiceStart.voiceType, 'VOICE_SESSION_START')
+    assert.equal(voiceStart.payload.server_audio, false)
+    assert.match(String(voiceStart.payload.session_id), /^m_/)
+    const relayVoiceSessionId = String(voiceStart.payload.session_id)
+    assert.notEqual(relayVoiceSessionId, mobileVoiceSessionId)
+
+    let routedVoiceEvent: Record<string, unknown> | null = null
+    const voiceEventListener = (raw: RawData) => {
+      const routed = JSON.parse(raw.toString()) as Record<string, unknown>
+      if (routed.type === 'VOICE_MESSAGE') routedVoiceEvent = routed
+    }
+    socket.on('message', voiceEventListener)
+    client.sendAgentEvent({
+      type: 'VOICE_TRANSCRIPT',
+      payload: {
+        session_id: relayVoiceSessionId,
+        text: 'Hola',
+        final: true,
+        private_context: 'not intended for the phone',
+      },
+    })
+    for (let attempt = 0; attempt < 20 && !routedVoiceEvent; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    socket.off('message', voiceEventListener)
+    assert.deepEqual(routedVoiceEvent, {
+      type: 'VOICE_MESSAGE',
+      target_device_id: 'abcdefghijklmnopqrstuvwxyz123456',
+      payload: {
+        voice_type: 'VOICE_TRANSCRIPT',
+        voice_payload: {
+          session_id: mobileVoiceSessionId,
+          text: 'Hola',
+          final: true,
+          private_context: 'not intended for the phone',
+        },
       },
     })
 

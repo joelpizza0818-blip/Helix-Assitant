@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import re
 import uuid
 from copy import deepcopy
@@ -6,6 +7,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Dict, Iterable, List, Optional, Set
 from enum import Enum
+
+
+logger = logging.getLogger(__name__)
 
 
 def _utcnow() -> datetime:
@@ -133,14 +137,305 @@ class Task:
     progress: int = 0
     execution_summary: TaskExecutionSummary = field(default_factory=TaskExecutionSummary)
 
+_STORED_METADATA_KEYS = {
+    "task_type",
+    "profile_id",
+    "workflow_id",
+    "resume_mode",
+    "interrupted",
+    "agent_id",
+    "source",
+    "is_subagent",
+}
+_STORED_CONTEXT_KEYS = {
+    "input_source",
+    "conversation_id",
+    "project_id",
+    "active_project_id",
+    "workflow_id",
+    "requested_skills",
+}
+_INTERRUPTED_STATUSES = {
+    TaskStatus.QUEUED,
+    TaskStatus.RUNNING,
+    TaskStatus.RETRYING,
+    TaskStatus.WAITING_CONFIRMATION,
+}
+
+
+def _parse_datetime(value: object) -> Optional[datetime]:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+
+
 class TaskManager:
-    def __init__(self, event_bus):
+    def __init__(self, event_bus, store=None):
         self.tasks: Dict[str, Task] = {}
         self._task_contexts: Dict[str, dict] = {}
         self._task_handles: Dict[str, asyncio.Task] = {}
         self._cancel_callbacks: Set[Callable[[str], Awaitable[None]]] = set()
+        self._resume_events: Dict[str, asyncio.Event] = {}
+        self._store = store
+        self._persist_handle: Optional[asyncio.Task] = None
+        self._persist_debounce_seconds = 0.25
         self.lock = asyncio.Lock()
         self.event_bus = event_bus
+
+    @staticmethod
+    def _snapshot_metadata(metadata: object) -> dict:
+        if not isinstance(metadata, dict):
+            return {}
+        snapshot = {}
+        for key in _STORED_METADATA_KEYS:
+            value = metadata.get(key)
+            if isinstance(value, bool):
+                snapshot[key] = value
+            elif isinstance(value, (int, float)):
+                snapshot[key] = value
+            elif isinstance(value, str):
+                snapshot[key] = _safe_text(value, 160)
+        return snapshot
+
+    @staticmethod
+    def _snapshot_context(context: object) -> dict:
+        if not isinstance(context, dict):
+            return {}
+        snapshot = {}
+        for key in _STORED_CONTEXT_KEYS:
+            value = context.get(key)
+            if isinstance(value, str):
+                snapshot[key] = _safe_text(value, 200)
+            elif isinstance(value, list) and all(
+                isinstance(item, str) for item in value
+            ):
+                snapshot[key] = [_safe_text(item, 120) for item in value[:20]]
+        return snapshot
+
+    @classmethod
+    def _task_snapshot(cls, task: Task, context: object = None) -> dict:
+        summary = task.execution_summary
+        result = summary.result if isinstance(summary.result, dict) else None
+        return {
+            "id": task.id,
+            "description": _safe_text(task.description, 500),
+            "status": task.status.value,
+            "priority": task.priority,
+            "created_at": task.created_at.isoformat(),
+            "started_at": task.started_at.isoformat() if task.started_at else None,
+            "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+            "current_action": _safe_text(task.current_action, 200) if task.current_action else None,
+            "logs": [_safe_text(item, 300) for item in task.logs[-50:]],
+            "cancelled": task.cancelled,
+            "model": task.model,
+            "provider": task.provider,
+            "required_permissions": list(task.required_permissions),
+            "parent_id": task.parent_id,
+            "role": task.role,
+            "error": _safe_text(task.error, 500) if task.error else None,
+            "progress": task.progress,
+            "metadata": cls._snapshot_metadata(task.metadata),
+            "context": cls._snapshot_context(context),
+            "execution_summary": {
+                "model_input": deepcopy(summary.model_input),
+                "context": deepcopy(summary.context),
+                "steps": deepcopy(summary.steps[-50:]),
+                "tool_calls": deepcopy(summary.tool_calls[-50:]),
+                "progress_label": _safe_text(summary.progress_label, 200),
+                "result": deepcopy(result),
+            },
+        }
+
+    @classmethod
+    def _task_from_snapshot(cls, record: dict) -> Optional[Task]:
+        task_id = record.get("id")
+        description = record.get("description")
+        if (
+            not isinstance(task_id, str)
+            or not task_id
+            or len(task_id) > 100
+            or not isinstance(description, str)
+        ):
+            return None
+        try:
+            status = TaskStatus(record.get("status", "paused"))
+        except (TypeError, ValueError):
+            status = TaskStatus.PAUSED
+        metadata = cls._snapshot_metadata(record.get("metadata"))
+        if status in _INTERRUPTED_STATUSES:
+            status = TaskStatus.PAUSED
+            metadata["interrupted"] = True
+        if status == TaskStatus.PAUSED:
+            metadata.setdefault("resume_mode", "checkpoint")
+        created_at = _parse_datetime(record.get("created_at")) or _utcnow()
+        task = Task(
+            id=task_id,
+            description=description,
+            status=status,
+            priority=(
+                record.get("priority")
+                if isinstance(record.get("priority"), int)
+                and not isinstance(record.get("priority"), bool)
+                else 0
+            ),
+            created_at=created_at,
+            started_at=_parse_datetime(record.get("started_at")),
+            completed_at=_parse_datetime(record.get("completed_at")),
+            current_action=(
+                record.get("current_action")
+                if isinstance(record.get("current_action"), str)
+                else None
+            ),
+            logs=list(record.get("logs", []))[:50]
+            if isinstance(record.get("logs"), list)
+            else [],
+            cancelled=bool(record.get("cancelled", False)),
+            model=record.get("model") if isinstance(record.get("model"), str) else None,
+            provider=(
+                record.get("provider")
+                if isinstance(record.get("provider"), str)
+                else None
+            ),
+            required_permissions=list(record.get("required_permissions", []))
+            if isinstance(record.get("required_permissions"), list)
+            else [],
+            parent_id=record.get("parent_id")
+            if isinstance(record.get("parent_id"), str)
+            else None,
+            role=record.get("role") if isinstance(record.get("role"), str) else None,
+            error=record.get("error") if isinstance(record.get("error"), str) else None,
+            metadata=metadata,
+            progress=(
+                record.get("progress")
+                if isinstance(record.get("progress"), int)
+                and not isinstance(record.get("progress"), bool)
+                else 0
+            ),
+        )
+        summary = record.get("execution_summary")
+        if isinstance(summary, dict):
+            stored_summary = TaskExecutionSummary()
+            model_input = summary.get("model_input")
+            if isinstance(model_input, dict):
+                stored_summary.model_input = deepcopy(model_input)
+            context = summary.get("context")
+            if isinstance(context, dict):
+                stored_summary.context = deepcopy(context)
+            steps = summary.get("steps")
+            if isinstance(steps, list):
+                stored_summary.steps = [step for step in steps if isinstance(step, dict)][-50:]
+            tool_calls = summary.get("tool_calls")
+            if isinstance(tool_calls, list):
+                stored_summary.tool_calls = [
+                    call for call in tool_calls if isinstance(call, dict)
+                ][-50:]
+            label = summary.get("progress_label")
+            if isinstance(label, str):
+                stored_summary.progress_label = label
+            result = summary.get("result")
+            if isinstance(result, dict):
+                stored_summary.result = deepcopy(result)
+            task.execution_summary = stored_summary
+        if task.status == TaskStatus.PAUSED:
+            task.execution_summary.progress_label = (
+                "Pausada — reanuda manualmente para continuar…"
+                if metadata.get("interrupted")
+                else "Pausada — esperando reanudación…"
+            )
+        return task
+
+    async def restore(self) -> int:
+        if self._store is None:
+            return 0
+        try:
+            records = await asyncio.to_thread(self._store.load)
+        except Exception:
+            logger.exception("Could not load persisted task history.")
+            return 0
+        restored = 0
+        async with self.lock:
+            for record in records:
+                task = self._task_from_snapshot(record)
+                if task is None or task.id in self.tasks:
+                    continue
+                self.tasks[task.id] = task
+                context = record.get("context")
+                if isinstance(context, dict) and context:
+                    self._task_contexts[task.id] = self._snapshot_context(context)
+                restored += 1
+        return restored
+
+    def _schedule_persist(self) -> None:
+        if self._store is None:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        if self._persist_handle is None or self._persist_handle.done():
+            self._persist_handle = loop.create_task(self._persist_after_delay())
+
+    async def _persist_after_delay(self) -> None:
+        try:
+            await asyncio.sleep(self._persist_debounce_seconds)
+        except asyncio.CancelledError:
+            return
+        await self._persist_now()
+
+    async def _persist_now(self) -> None:
+        if self._store is None:
+            return
+        async with self.lock:
+            snapshots = [
+                self._task_snapshot(
+                    task,
+                    self._task_contexts.get(task.id, {}),
+                )
+                for task in self.tasks.values()
+            ]
+        try:
+            await asyncio.to_thread(self._store.save, snapshots)
+        except Exception:
+            logger.exception("Could not persist task history.")
+
+    async def flush_persist(self) -> None:
+        handle = self._persist_handle
+        self._persist_handle = None
+        if handle is not None and not handle.done():
+            handle.cancel()
+            try:
+                await handle
+            except asyncio.CancelledError:
+                pass
+        await self._persist_now()
+
+    def _wake_task(self, task_id: str) -> None:
+        event = self._resume_events.get(task_id)
+        if event is not None:
+            event.set()
+
+    async def wait_if_paused(self, task_id: str) -> bool:
+        """Block a running task while it is paused; return False if it was cancelled."""
+        while True:
+            async with self.lock:
+                task = self.tasks.get(task_id)
+                if task is None or task.cancelled or task.status == TaskStatus.CANCELLED:
+                    return False
+                if task.status != TaskStatus.PAUSED:
+                    return True
+                event = self._resume_events.get(task_id)
+                if event is None:
+                    event = asyncio.Event()
+                    self._resume_events[task_id] = event
+            await event.wait()
+            # Clear the wake-up so an unexpectedly still-paused task waits
+            # again instead of spinning on an already-set event.
+            event.clear()
+
 
     async def create_task(
         self,
@@ -168,6 +463,7 @@ class TaskManager:
             self.tasks[task_id] = task
             self._task_contexts[task_id] = deepcopy(context or {})
         await self.event_bus.publish("TASK_CREATED", {"task_id": task_id})
+        self._schedule_persist()
         return task
 
     async def get_task_context(self, task_id: str) -> Optional[dict]:
@@ -214,10 +510,23 @@ class TaskManager:
                         if status == TaskStatus.FAILED
                         else "Cancelled"
                     )
+                if status == TaskStatus.PAUSED:
+                    event = self._resume_events.get(task_id)
+                    if event is not None:
+                        event.clear()
+                else:
+                    self._wake_task(task_id)
+                    if status in {
+                        TaskStatus.COMPLETED,
+                        TaskStatus.FAILED,
+                        TaskStatus.CANCELLED,
+                    }:
+                        self._resume_events.pop(task_id, None)
                 changed = True
         if not changed:
             return False
         await self.event_bus.publish("TASK_STATUS_CHANGED", {"task_id": task_id, "status": status.value})
+        self._schedule_persist()
         return True
 
     async def cancel(self, task_id: str, *, notify: bool = True):
@@ -236,6 +545,9 @@ class TaskManager:
                 callbacks = list(self._cancel_callbacks)
         if handle is not None and not handle.done():
             handle.cancel()
+        waiter = self._resume_events.pop(task_id, None)
+        if waiter is not None:
+            waiter.set()
         for callback in callbacks:
             try:
                 await callback(task_id)
@@ -248,6 +560,7 @@ class TaskManager:
             "TASK_STATUS_CHANGED",
             {"task_id": task_id, "status": TaskStatus.CANCELLED.value},
         )
+        self._schedule_persist()
         return True
 
     async def register_task_handle(self, task_id: str, handle: asyncio.Task) -> None:
@@ -304,13 +617,30 @@ class TaskManager:
                 "summary": _safe_text(error or result or "No result summary provided", 240),
             }
         await self.event_bus.publish("TASK_DETAILS_CHANGED", {"task_id": task_id})
+        self._schedule_persist()
         return True
 
-    async def pause(self, task_id: str):
-        await self.update_status(task_id, TaskStatus.PAUSED)
+    async def pause(self, task_id: str) -> bool:
+        async with self.lock:
+            task = self.tasks.get(task_id)
+            if task is None or task.status not in {
+                TaskStatus.QUEUED,
+                TaskStatus.RUNNING,
+                TaskStatus.RETRYING,
+                TaskStatus.WAITING_CONFIRMATION,
+            }:
+                return False
+        return await self.update_status(task_id, TaskStatus.PAUSED)
 
-    async def resume(self, task_id: str):
-        await self.update_status(task_id, TaskStatus.RUNNING)
+    async def resume(self, task_id: str) -> bool:
+        async with self.lock:
+            task = self.tasks.get(task_id)
+            if task is None or task.status != TaskStatus.PAUSED:
+                return False
+            event = self._resume_events.get(task_id)
+            if event is not None:
+                event.set()
+        return await self.update_status(task_id, TaskStatus.RUNNING)
 
     async def get_tasks(self) -> List[Task]:
         async with self.lock:
@@ -384,6 +714,7 @@ class TaskManager:
             "TASK_DETAILS_CHANGED",
             {"task_id": task_id},
         )
+        self._schedule_persist()
 
     async def record_react_step(self, task_id: str, iteration: int, role: str) -> None:
         async with self.lock:
@@ -405,6 +736,7 @@ class TaskManager:
             task.progress = min(90, max(task.progress, 10 + iteration * 5))
             task.execution_summary.progress_label = "Thinking…"
         await self.event_bus.publish("TASK_DETAILS_CHANGED", {"task_id": task_id})
+        self._schedule_persist()
 
     async def set_progress_label(
         self,
@@ -419,6 +751,7 @@ class TaskManager:
             task.execution_summary.progress_label = label
             task.current_action = current_action or label
         await self.event_bus.publish("TASK_DETAILS_CHANGED", {"task_id": task_id})
+        self._schedule_persist()
 
     async def record_tool_call(
         self,
@@ -442,6 +775,7 @@ class TaskManager:
             task.progress = min(95, max(task.progress, 15 + len(task.execution_summary.tool_calls) * 5))
             task.execution_summary.progress_label = "Thinking…"
         await self.event_bus.publish("TASK_DETAILS_CHANGED", {"task_id": task_id})
+        self._schedule_persist()
 
     async def record_result(self, task_id: str, status: str, result: object = None) -> None:
         async with self.lock:
@@ -454,6 +788,7 @@ class TaskManager:
             }
             task.execution_summary.progress_label = status.title()
         await self.event_bus.publish("TASK_DETAILS_CHANGED", {"task_id": task_id})
+        self._schedule_persist()
 
     async def get_running_tasks(self) -> List[Task]:
         async with self.lock:

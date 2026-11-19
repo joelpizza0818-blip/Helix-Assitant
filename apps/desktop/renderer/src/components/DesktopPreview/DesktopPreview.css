@@ -1,0 +1,111 @@
+.desktop-preview {
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+  color: #f5f3f0;
+  background: #111;
+  font: 13px "Segoe UI", sans-serif;
+}
+
+.desktop-preview__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 48px;
+  padding: 0 16px;
+  border-bottom: 1px solid #34312f;
+  background: #1d1a18;
+}
+
+.desktop-preview__state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.desktop-preview__state div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.desktop-preview__state span:last-child {
+  color: #a9a39f;
+  font-size: 11px;
+}
+
+.desktop-preview__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #777;
+}
+
+.desktop-preview__dot--active {
+  background: #ee6018;
+  box-shadow: 0 0 8px #ee6018;
+}
+
+.desktop-preview__stop {
+  border: 1px solid #b53b34;
+  border-radius: 5px;
+  padding: 5px 12px;
+  color: #fff;
+  background: #852d28;
+  cursor: pointer;
+}
+
+.desktop-preview__stop:disabled {
+  opacity: .45;
+  cursor: default;
+}
+
+.desktop-preview__viewport {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: #090909;
+}
+
+.desktop-preview__frame-wrap {
+  position: relative;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.desktop-preview__frame {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100vh - 49px);
+  object-fit: contain;
+}
+
+.desktop-preview__cursor {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: #ee6018;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, .6);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.desktop-preview__empty {
+  display: flex;
+  max-width: 460px;
+  flex-direction: column;
+  gap: 8px;
+  padding: 28px;
+  text-align: center;
+}
+
+.desktop-preview__empty span {
+  color: #a9a39f;
+  line-height: 1.5;
+}

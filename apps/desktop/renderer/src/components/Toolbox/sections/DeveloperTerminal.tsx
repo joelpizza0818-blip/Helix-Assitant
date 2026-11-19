@@ -3,6 +3,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import type { DeveloperTerminalShell } from '../../../types/global'
+import { getUserFacingError } from '../../../lib/userError'
 import {
   createDeveloperTerminalInputHandler,
   prefixDeveloperCommandWithProjectPath,
@@ -83,7 +84,10 @@ export default function DeveloperTerminal({
 
     const reportError = (reason: unknown) => {
       if (!active) return
-      const message = reason instanceof Error ? reason.message : String(reason)
+      const message = getUserFacingError(
+        reason,
+        'No se pudo iniciar o controlar la terminal. Revisa la configuración e inténtalo de nuevo.',
+      )
       setError(message)
       setStatus('Error')
       terminal.writeln(`\r\n\x1b[31m${message}\x1b[0m`)
@@ -187,7 +191,7 @@ export default function DeveloperTerminal({
         terminalRef.current?.writeln('\r\n[Shell stopped. Restart to open a new session.]')
       })
       .catch((reason: unknown) => {
-        const message = reason instanceof Error ? reason.message : String(reason)
+        const message = getUserFacingError(reason, 'No se pudo detener la terminal. Inténtalo de nuevo.')
         setError(message)
         setStatus('Error')
       })

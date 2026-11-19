@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../../core/errors/user_error_message.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -21,6 +22,8 @@ import '../../core/transport/helix_transport.dart';
 import 'mobile_subagents_panel.dart';
 import 'mobile_skill_mentions.dart';
 import 'mobile_model_selector.dart';
+import '../voice/mobile_voice_controller.dart';
+import '../voice/mobile_voice_panel.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key});
@@ -198,7 +201,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     } on Exception catch (error) {
       if (mounted) {
         setState(() {
-          _connectionError = 'No se pudo restaurar la sesión guardada: $error';
+          _connectionError = userFacingErrorMessage(
+            error,
+            fallback:
+                'No se pudo restaurar la sesión guardada. Comprueba la conexión con el Desktop e inténtalo de nuevo.',
+          );
         });
       }
     } finally {
@@ -246,6 +253,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     link.connecting = true;
     link.connectionError = null;
     _links[draft.sessionId] = link;
+    if (_selectedSessionId != draft.sessionId) {
+      unawaited(_activeLink?.voice?.stop() ?? Future<void>.value());
+    }
     _selectedSessionId = draft.sessionId;
     if (mounted) setState(() {});
     final messenger = ScaffoldMessenger.of(context);
@@ -274,6 +284,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         invitationExpiresAt: null,
       );
       link.deviceId = session.sourceDeviceId;
+      link.voice?.dispose();
+      link.voice = MobileVoiceController(
+        session,
+        relayAudio: link.config.mode == MobileTransportMode.relay,
+      );
       final pairing = SavedMobilePairing(
         sessionId: draft.sessionId,
         name: draft.name,
@@ -351,6 +366,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     await link.transportStates?.cancel();
     link.events = null;
     link.transportStates = null;
+    link.voice?.dispose();
+    link.voice = null;
     await link.connection.close();
   }
 
@@ -940,7 +957,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       ));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('No se pudo actualizar la transmisión: $error'),
+          content: Text(userFacingErrorMessage(
+            error,
+            fallback:
+                'No se pudo actualizar la transmisión. Comprueba la conexión con el Desktop e inténtalo de nuevo.',
+          )),
         ));
       }
     }
@@ -1131,6 +1152,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                                           link.sessionId == _selectedSessionId,
                                       onTap: () {
                                         Navigator.pop(context);
+                                        unawaited(_activeLink?.voice?.stop() ??
+                                            Future<void>.value());
                                         setState(() {
                                           _selectedSessionId = link.sessionId;
                                           _tab = 0;
@@ -1224,42 +1247,51 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             : _ProgressLabel(label: _activeProgress!));
   }
 
-  Widget _buildVoicePanel(ThemeData theme) => Center(
-      child: Padding(
+  Widget _buildVoicePanel(ThemeData theme) {
+    final link = _activeLink;
+    final voiceController = link?.voice;
+    if (!_connected || voiceController == null) {
+      return Center(
+        child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 28),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Container(
-                width: 124,
-                height: 124,
+                width: 112,
+                height: 112,
                 decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: const Color(0x1FEE6018),
                     border:
                         Border.all(color: const Color(0x66EE6018), width: 1.5)),
-                child: Icon(
-                    _connected
-                        ? Icons.graphic_eq_rounded
-                        : Icons.mic_none_rounded,
-                    color: const Color(0xFFEE6018),
-                    size: 48)),
-            const SizedBox(height: 22),
-            Text(_connected ? 'Voice listo' : 'Vincula Desktop para usar Voice',
+                child: const Icon(Icons.mic_none_rounded,
+                    color: Color(0xFFEE6018), size: 44)),
+            const SizedBox(height: 20),
+            Text('Vincula Desktop para usar Helix Voice',
                 style: theme.textTheme.titleLarge
                     ?.copyWith(fontWeight: FontWeight.w700),
                 textAlign: TextAlign.center),
             const SizedBox(height: 8),
             const Text(
-                'El audio se procesa en Desktop; el móvil solo controla la sesión.',
+                'La captura de audio ocurre en este dispositivo y la conversación usa el mismo agente de tu Desktop.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Color(0xFF85898E), height: 1.45)),
-            const SizedBox(height: 22),
+            const SizedBox(height: 20),
             FilledButton.icon(
-                onPressed: _connected ? () {} : _toggleConnection,
-                icon: Icon(_connected ? Icons.mic_rounded : Icons.link_rounded),
-                label: Text(_connected
-                    ? 'Mantener pulsado para hablar'
-                    : 'Vincular Desktop')),
-          ])));
+                onPressed: _toggleConnection,
+                icon: const Icon(Icons.link_rounded),
+                label: const Text('Vincular Desktop')),
+          ]),
+        ),
+      );
+    }
+    return MobileVoicePanel(
+      controller: voiceController,
+      onClose: () {
+        unawaited(voiceController.stop());
+        if (mounted) setState(() => _voiceMode = false);
+      },
+    );
+  }
 
   void _sendPreset(String text) {
     _controller.text = text;
@@ -1330,7 +1362,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             label: Text(_connected ? 'Desconectar' : 'Conectar Desktop')),
       ]);
 
-
   Future<void> _toggleDesktopStream(_MobileLink link) async {
     final session = link.connection.session;
     if (session == null) return;
@@ -1346,7 +1377,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error con control remoto: $e')),
+          SnackBar(
+              content: Text(userFacingErrorMessage(
+            e,
+            fallback:
+                'No se pudo enviar el control al Desktop. Comprueba que siga conectado e inténtalo de nuevo.',
+          ))),
         );
       }
     }
@@ -1354,7 +1390,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   void _sendRemoteMouse(String action, Offset localPos, Size renderSize) {
     final session = _activeLink?.connection.session;
-    if (session == null || renderSize.width <= 0 || renderSize.height <= 0) return;
+    if (session == null || renderSize.width <= 0 || renderSize.height <= 0) {
+      return;
+    }
     final xRatio = (localPos.dx / renderSize.width).clamp(0.0, 1.0);
     final yRatio = (localPos.dy / renderSize.height).clamp(0.0, 1.0);
     session.sendRemoteMouseEvent(
@@ -1382,22 +1420,32 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final link = _activeLink;
     final frame = link?.desktopFrame;
     if (link == null) {
-      return const Center(child: Text('Agrega un Desktop para iniciar control remoto.'));
+      return const Center(
+          child: Text('Agrega un Desktop para iniciar control remoto.'));
     }
 
     return Column(
       children: [
         ListTile(
-          leading: const Icon(Icons.settings_remote_rounded, color: Color(0xFFEE6018)),
+          leading: const Icon(Icons.settings_remote_rounded,
+              color: Color(0xFFEE6018)),
           title: const Text('Control Remoto de Pantalla'),
           subtitle: Text(link.desktopStreamActive
-              ? (frame != null ? 'Transmisión activa · Toca para controlar' : 'Iniciando captura...')
+              ? (frame != null
+                  ? 'Transmisión activa · Toca para controlar'
+                  : 'Iniciando captura...')
               : 'Transmisión detenida'),
           trailing: IconButton(
-            tooltip: link.desktopStreamActive ? 'Detener transmisión' : 'Iniciar transmisión',
+            tooltip: link.desktopStreamActive
+                ? 'Detener transmisión'
+                : 'Iniciar transmisión',
             icon: Icon(
-              link.desktopStreamActive ? Icons.stop_circle_rounded : Icons.play_circle_fill_rounded,
-              color: link.desktopStreamActive ? Colors.redAccent : const Color(0xFF77D89A),
+              link.desktopStreamActive
+                  ? Icons.stop_circle_rounded
+                  : Icons.play_circle_fill_rounded,
+              color: link.desktopStreamActive
+                  ? Colors.redAccent
+                  : const Color(0xFF77D89A),
               size: 28,
             ),
             onPressed: () => _toggleDesktopStream(link),
@@ -1412,8 +1460,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             children: [
               TextButton.icon(
                 icon: const Icon(Icons.keyboard_rounded, size: 16),
-                label: Text(_showRemoteKeyboard ? 'Ocultar teclado' : 'Escribir texto'),
-                onPressed: () => setState(() => _showRemoteKeyboard = !_showRemoteKeyboard),
+                label: Text(
+                    _showRemoteKeyboard ? 'Ocultar teclado' : 'Escribir texto'),
+                onPressed: () =>
+                    setState(() => _showRemoteKeyboard = !_showRemoteKeyboard),
               ),
               const SizedBox(width: 4),
               OutlinedButton(
@@ -1456,7 +1506,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     decoration: const InputDecoration(
                       hintText: 'Escribe aquí para enviar al Desktop…',
                       isDense: true,
-                      contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      contentPadding:
+                          EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                     ),
                     onSubmitted: (txt) => _sendRemoteText(txt),
                   ),
@@ -1475,7 +1526,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.desktop_windows_outlined, size: 54, color: Color(0xFF85898E)),
+                      const Icon(Icons.desktop_windows_outlined,
+                          size: 54, color: Color(0xFF85898E)),
                       const SizedBox(height: 14),
                       Text(
                         link.desktopStreamActive
@@ -1496,13 +1548,18 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 )
               : LayoutBuilder(
                   builder: (context, constraints) {
-                    final renderSize = Size(constraints.maxWidth, constraints.maxHeight);
+                    final renderSize =
+                        Size(constraints.maxWidth, constraints.maxHeight);
                     return GestureDetector(
                       behavior: HitTestBehavior.opaque,
-                      onTapUp: (details) => _sendRemoteMouse('click', details.localPosition, renderSize),
-                      onDoubleTapDown: (details) => _sendRemoteMouse('double_click', details.localPosition, renderSize),
-                      onLongPressStart: (details) => _sendRemoteMouse('right_click', details.localPosition, renderSize),
-                      onPanUpdate: (details) => _sendRemoteMouse('move', details.localPosition, renderSize),
+                      onTapUp: (details) => _sendRemoteMouse(
+                          'click', details.localPosition, renderSize),
+                      onDoubleTapDown: (details) => _sendRemoteMouse(
+                          'double_click', details.localPosition, renderSize),
+                      onLongPressStart: (details) => _sendRemoteMouse(
+                          'right_click', details.localPosition, renderSize),
+                      onPanUpdate: (details) => _sendRemoteMouse(
+                          'move', details.localPosition, renderSize),
                       child: InteractiveViewer(
                         minScale: 0.8,
                         maxScale: 3.5,
@@ -1627,15 +1684,18 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               ),
               const SizedBox(height: 14),
               ListTile(
-                leading: const Icon(Icons.note_add_outlined, color: Color(0xFFEE6018)),
+                leading: const Icon(Icons.note_add_outlined,
+                    color: Color(0xFFEE6018)),
                 title: const Text('Adjuntar nota o snippet de texto',
                     style: TextStyle(color: Colors.white, fontSize: 14)),
-                subtitle: const Text('Crea un archivo de texto para enviar al modelo',
+                subtitle: const Text(
+                    'Crea un archivo de texto para enviar al modelo',
                     style: TextStyle(color: Color(0xFF8E8E93), fontSize: 12)),
                 onTap: () => Navigator.pop(ctx, 'text_note'),
               ),
               ListTile(
-                leading: const Icon(Icons.paste_rounded, color: Color(0xFF64B4F6)),
+                leading:
+                    const Icon(Icons.paste_rounded, color: Color(0xFF64B4F6)),
                 title: const Text('Pegar portapapeles como archivo adjunto',
                     style: TextStyle(color: Colors.white, fontSize: 14)),
                 subtitle: const Text('Usa el texto copiado recientemente',
@@ -1643,10 +1703,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 onTap: () => Navigator.pop(ctx, 'clipboard'),
               ),
               ListTile(
-                leading: const Icon(Icons.screenshot_monitor_rounded, color: Color(0xFF77D89A)),
+                leading: const Icon(Icons.screenshot_monitor_rounded,
+                    color: Color(0xFF77D89A)),
                 title: const Text('Solicitar captura al Desktop',
                     style: TextStyle(color: Colors.white, fontSize: 14)),
-                subtitle: const Text('Pide a HELIX inspeccionar la pantalla del PC',
+                subtitle: const Text(
+                    'Pide a HELIX inspeccionar la pantalla del PC',
                     style: TextStyle(color: Color(0xFF8E8E93), fontSize: 12)),
                 onTap: () => Navigator.pop(ctx, 'desktop_screen'),
               ),
@@ -1661,18 +1723,21 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     } else if (action == 'clipboard') {
       await _attachClipboard();
     } else if (action == 'desktop_screen') {
-      _sendPreset('Por favor toma una captura de pantalla del escritorio y descríbeme qué ves.');
+      _sendPreset(
+          'Por favor toma una captura de pantalla del escritorio y descríbeme qué ves.');
     }
   }
 
   void _showAddTextAttachmentDialog() {
-    final nameCtrl = TextEditingController(text: 'nota_${DateTime.now().millisecondsSinceEpoch % 10000}.txt');
+    final nameCtrl = TextEditingController(
+        text: 'nota_${DateTime.now().millisecondsSinceEpoch % 10000}.txt');
     final contentCtrl = TextEditingController();
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF1C1C1E),
-        title: const Text('Adjuntar nota', style: TextStyle(color: Colors.white, fontSize: 16)),
+        title: const Text('Adjuntar nota',
+            style: TextStyle(color: Colors.white, fontSize: 16)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -1682,7 +1747,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               decoration: const InputDecoration(
                 labelText: 'Nombre de archivo',
                 labelStyle: TextStyle(color: Color(0xFF8E8E93)),
-                enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF38383C))),
+                enabledBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Color(0xFF38383C))),
               ),
             ),
             const SizedBox(height: 12),
@@ -1693,7 +1759,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               decoration: const InputDecoration(
                 labelText: 'Contenido del archivo',
                 labelStyle: TextStyle(color: Color(0xFF8E8E93)),
-                enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFF38383C))),
+                enabledBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Color(0xFF38383C))),
               ),
             ),
           ],
@@ -1701,7 +1768,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancelar', style: TextStyle(color: Color(0xFF8E8E93))),
+            child: const Text('Cancelar',
+                style: TextStyle(color: Color(0xFF8E8E93))),
           ),
           FilledButton(
             onPressed: () {
@@ -1740,7 +1808,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final encoded = base64.encode(utf8.encode(text));
     setState(() {
       _attachedFiles.add({
-        'name': 'clipboard_${DateTime.now().millisecondsSinceEpoch % 10000}.txt',
+        'name':
+            'clipboard_${DateTime.now().millisecondsSinceEpoch % 10000}.txt',
         'mime_type': 'text/plain',
         'data_base64': encoded,
       });
@@ -1769,7 +1838,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.attach_file_rounded, size: 13, color: Color(0xFFEE6018)),
+                const Icon(Icons.attach_file_rounded,
+                    size: 13, color: Color(0xFFEE6018)),
                 const SizedBox(width: 4),
                 Text(
                   name,
@@ -1778,7 +1848,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 const SizedBox(width: 4),
                 GestureDetector(
                   onTap: () => setState(() => _attachedFiles.removeAt(i)),
-                  child: const Icon(Icons.close_rounded, size: 14, color: Color(0xFF8E8E93)),
+                  child: const Icon(Icons.close_rounded,
+                      size: 14, color: Color(0xFF8E8E93)),
                 ),
               ],
             ),
@@ -1795,7 +1866,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             GestureDetector(
               onTap: _openModelSelector,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: const Color(0xFF1C1C1E),
                   borderRadius: BorderRadius.circular(16),
@@ -1804,7 +1876,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.tune_rounded, size: 12, color: Color(0xFFEE6018)),
+                    const Icon(Icons.tune_rounded,
+                        size: 12, color: Color(0xFFEE6018)),
                     const SizedBox(width: 5),
                     Text(
                       _selectedModelName,
@@ -1815,7 +1888,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       ),
                     ),
                     const SizedBox(width: 4),
-                    const Icon(Icons.keyboard_arrow_down_rounded, size: 14, color: Color(0xFF8E8E93)),
+                    const Icon(Icons.keyboard_arrow_down_rounded,
+                        size: 14, color: Color(0xFF8E8E93)),
                   ],
                 ),
               ),
@@ -1925,7 +1999,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 if (!_hasInputText)
                   IconButton(
                     tooltip: _voiceMode ? 'Modo texto' : 'Modo voz',
-                    onPressed: () => setState(() => _voiceMode = !_voiceMode),
+                    onPressed: () {
+                      if (_voiceMode) {
+                        unawaited(
+                            _activeLink?.voice?.stop() ?? Future<void>.value());
+                      }
+                      setState(() => _voiceMode = !_voiceMode);
+                    },
                     icon: Icon(
                       _voiceMode
                           ? Icons.chat_bubble_outline_rounded
@@ -2060,6 +2140,7 @@ class _MobileLink {
   String? deviceId;
   final MobileConnection connection;
   final messages = <_Message>[];
+  MobileVoiceController? voice;
   List<MobileSkill> skills = const [];
   final pendingConfirmations = <String, Map<String, dynamic>>{};
   StreamSubscription<HelixMessage>? events;
@@ -2077,6 +2158,8 @@ class _MobileLink {
   Future<void> dispose() async {
     await events?.cancel();
     await transportStates?.cancel();
+    voice?.dispose();
+    voice = null;
     await connection.close();
   }
 }
@@ -2221,11 +2304,12 @@ class _ConnectionSheetState extends State<_ConnectionSheet> {
       }
     } on FormatException catch (error) {
       if (mounted) {
-        final detail = error.message.toString();
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(detail.isEmpty
-              ? 'La invitación no tiene un formato válido.'
-              : 'Invitación inválida: $detail'),
+          content: Text(userFacingErrorMessage(
+            error,
+            fallback:
+                'La invitación no es válida o ha caducado. Escanea un código vigente e inténtalo de nuevo.',
+          )),
         ));
       }
     }

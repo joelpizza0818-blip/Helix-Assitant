@@ -1,6 +1,7 @@
 import json
 import hashlib
 import asyncio
+import logging
 import os
 import re
 import base64
@@ -12,6 +13,9 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlparse
+
+logger = logging.getLogger(__name__)
+
 try:
     from services.agent.perception.screen_vision_sampling import (
         DEFAULT_SCREEN_VISION_INTERVAL_MS,
@@ -26,6 +30,10 @@ except ImportError:
     )
 
 from services.agent.core.browser_page_context import clear_current_page, update_current_page
+try:
+    from services.agent.core.task_manager import TaskStatus
+except ImportError:
+    from core.task_manager import TaskStatus
 try:
     from services.agent.memory.user_memory_manager import UserMemoryManager
 except ImportError:
@@ -55,6 +63,8 @@ DEFAULT_SETTINGS = {
     "voice_tts_voice": "en-US-AndrewMultilingualNeural",
     "voice_response_enabled": True,
     "vad_threshold": 250,
+    "voice_stt_mode": "accuracy",
+    "voice_live_silence_ms": 1000,
     "mcp_servers": [],
     "camera_enabled": False,
     "camera_device_index": 0,
@@ -83,6 +93,8 @@ DEFAULT_SETTINGS = {
     "display_index": 0,
     "screen_capture_interval_ms": 1000,
     "screen_context_enabled": False,
+    "computer_use_mode": "auto",
+    "computer_use_host_consent": False,
     "model_decides_screen_vision_enabled": False,
     "continuous_screen_vision_enabled": False,
     "continuous_screen_vision_interval_ms": DEFAULT_SCREEN_VISION_INTERVAL_MS,
@@ -201,6 +213,13 @@ def _serialize_task_for_desktop(task: Any) -> dict:
             serialized["profile_id"] = profile_id
     serialized.pop("result", None)
     serialized.pop("metadata", None)
+    if isinstance(metadata, dict):
+        if isinstance(metadata.get("interrupted"), bool):
+            serialized["interrupted"] = metadata["interrupted"]
+        if isinstance(metadata.get("resume_mode"), str):
+            serialized["resume_mode"] = metadata["resume_mode"]
+        if isinstance(metadata.get("workflow_id"), str):
+            serialized["workflow_id"] = metadata["workflow_id"]
     if serialized.get("status") == "failed":
         provider = getattr(task, "provider", None)
         if isinstance(provider, str) and re.fullmatch(r"[A-Za-z0-9_.-]{1,60}", provider):
@@ -320,6 +339,7 @@ class DesktopRequestHandler:
             "GET_WORKFLOW_AGENTS": self._get_workflow_agents,
             "GET_WORKFLOW_CAPABILITIES": self._get_workflow_capabilities,
             "SAVE_WORKFLOW": lambda: self._save_workflow(payload.get("workflow")),
+            "SAVE_WORKFLOW_SKILL": lambda: self._save_workflow_skill(payload),
             "DELETE_WORKFLOW": lambda: self._delete_workflow(payload.get("id")),
             "RUN_WORKFLOW": lambda: self._run_workflow(payload),
             "LOAD_CAPABILITY_PACK": lambda: self._load_capability_pack(payload),
@@ -496,24 +516,105 @@ class DesktopRequestHandler:
                 raise ValueError("TASK_CANCEL requires a task_id")
             await self.task_manager.cancel(task_id)
         elif message_type == "TASK_CANCEL_ALL":
+            desktop_tool = None
+            if self.react_loop is not None:
+                registry = getattr(self.react_loop, "tool_registry", None)
+                getter = getattr(registry, "get_tool", None)
+                if callable(getter):
+                    desktop_tool = getter("computer.desktop_control")
+            cancel_desktop = getattr(desktop_tool, "cancel_active", None)
+            if callable(cancel_desktop):
+                cancel_desktop()
             for task in await self.task_manager.get_running_tasks():
                 await self.task_manager.cancel(task.id)
+        elif message_type == "TASK_PAUSE":
+            task_id = payload.get("task_id")
+            if not isinstance(task_id, str) or not task_id:
+                raise ValueError("TASK_PAUSE requires a task_id")
+            if not await self.task_manager.pause(task_id):
+                raise ValueError("TASK_PAUSE requires an active task")
         elif message_type == "TASK_RESUME":
             task_id = payload.get("task_id")
             if not isinstance(task_id, str) or not task_id:
                 raise ValueError("TASK_RESUME requires a task_id")
-            repeat_interrupted = bool(payload.get("repeat_interrupted", True))
-            force = bool(payload.get("force", True))
-            if hasattr(self.orchestrator, "resume_workflow"):
-                asyncio.ensure_future(
-                    self.orchestrator.resume_workflow(
-                        task_id,
-                        force=force,
-                        repeat_interrupted_actions=repeat_interrupted,
-                    )
+            if self.orchestrator is None:
+                raise RuntimeError(
+                    "Task resumption is unavailable: orchestrator does not "
+                    "support resume_workflow."
                 )
-            else:
-                raise RuntimeError("Orchestrator does not support resume_workflow")
+            task = await self.task_manager.get_task(task_id)
+            repeat_interrupted = bool(payload.get("repeat_interrupted", False))
+            force = bool(payload.get("force", False))
+            checkpoint_store = getattr(self.orchestrator, "checkpoint_store", None)
+            has_checkpoint = False
+            if checkpoint_store is not None:
+                try:
+                    has_checkpoint = checkpoint_store.load(task_id) is not None
+                except Exception as error:
+                    logger.exception("Could not inspect the task checkpoint.")
+                    # Re-dispatching without knowing the checkpoint state could
+                    # repeat side effects, so refuse the resume instead.
+                    raise RuntimeError(
+                        "The saved task checkpoint could not be read; "
+                        "resume was not attempted."
+                    ) from error
+            # A saved workflow checkpoint can outlive the in-memory task list.
+            # Without a checkpoint store the handler cannot inspect the
+            # checkpoint, so it delegates and lets the orchestrator decide.
+            resume_from_checkpoint = has_checkpoint or (
+                task is None and checkpoint_store is None
+            )
+            if resume_from_checkpoint and not hasattr(
+                self.orchestrator, "resume_workflow"
+            ):
+                raise RuntimeError(
+                    "Task resumption is unavailable: orchestrator does not "
+                    "support resume_workflow."
+                )
+            if task is None and not resume_from_checkpoint:
+                raise ValueError(
+                    "TASK_RESUME requires an existing task or a saved "
+                    "workflow checkpoint."
+                )
+
+            async def resume_task() -> None:
+                try:
+                    if resume_from_checkpoint:
+                        await self.orchestrator.resume_workflow(
+                            task_id,
+                            force=force,
+                            repeat_interrupted_actions=repeat_interrupted,
+                        )
+                        return
+                    context = await self.task_manager.get_task_context(task_id) or {}
+                    context["input_source"] = "resume"
+                    await self.task_manager.update_status(
+                        task_id, TaskStatus.RUNNING
+                    )
+                    set_label = getattr(
+                        self.task_manager, "set_progress_label", None
+                    )
+                    if callable(set_label):
+                        await set_label(task_id, "Reanudando tarea…")
+                    await self.orchestrator.execute_task(
+                        task_id,
+                        task.description,
+                        context,
+                    )
+                except Exception:
+                    logger.exception("Could not resume task %s.", task_id)
+                    await self.task_manager.set_result(
+                        task_id,
+                        error="The task could not be resumed safely.",
+                    )
+                    await self.task_manager.update_status(
+                        task_id, TaskStatus.FAILED
+                    )
+
+            execution = asyncio.create_task(resume_task())
+            register = getattr(self.task_manager, "register_task_handle", None)
+            if callable(register):
+                await register(task_id, execution)
         elif message_type in {"CONFIRMATION_GRANTED", "CONFIRMATION_REJECTED", "CAPABILITY_RESOLVED"}:
             await self.task_manager.event_bus.publish(message_type, payload)
         elif message_type == "DESKTOP_STREAM_START":
@@ -804,6 +905,20 @@ class DesktopRequestHandler:
             cancelled = mgr.cancel_pull(model_name)
             return {"model": model_name, "action": "cancel", "cancelled": cancelled}
 
+        if not await mgr.is_running():
+            return {
+                "model": model_name,
+                "status": "UNAVAILABLE",
+                "message": "El servicio de Ollama no está disponible. Inícialo e inténtalo de nuevo.",
+            }
+
+        if await mgr.is_model_installed(model_name):
+            return {
+                "model": model_name,
+                "status": "READY",
+                "message": "El modelo ya está instalado.",
+            }
+
         if mgr.is_pulling(model_name):
             return {"model": model_name, "status": "INSTALLING", "message": "Ya hay una descarga en curso."}
 
@@ -960,6 +1075,9 @@ class DesktopRequestHandler:
             capabilities=payload.get("capabilities", []),
             color=payload.get("color", ""),
             instructions=payload.get("instructions", ""),
+            allowed_tools=payload.get("allowed_tools", []),
+            max_iterations=payload.get("max_iterations", 10),
+            memory_enabled=payload.get("memory_enabled", True),
             created_by="user",
         )
 
@@ -977,6 +1095,9 @@ class DesktopRequestHandler:
             capabilities=payload.get("capabilities", []),
             color=payload.get("color", ""),
             instructions=payload.get("instructions", ""),
+            allowed_tools=payload.get("allowed_tools"),
+            max_iterations=payload.get("max_iterations"),
+            memory_enabled=payload.get("memory_enabled"),
         )
 
     async def _chat_subagent(self, payload: dict) -> dict:
@@ -1059,6 +1180,8 @@ class DesktopRequestHandler:
             if not isinstance(saved, dict):
                 raise ValueError("Saved settings must be a JSON object")
             settings.update(saved)
+            if saved.get("voice_live_silence_ms") == 650:
+                settings["voice_live_silence_ms"] = 1000
             interval = settings.get("continuous_screen_vision_interval_ms")
             if (
                 isinstance(interval, int)
@@ -1077,12 +1200,15 @@ class DesktopRequestHandler:
             settings["custom_endpoints"] = self._redact_custom_endpoint_keys(
                 settings.get("custom_endpoints", [])
             )
-            # Accept both names so settings written by older/newer desktop
-            # clients continue to control the same runtime policy.
-            if "permission_mode" not in saved and "permissions_mode" in saved:
-                settings["permission_mode"] = saved["permissions_mode"]
-            elif "permissions_mode" not in saved and "permission_mode" in saved:
-                settings["permissions_mode"] = saved["permission_mode"]
+            # `permissions_mode` is the canonical key written by the desktop
+            # UI. Older builds used `permission_mode`; keep both in sync so a
+            # stale legacy value cannot override the current selection.
+            stored_mode = saved.get(
+                "permissions_mode", saved.get("permission_mode")
+            )
+            if stored_mode is not None:
+                settings["permissions_mode"] = stored_mode
+                settings["permission_mode"] = stored_mode
         settings["browser_headless"] = False
         self._apply_runtime_settings(settings)
         settings["subagents_available"] = True
@@ -1128,10 +1254,10 @@ class DesktopRequestHandler:
             or not 0.5 <= sensitivity <= 1.0
         ):
             raise ValueError("gesture_sensitivity must be between 0.5 and 1.0")
-        mode = str(settings.get("permission_mode", settings.get("permissions_mode", "SMART_APPROVAL"))).upper()
-        if mode not in {"ALWAYS_ASK", "AUTO_APPROVE", "SMART_APPROVAL"}:
+        mode = str(settings.get("permissions_mode", settings.get("permission_mode", "SMART_APPROVAL"))).upper()
+        if mode not in {"ALWAYS_ASK", "AUTO_APPROVE", "SMART_APPROVAL", "ALLOW_ALL"}:
             raise ValueError(
-                "permissions_mode must be ALWAYS_ASK, AUTO_APPROVE, or SMART_APPROVAL"
+                "permissions_mode must be ALWAYS_ASK, AUTO_APPROVE, SMART_APPROVAL, or ALLOW_ALL"
             )
         ceiling = settings.get("auto_approve_up_to", "LOW_RISK")
         if ceiling not in {"READ_ONLY", "LOW_RISK", "MODIFY"}:
@@ -1304,16 +1430,31 @@ class DesktopRequestHandler:
 
     async def _test_tts(self, payload: dict) -> dict:
         settings = self.get_settings()
-        text = payload.get("text") if isinstance(payload, dict) else None
+        payload_dict = payload if isinstance(payload, dict) else {}
+        text = payload_dict.get("text")
         if not isinstance(text, str) or not text.strip():
-            text = "HELIX audio output test. Your configured voice pipeline is active."
-        provider = {
-            "openai_tts": "openai",
-            "elevenlabs": "elevenlabs",
-            "edge_tts": "edge_tts",
-            "windows_sapi": "system",
-        }.get(settings.get("voice_tts_provider", "edge_tts"), "edge_tts")
-        voice_id = settings.get("voice_tts_voice", "en-US-AndrewMultilingualNeural")
+            text = "Prueba de audio del sistema HELIX. La síntesis de voz está en línea y operativa."
+
+        provider_param = payload_dict.get("provider")
+        if provider_param in ("openai", "openai_tts"):
+            provider = "openai"
+        elif provider_param in ("elevenlabs",):
+            provider = "elevenlabs"
+        elif provider_param in ("edge_tts",):
+            provider = "edge_tts"
+        elif provider_param in ("windows_sapi", "system"):
+            provider = "system"
+        else:
+            provider = {
+                "openai_tts": "openai",
+                "elevenlabs": "elevenlabs",
+                "edge_tts": "edge_tts",
+                "windows_sapi": "system",
+            }.get(settings.get("voice_tts_provider", "edge_tts"), "edge_tts")
+
+        voice_id = payload_dict.get("voice_id") or settings.get(
+            "voice_tts_voice", "en-US-AndrewMultilingualNeural"
+        )
         model = settings.get("tts_model", os.environ.get("TTS_MODEL", "tts-1"))
         try:
             from services.agent.perception.text_to_speech import TextToSpeech
@@ -1557,6 +1698,9 @@ class DesktopRequestHandler:
                 "user_md_exists": user_md_exists,
             }
         except Exception as e:
+            redact = getattr(self.key_manager, "redact_configured_credentials", None)
+            diagnostic = redact(e) if callable(redact) else e
+            logger.error("Unable to load adaptive learning statistics: %s", diagnostic)
             return {
                 "episode_count": 0,
                 "rule_count": 0,
@@ -1564,7 +1708,7 @@ class DesktopRequestHandler:
                 "skill_count": 0,
                 "top_rules": [],
                 "user_md_exists": False,
-                "error": str(e),
+                "error": "No se pudieron cargar las estadísticas de aprendizaje. Inténtalo de nuevo.",
             }
 
     async def _run_learning_maintenance(self) -> dict:
@@ -1578,7 +1722,10 @@ class DesktopRequestHandler:
             result = harness.run_maintenance()
             return result
         except Exception as e:
-            return {"error": str(e)}
+            redact = getattr(self.key_manager, "redact_configured_credentials", None)
+            diagnostic = redact(e) if callable(redact) else e
+            logger.error("Unable to run adaptive learning maintenance: %s", diagnostic)
+            return {"error": "No se pudo completar el mantenimiento del aprendizaje. Inténtalo de nuevo."}
 
     async def _list_free_models(self) -> dict:
         """Returns the catalog of 0-cost free models available via OpenRouter."""
@@ -1657,7 +1804,7 @@ class DesktopRequestHandler:
 
     @staticmethod
     def _skill_summary(skill, custom: bool) -> dict:
-        return {
+        summary = {
             "name": skill.name,
             "description": skill.description,
             "version": skill.version,
@@ -1666,6 +1813,14 @@ class DesktopRequestHandler:
             "instructions": skill.instructions,
             "custom": custom,
         }
+        workflow_id = (
+            skill.config.get("workflow_id")
+            if isinstance(skill.config, dict)
+            else None
+        )
+        if isinstance(workflow_id, str) and workflow_id:
+            summary["workflow_id"] = workflow_id
+        return summary
 
     async def _get_skills(self) -> list[dict]:
         if self.skill_registry is None:
@@ -1716,6 +1871,21 @@ class DesktopRequestHandler:
             raise ValueError("SAVE_WORKFLOW requires a workflow object.")
         return self.workflow_store.save_workflow(workflow)
 
+    async def _save_workflow_skill(self, payload: dict) -> dict:
+        if self.workflow_store is None:
+            raise RuntimeError("Workflow management is unavailable.")
+        if self.skill_registry is None:
+            raise RuntimeError("Skill management is unavailable")
+        workflow_id = payload.get("id")
+        if not isinstance(workflow_id, str):
+            raise ValueError("SAVE_WORKFLOW_SKILL requires a workflow id.")
+        workflow = self.workflow_store.get_workflow(workflow_id)
+        triggers = payload.get("triggers")
+        if triggers is not None and not isinstance(triggers, list):
+            raise ValueError("SAVE_WORKFLOW_SKILL triggers must be a list.")
+        skill = self.workflow_store.to_skill(workflow, triggers=triggers)
+        return await self._save_skill(skill)
+
     async def _delete_workflow(self, workflow_id: str) -> dict:
         if self.workflow_store is None:
             raise RuntimeError("Workflow management is unavailable.")
@@ -1738,7 +1908,12 @@ class DesktopRequestHandler:
             "workflow_definition": workflow,
             "workflow_id": workflow_id,
         }
-        await self.task_manager.create_task(task_id, description, context=context)
+        await self.task_manager.create_task(
+            task_id,
+            description,
+            context=context,
+            metadata={"workflow_id": workflow_id},
+        )
         async def execute_workflow() -> None:
             handle = asyncio.current_task()
             try:
@@ -1798,6 +1973,12 @@ class DesktopRequestHandler:
             raise ValueError("Skill triggers must be a list of strings")
         if not isinstance(tools, list) or not all(isinstance(item, str) for item in tools):
             raise ValueError("Skill tools must be a list of strings")
+        workflow_id = raw_skill.get("workflow_id")
+        if workflow_id is not None and (
+            not isinstance(workflow_id, str)
+            or not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", workflow_id)
+        ):
+            raise ValueError("Skill workflow_id must be a lowercase slug")
 
         frontmatter = [
             "---",
@@ -1807,11 +1988,15 @@ class DesktopRequestHandler:
             f"triggers: {json.dumps(triggers, ensure_ascii=False)}",
             f"tools: {json.dumps(tools, ensure_ascii=False)}",
             "permissions: []",
+        ]
+        if isinstance(workflow_id, str):
+            frontmatter.append(f"workflow_id: {json.dumps(workflow_id)}")
+        frontmatter.extend([
             "---",
             "",
             instructions.strip(),
             "",
-        ]
+        ])
         custom_path.parent.mkdir(parents=True, exist_ok=True)
         temporary_path = custom_path.with_suffix(".md.tmp")
         temporary_path.write_text("\n".join(frontmatter), encoding="utf-8")
@@ -1838,6 +2023,19 @@ class DesktopRequestHandler:
     async def _save_settings(self, settings: dict) -> dict:
         if not isinstance(settings, dict):
             raise ValueError("SAVE_SETTINGS requires a settings object")
+        if "voice_stt_mode" in settings and (
+            not isinstance(settings["voice_stt_mode"], str)
+            or settings["voice_stt_mode"] not in {"speed", "accuracy"}
+        ):
+            raise ValueError("voice_stt_mode must be speed or accuracy")
+        if "voice_live_silence_ms" in settings and (
+            isinstance(settings["voice_live_silence_ms"], bool)
+            or not isinstance(settings["voice_live_silence_ms"], int)
+            or not 200 <= settings["voice_live_silence_ms"] <= 4_000
+        ):
+            raise ValueError(
+                "voice_live_silence_ms must be an integer between 200 and 4000"
+            )
         if "browser_channel" in settings and settings["browser_channel"] not in {
             "bundled",
             "chrome",
@@ -1858,6 +2056,23 @@ class DesktopRequestHandler:
         if "subagents_enabled" in settings:
             if not isinstance(settings["subagents_enabled"], bool):
                 raise ValueError("subagents_enabled must be a boolean")
+        if "computer_use_mode" in settings and settings["computer_use_mode"] not in {
+            "auto",
+            "isolated",
+            "host",
+        }:
+            raise ValueError("computer_use_mode must be auto, isolated, or host")
+        if "computer_use_host_consent" in settings and not isinstance(
+            settings["computer_use_host_consent"], bool
+        ):
+            raise ValueError("computer_use_host_consent must be a boolean")
+        if settings.get("computer_use_mode") == "host" and (
+            settings.get("computer_use_host_consent") is not True
+            and self.get_settings().get("computer_use_host_consent") is not True
+        ):
+            raise ValueError(
+                "Direct host desktop control requires explicit user consent"
+            )
         if "mcp_servers" in settings:
             servers = settings["mcp_servers"]
             if not isinstance(servers, list):
@@ -1892,19 +2107,20 @@ class DesktopRequestHandler:
             raise ValueError(
                 "auto_approve_up_to must be READ_ONLY, LOW_RISK, or MODIFY"
             )
-        requested_mode = settings.get("permission_mode", settings.get("permissions_mode"))
-        if requested_mode is not None and str(requested_mode).upper() not in {
-            "ALWAYS_ASK", "AUTO_APPROVE", "SMART_APPROVAL"
-        }:
-            raise ValueError(
-                "permissions_mode must be ALWAYS_ASK, AUTO_APPROVE, or SMART_APPROVAL"
-            )
-        if "permission_mode" in settings and "permissions_mode" not in settings:
+        requested_mode = settings.get(
+            "permissions_mode", settings.get("permission_mode")
+        )
+        if requested_mode is not None:
+            normalized_mode = str(requested_mode).upper()
+            if normalized_mode not in {
+                "ALWAYS_ASK", "AUTO_APPROVE", "SMART_APPROVAL", "ALLOW_ALL"
+            }:
+                raise ValueError(
+                    "permissions_mode must be ALWAYS_ASK, AUTO_APPROVE, SMART_APPROVAL, or ALLOW_ALL"
+                )
             settings = dict(settings)
-            settings["permissions_mode"] = settings["permission_mode"]
-        elif "permissions_mode" in settings and "permission_mode" not in settings:
-            settings = dict(settings)
-            settings["permission_mode"] = settings["permissions_mode"]
+            settings["permissions_mode"] = normalized_mode
+            settings["permission_mode"] = normalized_mode
         incoming = deepcopy(settings)
         incoming.pop("subagents_available", None)
         incoming["browser_control_mode"] = "playwright"
@@ -2007,8 +2223,24 @@ class DesktopRequestHandler:
         if provider is None:
             raise ValueError(f"Provider is not registered: {provider_id}")
         health = await provider.validate_key(api_key)
-        if getattr(health, "value", health).casefold() == "healthy":
-            self.key_manager.save_key(provider_id, slot - 1, api_key)
-            if callable(self.credentials_updated_callback):
-                self.credentials_updated_callback()
-        return health.value.lower()
+        health_value = str(getattr(health, "value", health)).lower()
+
+        # Persist the key even when validation is inconclusive. A network
+        # outage, a provider hiccup or a rate limit must not discard the key
+        # the user just entered; otherwise the provider stays "not configured"
+        # and the user has to type the credential again. Explicit auth,
+        # quota and billing failures are persisted too, but excluded from the
+        # usable pool until the user replaces the key.
+        self.key_manager.save_key(provider_id, slot - 1, api_key)
+        failure_codes = {
+            "auth_error": "AUTH_ERROR",
+            "rate_limited": "RATE_LIMIT",
+            "quota_exceeded": "QUOTA_EXCEEDED",
+            "billing_exhausted": "BILLING_EXHAUSTED",
+        }
+        failure_code = failure_codes.get(health_value)
+        if failure_code:
+            self.key_manager.mark_key_failure(provider_id, slot - 1, failure_code)
+        if callable(self.credentials_updated_callback):
+            self.credentials_updated_callback()
+        return health_value

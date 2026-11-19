@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { SkillSummary } from '../../../types/global'
+import { getUserFacingError } from '../../../lib/userError'
 import '../Toolbox.css'
 
 const emptySkill = {
@@ -22,7 +23,7 @@ export default function SkillsSection() {
     try {
       setSkills(await window.helix.getSkills())
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load skills.')
+      setError(getUserFacingError(err, 'No se pudieron cargar las habilidades. Inténtalo de nuevo.'))
     }
   }
 
@@ -58,7 +59,7 @@ export default function SkillsSection() {
       setDraft(emptySkill)
       setEditingName(null)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save skill.')
+      setError(getUserFacingError(err, 'No se pudo guardar la habilidad. Revisa los datos e inténtalo de nuevo.'))
     } finally {
       setBusy(false)
     }
@@ -75,7 +76,7 @@ export default function SkillsSection() {
         setEditingName(null)
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not delete skill.')
+      setError(getUserFacingError(err, 'No se pudo eliminar la habilidad. Inténtalo de nuevo.'))
     } finally {
       setBusy(false)
     }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { HelixProfile } from '../../../lib/desktopSupabase'
+import { getUserFacingError } from '../../../lib/userError'
 import '../Toolbox.css'
 
 interface ProfilesSectionProps {
@@ -41,7 +42,7 @@ export default function ProfilesSection({
       setSaved(true)
       window.setTimeout(() => setSaved(false), 1600)
     } catch (cause) {
-      setSaveError(cause instanceof Error ? cause.message : 'No se pudo guardar el nombre.')
+      setSaveError(getUserFacingError(cause, 'No se pudo guardar el nombre del perfil. Comprueba la conexión e inténtalo de nuevo.'))
     }
   }
 

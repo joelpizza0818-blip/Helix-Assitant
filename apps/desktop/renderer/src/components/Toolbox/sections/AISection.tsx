@@ -8,6 +8,7 @@ import type {
   ProviderID,
   ProviderStatus,
 } from '../../../types/global'
+import { getUserFacingError } from '../../../lib/userError'
 import '../Toolbox.css'
 
 interface Props {
@@ -81,44 +82,12 @@ export default function AISection({ providers, models, settings, onSave, onRefre
     void refreshLlamaStatus()
   }, [])
 
-  const [downloadingLlama, setDownloadingLlama] = useState(false)
-  const [downloadingModelId, setDownloadingModelId] = useState<string | null>(null)
   const [downloadStatusMsg, setDownloadStatusMsg] = useState('')
-
-  const handleDownloadBinary = async () => {
-    setDownloadingLlama(true)
-    setDownloadStatusMsg('Descargando llama-server portátil (~25 MB)...')
-    try {
-      const result = await window.helix.downloadLlamaServer()
-      setLlamaStatus(result.server_status)
-      setDownloadStatusMsg(result.done ? '¡llama-server instalado!' : (result.error || 'Error al descargar'))
-    } catch (e: unknown) {
-      setDownloadStatusMsg('Error: ' + String(e))
-    } finally {
-      setDownloadingLlama(false)
-      setTimeout(() => setDownloadStatusMsg(''), 3000)
-    }
-  }
-
-  const handleDownloadModel = async (modelId: string) => {
-    setDownloadingModelId(modelId)
-    setDownloadStatusMsg(`Descargando ${modelId} desde Hugging Face...`)
-    try {
-      const result = await window.helix.downloadGgufModel(modelId)
-      setLlamaStatus(result.server_status)
-      setDownloadStatusMsg(result.done ? '¡Modelo GGUF listo!' : (result.error || 'Error al descargar'))
-    } catch (e: unknown) {
-      setDownloadStatusMsg('Error: ' + String(e))
-    } finally {
-      setDownloadingModelId(null)
-      setTimeout(() => setDownloadStatusMsg(''), 3000)
-    }
-  }
 
   const handleToggleLlamaServer = async (modelPath?: string) => {
     setLlamaLoading(true)
     try {
-      if (llamaStatus?.running) {
+      if (llamaStatus?.running && (!modelPath || llamaStatus.active_model === modelPath)) {
         const result = await window.helix.stopLlamaServer()
         setLlamaStatus(result.status)
       } else {
@@ -129,7 +98,7 @@ export default function AISection({ providers, models, settings, onSave, onRefre
         }
       }
     } catch (err) {
-      console.warn('[AISection] Failed to toggle Llama Server:', err)
+    setDownloadStatusMsg(getUserFacingError(err, 'No se pudo cambiar el modelo local activo.'))
     } finally {
       setLlamaLoading(false)
     }
@@ -195,7 +164,10 @@ export default function AISection({ providers, models, settings, onSave, onRefre
       setValidationResults((prev) => ({ ...prev, [resultKey]: 'unavailable' }))
       setValidationErrors((prev) => ({
         ...prev,
-        [resultKey]: error instanceof Error ? error.message : String(error),
+        [resultKey]: getUserFacingError(
+          error,
+          'No se pudo comprobar el proveedor. Revisa la clave y la conexión e inténtalo de nuevo.',
+        ),
       }))
     } finally {
       setValidating((prev) => ({ ...prev, [resultKey]: false }))
@@ -397,21 +369,29 @@ export default function AISection({ providers, models, settings, onSave, onRefre
         )
       })}
 
-      {/* ── Llama Server (llama.cpp Portable Local) ── */}
+      {/* ── llama.cpp local runtime ── */}
       <div className="toolbox-card" style={{ marginBottom: 16 }}>
         <div className="toolbox-card__header">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span className="toolbox-card__title">Llama Server (llama.cpp Portable)</span>
-            <span className="text-xs text-muted">0-Install · Local GGUF · Cero Servicios</span>
+            <span className="toolbox-card__title">Agentes locales · llama.cpp / GGUF</span>
+            <span className="text-xs text-muted">Escanea primero · modelos en tu equipo</span>
           </div>
           <span className={`status-badge ${llamaStatus?.running ? 'status-badge--healthy' : llamaStatus?.installed ? 'status-badge--rate-limited' : 'status-badge--unconfigured'}`}>
-            {llamaStatus?.running ? 'Activo en :8080' : llamaStatus?.installed ? 'Instalado (Detenido)' : 'Binario no encontrado'}
+            {!llamaStatus
+              ? 'Buscando'
+              : llamaStatus.running
+                ? 'Activo en :8080'
+                : llamaStatus.installed
+                  ? 'llama-server listo'
+                  : llamaStatus.llama_cpp_installed
+                    ? 'llama.cpp detectado'
+                    : 'No instalado'}
           </span>
         </div>
 
         <p className="toolbox-section__desc" style={{ marginBottom: 10 }}>
-          Ejecuta modelos locales sin instalar software de terceros ni servicios en Windows.
-          Coloca <code>llama-server.exe</code> en <code>%APPDATA%\Helix\bin</code> y tus archivos <code>.gguf</code> en <code>%APPDATA%\Helix\models</code>.
+          HELIX busca llama.cpp y modelos GGUF en las carpetas habituales de modelos, descargas y LM Studio, además de <code>{llamaStatus?.models_dir || '%APPDATA%\\Helix\\models'}</code>.
+          También puedes añadir rutas con <code>HELIX_GGUF_DIRS</code>. No se descarga nada hasta que elijas una opción.
         </p>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -433,6 +413,7 @@ export default function AISection({ providers, models, settings, onSave, onRefre
                   <div>
                     <span className="text-sm weight-medium text-bone">{m.name}</span>
                     <span className="text-xs text-muted" style={{ marginLeft: 8 }}>({m.size_gb} GB)</span>
+                    <p className="text-xs text-muted" style={{ margin: '2px 0 0' }}>{m.path}</p>
                     {llamaStatus.active_model === m.path && (
                       <span className="status-badge status-badge--healthy" style={{ marginLeft: 8, fontSize: 10 }}>En uso</span>
                     )}
@@ -440,85 +421,35 @@ export default function AISection({ providers, models, settings, onSave, onRefre
                   <button
                     type="button"
                     className="validate-btn"
-                    disabled={llamaLoading}
+                    disabled={llamaLoading || !llamaStatus.installed}
                     onClick={() => handleToggleLlamaServer(m.path)}
                   >
-                    {llamaStatus.running && llamaStatus.active_model === m.path ? 'Detener' : 'Ejecutar'}
+                    {llamaStatus.running && llamaStatus.active_model === m.path
+                      ? 'Detener'
+                      : llamaStatus.running
+                        ? 'Usar este modelo'
+                        : 'Usar'}
                   </button>
                 </div>
               ))}
             </div>
           ) : (
             <p className="text-xs text-muted" style={{ margin: '6px 0' }}>
-              No se detectaron archivos .gguf en <code>{llamaStatus?.models_dir || '%APPDATA%\Helix\models'}</code>.
+              No se encontraron modelos GGUF en las carpetas escaneadas. También puedes definir <code>HELIX_GGUF_DIRS</code> para incluir otras rutas.
             </p>
           )}
 
-          {/* ── Binario Download Prompt if not installed ── */}
-          {!llamaStatus?.installed && (
-            <div style={{ padding: '10px 12px', background: 'rgba(238, 96, 24, 0.08)', borderRadius: 'var(--radius-btn)', border: '1px solid rgba(238, 96, 24, 0.25)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <span className="text-sm weight-medium" style={{ color: '#ff914d' }}>Descarga automática de llama-server.exe</span>
-                <p className="text-xs text-muted" style={{ margin: '2px 0 0' }}>Descarga directa del binario oficial de llama.cpp (~25 MB). Cero instalación.</p>
-              </div>
-              <button
-                type="button"
-                className="validate-btn"
-                style={{ background: 'rgba(238, 96, 24, 0.2)', borderColor: '#ee6018', color: '#ff914d' }}
-                disabled={downloadingLlama}
-                onClick={handleDownloadBinary}
-              >
-                {downloadingLlama ? 'Descargando...' : 'Descargar binario'}
-              </button>
-            </div>
+          {llamaStatus && llamaStatus.scan_errors.length > 0 && (
+            <p className="text-xs text-muted">
+              No se pudieron leer {llamaStatus.scan_errors.length} carpetas durante el escaneo; revisa permisos si esperabas encontrar modelos allí.
+            </p>
           )}
 
-          {/* ── Curated GGUF Model Downloader ── */}
-          <div style={{ marginTop: 8 }}>
-            <span className="text-xs weight-medium text-muted" style={{ display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>Modelos GGUF recomendados (Hugging Face)</span>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {[
-                { id: 'llama-3.2-3b', name: 'Llama 3.2 3B Instruct', size: '2.0 GB', desc: 'Meta AI · Rápido y versátil para control OS' },
-                { id: 'qwen2.5-coder-1.5b', name: 'Qwen 2.5 Coder 1.5B', size: '1.0 GB', desc: 'Alibaba · Código, shell y scripts' },
-                { id: 'deepseek-r1-1.5b', name: 'DeepSeek R1 1.5B Distill', size: '1.1 GB', desc: 'DeepSeek · Razonamiento paso a paso ultra-ligero' },
-              ].map((curated) => {
-                const isDownloaded = llamaStatus?.models?.some((m) => m.name.toLowerCase().includes(curated.id.toLowerCase()))
-                const isDownloadingThis = downloadingModelId === curated.id
-                return (
-                  <div
-                    key={curated.id}
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      padding: '8px 12px',
-                      background: 'var(--canvas)',
-                      borderRadius: 'var(--radius-btn)',
-                      border: '1px solid var(--border)'
-                    }}
-                  >
-                    <div>
-                      <span className="text-sm weight-medium text-bone">{curated.name}</span>
-                      <span className="text-xs text-muted" style={{ marginLeft: 8 }}>({curated.size})</span>
-                      <p className="text-xs text-muted" style={{ margin: '2px 0 0' }}>{curated.desc}</p>
-                    </div>
-                    {isDownloaded ? (
-                      <span className="status-badge status-badge--healthy" style={{ fontSize: 11 }}>Descargado ✓</span>
-                    ) : (
-                      <button
-                        type="button"
-                        className="validate-btn"
-                        disabled={isDownloadingThis || downloadingLlama}
-                        onClick={() => handleDownloadModel(curated.id)}
-                      >
-                        {isDownloadingThis ? 'Descargando...' : 'Descargar GGUF'}
-                      </button>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          </div>
+          {llamaStatus?.llama_cpp_installed && !llamaStatus.installed && (
+            <p className="text-xs text-muted">
+              Se encontró llama.cpp, pero no llama-server. Añade el ejecutable <code>llama-server</code> a <code>PATH</code> o define <code>LLAMA_SERVER_PATH</code>.
+            </p>
+          )}
 
           {downloadStatusMsg && (
             <p className="text-xs" style={{ color: 'var(--orange)', margin: '4px 0' }}>{downloadStatusMsg}</p>

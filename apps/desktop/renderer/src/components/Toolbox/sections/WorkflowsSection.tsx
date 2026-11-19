@@ -8,6 +8,7 @@ import type {
   WorkflowCapabilityOption,
   WorkflowToolOption,
 } from '../../../types/global'
+import { getUserFacingError } from '../../../lib/userError'
 import '../Toolbox.css'
 import './WorkflowsSection.css'
 
@@ -65,6 +66,8 @@ export default function WorkflowsSection() {
   const [taskProgress, setTaskProgress] = useState(0)
   const [taskProgressLabel, setTaskProgressLabel] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [skillTriggers, setSkillTriggers] = useState('')
   const [busy, setBusy] = useState(false)
   const [connectSource, setConnectSource] = useState('')
   const [connectTarget, setConnectTarget] = useState('')
@@ -93,7 +96,10 @@ export default function WorkflowsSection() {
       setAgents(availableAgents)
       setCapabilities(availableCapabilities)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load workflows.')
+      setError(getUserFacingError(
+        err,
+        'No se pudieron cargar los workflows. Comprueba la conexión e inténtalo de nuevo.',
+      ))
     }
   }
 
@@ -120,11 +126,21 @@ export default function WorkflowsSection() {
         setTaskProgress(task.progress)
         setTaskProgressLabel(task.execution_summary.progress_label)
         if (['completed', 'failed', 'cancelled'].includes(task.status)) {
-          if (task.status === 'failed' && task.error) setError(task.error)
+          if (task.status === 'failed' && task.error) {
+            setError(getUserFacingError(
+              task.error,
+              'El workflow no pudo completarse. Revisa sus pasos e inténtalo de nuevo.',
+            ))
+          }
           setTaskId(null)
         }
       } catch (err) {
-        if (active) setError(err instanceof Error ? err.message : 'Could not refresh workflow status.')
+        if (active) {
+          setError(getUserFacingError(
+            err,
+            'No se pudo actualizar el estado del workflow. Inténtalo de nuevo.',
+          ))
+        }
       }
     }
     void refresh()
@@ -391,7 +407,35 @@ export default function WorkflowsSection() {
       setWorkflow(saved)
       setWorkflows((current) => [saved, ...current.filter((item) => item.id !== saved.id)])
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save workflow.')
+      setError(getUserFacingError(err, 'No se pudo guardar el workflow. Revisa los datos e inténtalo de nuevo.'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const saveAsSkill = async () => {
+    if (configError) {
+      setError('Fix the selected node configuration before saving this workflow as a skill.')
+      return
+    }
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const saved = await window.helix.saveWorkflow(workflow)
+      setWorkflow(saved)
+      setWorkflows((current) => [saved, ...current.filter((item) => item.id !== saved.id)])
+      const triggers = skillTriggers
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean)
+      const skill = await window.helix.saveWorkflowSkill(
+        saved.id,
+        triggers.length > 0 ? triggers : undefined,
+      )
+      setNotice(`Saved as the advanced skill @${skill.name}. Use @${skill.name} or %${saved.id} to run it.`)
+    } catch (err) {
+      setError(getUserFacingError(err, 'No se pudo guardar el workflow como skill. Revisa sus datos e inténtalo de nuevo.'))
     } finally {
       setBusy(false)
     }
@@ -414,7 +458,7 @@ export default function WorkflowsSection() {
       setTaskId(result.task_id)
       setTaskStatus('queued')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not run workflow.')
+      setError(getUserFacingError(err, 'No se pudo ejecutar el workflow. Revisa sus pasos e inténtalo de nuevo.'))
     } finally {
       setBusy(false)
     }
@@ -431,7 +475,7 @@ export default function WorkflowsSection() {
         setSelectedNodeId(null)
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not delete workflow.')
+      setError(getUserFacingError(err, 'No se pudo eliminar el workflow. Inténtalo de nuevo.'))
     } finally {
       setBusy(false)
     }
@@ -444,6 +488,7 @@ export default function WorkflowsSection() {
         Compose reusable flows from triggers, tools, agents, conditions and outputs. Drag nodes to arrange the canvas.
       </p>
       {error && <p className="toolbox-error" role="alert">{error}</p>}
+      {notice && <p className="workflow-status" role="status">{notice}</p>}
       <div className="toolbox-card workflow-card">
         <div className="workflow-toolbar">
           <label className="workflow-field">
@@ -645,10 +690,15 @@ export default function WorkflowsSection() {
             <span>Run input</span>
             <input value={input} onChange={(event) => setInput(event.target.value)} placeholder="Optional input for the trigger" />
           </label>
+          <label className="workflow-field">
+            <span>Skill triggers</span>
+            <input value={skillTriggers} onChange={(event) => setSkillTriggers(event.target.value)} placeholder="Optional, comma-separated phrases" />
+          </label>
           {taskStatus && <span className="workflow-status">Task {taskStatus} · {taskProgress}%{taskId ? ` · ${taskId}` : ''}</span>}
           {taskProgressLabel && taskId && <span className="workflow-status">{taskProgressLabel}</span>}
           <button type="button" className="validate-btn" disabled={busy || Boolean(taskId)} onClick={() => void run()}>{busy ? 'Working…' : 'Run workflow'}</button>
           <button type="button" className="validate-btn" disabled={busy} onClick={() => void save()}>{busy ? 'Working…' : 'Save workflow'}</button>
+          <button type="button" className="validate-btn" disabled={busy} onClick={() => void saveAsSkill()}>{busy ? 'Working…' : 'Save as skill'}</button>
         </div>
       </div>
       <h3 className="toolbox-card__title toolbox-skill-list-title">Saved workflows</h3>

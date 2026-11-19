@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import type { AgentClient } from '../client/agent-client';
 import { CYAN, GREEN, RED, YELLOW, GRAY, BOLD, DIM } from '../ui/colors';
+import { getUserFacingError } from '../ui/userError';
 
 export async function handleBrowserCommand(
   client: AgentClient,
@@ -35,6 +36,6 @@ export async function handleBrowserCommand(
     console.log(`    ${CYAN('/browser open <url>')}   ${DIM('- Abrir URL con el agente')}`);
     console.log(`    ${CYAN('/browser live [on|off]')} ${DIM('- Alternar la vista ASCII de capturas')}\n`);
   } catch (err) {
-    console.log(RED(`  Error al consultar estado del navegador: ${(err as Error).message}\n`));
+    console.log(RED(`  ${getUserFacingError(err, 'No se pudo consultar el estado del navegador. Comprueba que HELIX esté conectado e inténtalo de nuevo.')}\n`));
   }
 }

@@ -14,6 +14,8 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from services.agent.storage_paths import get_agent_data_dir
+
 from .episodic_memory import EpisodicMemory
 from .procedural_memory import ProceduralSemanticMemory
 from .feedback_sensor import FeedbackSensor, AlignmentCorrection, CorrectionIntent
@@ -45,9 +47,9 @@ class AdaptiveLearningHarness:
             self.base_dir = Path(base_dir)
         else:
             if profile_id and profile_id != "default":
-                self.base_dir = Path.home() / ".helix" / "profiles" / profile_id
+                self.base_dir = get_agent_data_dir() / "profiles" / profile_id
             else:
-                self.base_dir = Path.home() / ".helix"
+                self.base_dir = get_agent_data_dir()
 
         self.base_dir.mkdir(parents=True, exist_ok=True)
 

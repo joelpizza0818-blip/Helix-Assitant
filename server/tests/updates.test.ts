@@ -81,6 +81,7 @@ test('POST /api/updates/subscribe rejects invalid email format', async () => {
     const data = (await res.json()) as any;
     assert.equal(res.status, 400);
     assert.equal(data.success, false);
+    assert.equal(data.error, 'Please enter a valid email address.');
   } finally {
     await stopServer(server);
   }
@@ -206,7 +207,7 @@ test('POST /api/updates/broadcast rejects request with 400 when no registered su
     const data = (await res.json()) as any;
     assert.equal(res.status, 400);
     assert.equal(data.success, false);
-    assert.match(data.error, /no subscribed recipients found/i);
+    assert.match(data.error, /no active subscribers to receive this update/i);
   } finally {
     restoreEnv();
     await stopServer(server);
@@ -425,7 +426,10 @@ test('POST /api/updates/broadcast enforces strict Zod validation on payload fiel
     });
     assert.equal(resVersionCrlf.status, 400);
     const dataVersionCrlf = (await resVersionCrlf.json()) as any;
-    assert.match(dataVersionCrlf.error, /cannot contain newline characters/i);
+    assert.equal(
+      dataVersionCrlf.error,
+      'Please check the version, title, change descriptions, and download URL.',
+    );
 
     // 10. Title contains CRLF injection characters
     const resTitleCrlf = await fetch(`${baseUrl}/api/updates/broadcast`, {
@@ -439,7 +443,10 @@ test('POST /api/updates/broadcast enforces strict Zod validation on payload fiel
     });
     assert.equal(resTitleCrlf.status, 400);
     const dataTitleCrlf = (await resTitleCrlf.json()) as any;
-    assert.match(dataTitleCrlf.error, /cannot contain newline characters/i);
+    assert.equal(
+      dataTitleCrlf.error,
+      'Please check the version, title, change descriptions, and download URL.',
+    );
   } finally {
     restoreEnv();
     await stopServer(server);

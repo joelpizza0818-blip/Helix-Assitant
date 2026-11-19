@@ -3,6 +3,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 from typing import Any
 
+from services.agent.storage_paths import get_agent_data_dir
+
 from .input_controller import BrowserInputController
 from .observer import BrowserObserver
 
@@ -127,8 +129,7 @@ class BrowserSession:
         
         browser_class = getattr(self._playwright, self.browser_type)
         profile_path = (
-            Path.home()
-            / ".helix"
+            get_agent_data_dir()
             / "browser-profile"
             / self.browser_type
             / self.browser_channel

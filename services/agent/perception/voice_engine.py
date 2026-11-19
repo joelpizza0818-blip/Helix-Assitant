@@ -8,8 +8,8 @@ from enum import Enum
 logger = logging.getLogger(__name__)
 
 
-def markdown_to_speech(text: str) -> str:
-    """Return readable prose without Markdown presentation syntax."""
+def _markdown_to_speech_legacy(text: str) -> str:
+    """Legacy Markdown cleanup retained as a fallback only."""
     spoken = re.sub(r"!\[([^\]]*)\]\([^)]*\)", r"\1", text)
     spoken = re.sub(r"\[([^\]]+)\]\((?:<[^>]*>|[^)]*)\)", r"\1", spoken)
     spoken = re.sub(r"\[([^\]]+)\]\[[^\]]*\]", r"\1", spoken)
@@ -35,6 +35,23 @@ def markdown_to_speech(text: str) -> str:
     spoken = spoken.replace("|", " ")
     spoken = re.sub(r"(?m)^\s*\\?[`*_~]+\s*$", "", spoken)
     return re.sub(r"\s+", " ", spoken).strip()
+
+
+def markdown_to_speech(text: str) -> str:
+    """Return only speakable prose, never code or commands.
+
+    The centralized filter is authoritative.  The legacy Markdown cleanup is
+    used only if the voice package cannot be imported (for example while
+    running a standalone perception script).
+    """
+    try:
+        try:
+            from ..voice.response_filter import filter_for_speech
+        except ImportError:
+            from services.agent.voice.response_filter import filter_for_speech
+    except ImportError:
+        return _markdown_to_speech_legacy(text)
+    return filter_for_speech(text).text
 
 
 class VoiceState(Enum):

@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       publish_installer:
-        description: Dispatch the existing v0.8.0 installer workflow after all checks pass
+        description: Dispatch the current desktop installer workflow after all checks pass
         type: boolean
         required: true
         default: false
@@ -114,7 +114,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   dispatch:
-    name: Dispatch existing v0.8.0 installer workflow
+    name: Dispatch the current desktop installer workflow
     needs: validate
     if: inputs.publish_installer
     permissions:
@@ -122,13 +122,32 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - name: Dispatch installer workflow
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - uses: actions/checkout@v4
+
+      - name: Resolve the current desktop release tag
+        id: release
         shell: bash
         run: |
           set -euo pipefail
+          version=$(node -p "require('./apps/desktop/package.json').version")
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Desktop package version is not a stable semantic version: $version"
+            exit 1
+          fi
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch installer workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" --repo joelpizza0818-blip/Helix-Assitant >/dev/null 2>&1; then
+            echo "::error::Release $TAG does not exist yet. Publish the desktop release before dispatching its installer build."
+            exit 1
+          fi
           gh workflow run publish-windows-installer.yml \
             --repo joelpizza0818-blip/Helix-Assitant \
-            --ref v0.8.0
-          echo "The existing v0.8.0 installer workflow was dispatched. Monitor it at https://github.com/joelpizza0818-blip/Helix-Assitant/actions/workflows/publish-windows-installer.yml"
+            --ref "$TAG"
+          echo "The $TAG installer workflow was dispatched. Monitor it at https://github.com/joelpizza0818-blip/Helix-Assitant/actions/workflows/publish-windows-installer.yml"

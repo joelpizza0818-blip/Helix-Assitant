@@ -59,7 +59,7 @@ class ShellTool(BaseTool):
             self.block_elevated_execution = settings['block_elevated_execution']
         if isinstance(settings.get('sandbox_enabled'), bool):
             self.sandbox_enabled = settings['sandbox_enabled']
-        if settings.get('sandbox_mode') in {'restricted', 'isolated', 'windows_sandbox', 'docker'}:
+        if settings.get('sandbox_mode') in {'restricted', 'isolated'}:
             self.sandbox_mode = settings['sandbox_mode']
 
     @staticmethod
@@ -288,6 +288,15 @@ class ShellTool(BaseTool):
                 exit_code = process.returncode
             except asyncio.TimeoutError:
                 process.kill()
+                # El timeout cancela communicate(), así que nadie más va a recolectar
+                # al hijo: sin wait() quedaría como zombie y con los pipes abiertos.
+                # Se descarta su salida y se conserva el resultado del timeout.
+                try:
+                    await process.wait()
+                except Exception:
+                    logger.debug(
+                        "Failed to reap shell process after timeout", exc_info=True
+                    )
                 stdout, stderr, exit_code = "", "Command timed out", -1
                 
         except Exception as e:

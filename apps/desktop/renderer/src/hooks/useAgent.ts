@@ -12,6 +12,18 @@ import {
   deleteConversation as deleteStoredConversation,
   type StoredConversation,
 } from './conversationHistory'
+import { getUserFacingError } from '../lib/userError'
+
+// D-03: durante el streaming cada fragmento reemplaza el último mensaje y antes se reescribía
+// todo el histórico (JSON.parse + JSON.stringify + localStorage.setItem) por token, O(histórico)
+// por chunk. Se agrupa la escritura en 500 ms, imperceptible para el usuario y suficiente para
+// agrupar una ráfaga de chunks. Ese debounce abre una ventana en la que puede haber datos sin
+// persistir; se cubre en tres puntos, y ninguno más: (1) el volcado al cambiar de conversación,
+// (2) el volcado al desmontar un componente que sí se desmonte, y (3) el flush de
+// `pagehide`/`visibilitychange` del efecto de cierre. El caso (2) NO cubre el cierre de la
+// aplicación: en producción FloatingUI es la raíz y nunca se desmonta, y al cerrar la ventana el
+// renderer termina sin ejecutar los cleanups de React.
+const CONVERSATION_PERSIST_DEBOUNCE_MS = 500
 
 interface UseAgentReturn {
   messages: AgentMessage[]
@@ -36,6 +48,8 @@ interface UseAgentReturn {
   deleteConversation: (id: string) => boolean
   startNewConversation: () => void
   cancelTask: (taskId: string) => void
+  pauseTask: (taskId: string) => void
+  resumeTask: (taskId: string) => void
   confirmAction: (requestId: string) => void
   rejectAction: (requestId: string) => void
   loadProviders: () => Promise<void>
@@ -75,6 +89,30 @@ export function useAgent(options: UseAgentOptions = {}): UseAgentReturn {
   const [models, setModels] = useState<ModelDefinition[]>([])
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const modelRequestsByTaskRef = useRef<Record<string, ModelRequestEvent[]>>({})
+  const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingConversationRef = useRef<{ id: string; messages: AgentMessage[] } | null>(null)
+
+  // Vuelca de inmediato lo que el debounce tenga pendiente. Es síncrono a propósito: se invoca en
+  // el cleanup de los efectos (cambio de conversación y desmontaje de un componente que sí se
+  // desmonte) y en el cierre de la ventana, donde ya no habrá otra oportunidad de escribir.
+  // Es idempotente: la ref se vacía antes de escribir y el temporizador se cancela, así que dos
+  // llamadas seguidas no duplican ni corrompen nada (la segunda sale por el `if (!pending)`).
+  // Debe seguir siendo estable (deps []): la identidad del callback es la que depende el debounce.
+  const flushPendingConversation = useCallback(() => {
+    const pending = pendingConversationRef.current
+    if (!pending) return
+    pendingConversationRef.current = null
+    if (persistTimerRef.current) {
+      clearTimeout(persistTimerRef.current)
+      persistTimerRef.current = null
+    }
+    try {
+      const current = readConversationHistory()
+      setConversationHistory(saveConversation(current, pending.id, pending.messages))
+    } catch (error) {
+      console.error('Failed to save conversation history:', error)
+    }
+  }, [])
 
   useEffect(() => {
     if (!persistConversation) return
@@ -87,13 +125,45 @@ export function useAgent(options: UseAgentOptions = {}): UseAgentReturn {
 
   useEffect(() => {
     if (!persistConversation || messages.length === 0) return
-    try {
-      const current = readConversationHistory()
-      setConversationHistory(saveConversation(current, conversationId, messages))
-    } catch (error) {
-      console.error('Failed to save conversation history:', error)
+    // Se guarda el último estado en la ref en lugar de escribir: el temporizador se reinicia con
+    // cada chunk y solo persiste cuando el streaming se queda quieto.
+    pendingConversationRef.current = { id: conversationId, messages }
+    if (persistTimerRef.current) clearTimeout(persistTimerRef.current)
+    persistTimerRef.current = setTimeout(() => {
+      persistTimerRef.current = null
+      flushPendingConversation()
+    }, CONVERSATION_PERSIST_DEBOUNCE_MS)
+    // El cleanup solo cancela el temporizador: la ref se conserva para que el volcado de los
+    // efectos de abajo no pierda el último estado.
+    return () => {
+      if (persistTimerRef.current) {
+        clearTimeout(persistTimerRef.current)
+        persistTimerRef.current = null
+      }
     }
-  }, [conversationId, messages, persistConversation])
+  }, [conversationId, messages, persistConversation, flushPendingConversation])
+
+  // Volcado inmediato al cambiar de conversación y al desmontar. Vive en un efecto aparte porque
+  // el cleanup del efecto anterior también corre en cada chunk de streaming y escribiría siempre.
+  useEffect(() => flushPendingConversation, [conversationId, flushPendingConversation])
+
+  // Cierre de ventana: React no ejecuta cleanups cuando el renderer termina, así que el debounce
+  // podría dejar sin guardar el último tramo (o una conversación nueva entera). `pagehide` es el
+  // que dispara Chromium al cerrar/navegar; `visibilitychange` a `hidden` se añade porque en
+  // Electron la ventana puede pasar a oculta antes del desmontaje. Ambos son seguros de repetir:
+  // `flushPendingConversation` vacía la ref y cancela el temporizador antes de escribir.
+  useEffect(() => {
+    if (!persistConversation) return
+    const flushOnHide = () => {
+      if (document.visibilityState === 'hidden') flushPendingConversation()
+    }
+    window.addEventListener('pagehide', flushPendingConversation)
+    document.addEventListener('visibilitychange', flushOnHide)
+    return () => {
+      window.removeEventListener('pagehide', flushPendingConversation)
+      document.removeEventListener('visibilitychange', flushOnHide)
+    }
+  }, [persistConversation, flushPendingConversation])
 
   const selectConversation = useCallback((id: string) => {
     try {
@@ -127,6 +197,15 @@ export function useAgent(options: UseAgentOptions = {}): UseAgentReturn {
   }, [])
 
   const deleteConversation = useCallback((id: string): boolean => {
+    // Si el debounce aún tenía mensajes de esta conversación, se descartan antes de borrarla: el
+    // volcado del cambio de conversación la resucitaría en localStorage.
+    if (pendingConversationRef.current?.id === id) {
+      pendingConversationRef.current = null
+      if (persistTimerRef.current) {
+        clearTimeout(persistTimerRef.current)
+        persistTimerRef.current = null
+      }
+    }
     try {
       const persistedHistory = readConversationHistory()
       const nextHistory = deleteStoredConversation(persistedHistory, id)
@@ -150,6 +229,10 @@ export function useAgent(options: UseAgentOptions = {}): UseAgentReturn {
 
     cleanups.push(
       window.helix.onAgentMessage((msg) => {
+        // TODO(jornada): el evento no se filtra por `conversation_id`, así que un chunk tardío de
+        // la conversación anterior puede acabar en la nueva (y persistirse en ella). No se corrige
+        // aquí porque exige cambiar el contrato del evento en el preload/agente y no en este hook;
+        // se documenta para no dejarlo como deuda invisible.
         setMessages((prev) => {
           // Avoid duplicates for streaming
           const last = prev[prev.length - 1]
@@ -264,7 +347,11 @@ export function useAgent(options: UseAgentOptions = {}): UseAgentReturn {
     cleanups.push(
       window.helix.onFallbackEvent((event) => {
         setFallbackEvent(event)
-        // Auto-dismiss after 5 seconds
+        // El aviso caduca 5 s después de RECIBIRSE, no de montarse. El temporizador vive en este
+        // hook porque es el dueño del estado: useAgent también lo usan Toolbox y TaskManager, que
+        // no renderizan la barra, y así el descarte no depende de que un componente esté montado.
+        // Reiniciarlo aquí garantiza que un evento nuevo se vea sus 5 s completos aunque el
+        // anterior siguiera visible.
         if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current)
         fallbackTimerRef.current = setTimeout(() => setFallbackEvent(null), 5000)
       })
@@ -302,11 +389,16 @@ export function useAgent(options: UseAgentOptions = {}): UseAgentReturn {
           || err.source === 'microphone'
           || err.source === 'agent_connection'
         ) {
+          const fallback = err.source === 'camera'
+            ? 'No se pudo acceder a la cámara. Revisa los permisos e inténtalo de nuevo.'
+            : err.source === 'microphone'
+              ? 'No se pudo acceder al micrófono. Revisa los permisos e inténtalo de nuevo.'
+              : 'No se pudo conectar con HELIX. Comprueba la conexión e inténtalo de nuevo.'
           setMessages((previous) => [
             ...previous,
             {
               role: 'assistant',
-              content: err.message,
+              content: getUserFacingError(err.message, fallback),
               timestamp: new Date().toISOString(),
             },
           ])
@@ -374,6 +466,14 @@ export function useAgent(options: UseAgentOptions = {}): UseAgentReturn {
     window.helix?.cancelTask(taskId)
   }, [])
 
+  const pauseTask = useCallback((taskId: string) => {
+    window.helix?.pauseTask(taskId)
+  }, [])
+
+  const resumeTask = useCallback((taskId: string) => {
+    window.helix?.resumeTask(taskId)
+  }, [])
+
   const confirmAction = useCallback((requestId: string) => {
     window.helix?.confirmAction(requestId)
     setPendingConfirmation(null)
@@ -427,7 +527,7 @@ export function useAgent(options: UseAgentOptions = {}): UseAgentReturn {
   return {
     messages, conversationHistory, conversationHistoryError, conversationId, isLoading, tasks, agentUpdates, agentStatus, currentModel, currentProvider,
     taskCount, pendingConfirmation, fallbackEvent, browserProgress, browserFrame, providers, models,
-    sendMessage, selectConversation, deleteConversation, startNewConversation, cancelTask, confirmAction, rejectAction,
+    sendMessage, selectConversation, deleteConversation, startNewConversation, cancelTask, pauseTask, resumeTask, confirmAction, rejectAction,
     loadProviders, loadModels, loadTasks, dismissFallback
   }
 }

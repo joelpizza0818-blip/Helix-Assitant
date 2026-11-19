@@ -172,7 +172,11 @@ export class PythonManager {
           process.env.PYTHONPATH
         ].filter(Boolean).join(path.delimiter),
         HELIX_SETTINGS_PATH: this.settingsPath,
-        HELIX_LOG_DIR: path.join(path.dirname(this.settingsPath), 'logs'),
+        HELIX_DESKTOP_SESSION_PATH: path.join(path.dirname(this.settingsPath), 'docker-desktop-session.json'),
+        HELIX_LOG_DIR: path.join(process.env.HELIX_STORAGE_DIR || path.dirname(this.settingsPath), 'logs'),
+        ...(process.env.HELIX_STORAGE_DIR
+          ? { HELIX_STORAGE_DIR: process.env.HELIX_STORAGE_DIR }
+          : {}),
         HELIX_WS_PAIRING_FILE: path.join(path.dirname(this.settingsPath), 'mobile-pairing.json'),
         HELIX_MOBILE_RELAY_URL_FILE: path.join(path.dirname(this.settingsPath), 'mobile-relay.json'),
         HELIX_BROWSER_EXTENSION_TOKEN: this.browserExtensionToken,

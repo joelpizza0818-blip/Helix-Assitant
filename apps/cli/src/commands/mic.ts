@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import type { AgentClient } from '../client/agent-client';
 import { GREEN, RED, YELLOW, GRAY, BOLD, DIM } from '../ui/colors';
+import { getUserFacingError } from '../ui/userError';
 
 export async function handleMicrophoneCommand(
   client: AgentClient,
@@ -16,7 +17,7 @@ export async function handleMicrophoneCommand(
       console.log(`${GREEN('🟢 Micrófono:')} ${chalk.greenBright.bold('ACTIVO')} ${DIM('(Escuchando wake word: "hey helix").')}\n`);
       return true;
     } catch (err) {
-      console.log(RED(`✖ Error al activar micrófono: ${(err as Error).message}\n`));
+      console.log(RED(`✖ ${getUserFacingError(err, 'No se pudo activar el micrófono. Comprueba los permisos y vuelve a intentarlo.')}\n`));
       return currentVoiceState;
     }
   }
@@ -28,7 +29,7 @@ export async function handleMicrophoneCommand(
       console.log(`${RED('🔴 Micrófono:')} ${chalk.redBright.bold('INACTIVO')} ${DIM('(Entrada por voz deshabilitada).')}\n`);
       return false;
     } catch (err) {
-      console.log(RED(`✖ Error al desactivar micrófono: ${(err as Error).message}\n`));
+      console.log(RED(`✖ ${getUserFacingError(err, 'No se pudo desactivar el micrófono. Inténtalo de nuevo.')}\n`));
       return currentVoiceState;
     }
   }
@@ -51,7 +52,7 @@ export async function handleMicrophoneCommand(
     console.log(`\n  ${DIM('Uso: /microphone enable | /microphone disable')}\n`);
     return isEnabled;
   } catch (err) {
-    console.log(RED(`  Error al consultar configuración de voz: ${(err as Error).message}\n`));
+    console.log(RED(`  ${getUserFacingError(err, 'No se pudo consultar la configuración de voz. Inténtalo de nuevo.')}\n`));
     return currentVoiceState;
   }
 }

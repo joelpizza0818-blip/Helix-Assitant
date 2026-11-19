@@ -62,3 +62,6 @@ AGENTS.md
 .hypothesis
 
 scratch*.py
+
+# Auditoría visual local (capturas y reportes)
+/reporte/

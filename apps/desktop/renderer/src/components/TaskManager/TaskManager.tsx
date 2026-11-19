@@ -2,10 +2,11 @@ import React, { useState } from 'react'
 import { useAgent } from '../../hooks/useAgent'
 import type { TaskStatus, TaskDefinition } from '../../types/global'
 import { safeInputSummary, safeSummaryText } from '../FloatingUI/taskExecutionSummary'
+import { getUserFacingError } from '../../lib/userError'
 import './TaskManager.css'
 
 export default function TaskManager() {
-  const { tasks, cancelTask } = useAgent()
+  const { tasks, cancelTask, pauseTask, resumeTask } = useAgent()
   const [filter, setFilter] = useState<TaskStatus | 'all'>('all')
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null)
 
@@ -38,7 +39,7 @@ export default function TaskManager() {
           <span className="task-manager__title">Background Tasks</span>
         </div>
         <div className="task-manager__filters">
-          {(['all', 'running', 'queued', 'completed', 'failed'] as const).map((f) => (
+          {(['all', 'running', 'queued', 'paused', 'completed', 'failed'] as const).map((f) => (
             <button
               key={f}
               className={`task-filter-btn ${filter === f ? 'task-filter-btn--active' : ''}`}
@@ -86,6 +87,12 @@ export default function TaskManager() {
                           <span className="text-xs text-orange">Subagent{task.role ? ` · ${task.role}` : ''}</span>
                         </>
                       )}
+                      {task.interrupted && (
+                        <>
+                          <span>·</span>
+                          <span className="text-xs text-orange">Interrupted by restart</span>
+                        </>
+                      )}
                       <span>·</span>
                       <span className="text-xs text-muted">Priority: {task.priority}</span>
                       <span>·</span>
@@ -96,7 +103,29 @@ export default function TaskManager() {
                   </div>
 
                   <div className="task-item__actions">
-                    {(task.status === 'running' || task.status === 'queued') && (
+                    {(task.status === 'running' || task.status === 'queued' || task.status === 'retrying' || task.status === 'waiting_confirmation') && (
+                      <button
+                        className="task-pause-btn"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          pauseTask(task.id)
+                        }}
+                      >
+                        Pause
+                      </button>
+                    )}
+                    {task.status === 'paused' && (
+                      <button
+                        className="task-resume-btn"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          resumeTask(task.id)
+                        }}
+                      >
+                        Resume
+                      </button>
+                    )}
+                    {task.status !== 'completed' && task.status !== 'failed' && task.status !== 'cancelled' && (
                       <button
                         className="task-cancel-btn"
                         onClick={(e) => {
@@ -118,7 +147,7 @@ export default function TaskManager() {
                     <div className="task-logs-header">Execution Logs</div>
                     {task.status === 'failed' && task.error && (
                       <div className="task-item__failure" role="alert">
-                        {safeSummaryText(task.error)}
+                        {getUserFacingError(task.error, 'La tarea no pudo completarse. Revisa su configuración e inténtalo de nuevo.')}
                       </div>
                     )}
                     {task.task_type === 'subagent' && (
@@ -139,7 +168,14 @@ export default function TaskManager() {
                           <span className={`task-log-level task-log-level--${log.level.toLowerCase()}`}>
                             [{log.level}]
                           </span>
-                          <span className="task-log-msg selectable">{safeSummaryText(log.message)}</span>
+                          <span className="task-log-msg selectable">
+                            {log.level.toUpperCase() === 'ERROR'
+                              ? getUserFacingError(
+                                log.message,
+                                'La operación no pudo completarse. Revisa la configuración e inténtalo de nuevo.',
+                              )
+                              : safeSummaryText(log.message)}
+                          </span>
                         </div>
                       ))
                     )}
@@ -164,7 +200,10 @@ export default function TaskManager() {
                             </div>
                             {request.error && (
                               <div className="task-request__error">
-                                {request.error.code}: {request.error.message}
+                                {getUserFacingError(
+                                  request.error.message,
+                                  'No se pudo completar esta solicitud del modelo. Prueba de nuevo o selecciona otro modelo.',
+                                )}
                               </div>
                             )}
                           </div>

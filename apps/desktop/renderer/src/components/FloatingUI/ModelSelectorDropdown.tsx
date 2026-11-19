@@ -1,16 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react'
 import type { HelixSettings, LlamaServerStatus } from '../../types/global'
 import {
-  checkOllamaRunning,
-  getInstalledOllamaModels,
-  pullOllamaModel,
-} from '../../services/ollamaService'
-import {
   getModelCatalog,
-  pullOllamaModelViaIpc,
+  getOllamaStatus,
   type ModelCatalog,
-  type CatalogModelEntry,
+  type OllamaStatus,
 } from '../../services/modelCatalogService'
+import { getInstalledLocalModelItems } from './installedLocalModels'
 import './ModelSelectorDropdown.css'
 
 interface Props {
@@ -75,59 +71,6 @@ const FREE_MODELS: ModelItem[] = [
     provider: 'free',
     tier: 'free',
     badge: '0-Cost Cloud',
-  },
-]
-
-const LOCAL_OLLAMA_MODELS: ModelItem[] = [
-  {
-    id: 'llama-server/active-model',
-    name: 'Llama Server (GGUF)',
-    description: 'llama.cpp portable · En :8080 (0-Install, Cero Servicios)',
-    provider: 'llama_server',
-    tier: 'local',
-    badge: 'llama.cpp',
-  },
-  {
-    id: 'llama3.2:3b',
-    name: 'Llama 3.2 3B Local',
-    description: 'Meta AI · 100% privado en CPU/GPU (~2.0 GB)',
-    provider: 'ollama',
-    tier: 'local',
-  },
-  {
-    id: 'qwen2.5-coder:7b',
-    name: 'Qwen 2.5 Coder 7B Local',
-    description: 'Alibaba Qwen · Especialista en código (~4.7 GB)',
-    provider: 'ollama',
-    tier: 'local',
-  },
-  {
-    id: 'qwen2.5-coder:1.5b',
-    name: 'Qwen 2.5 Coder 1.5B Local',
-    description: 'Alibaba Qwen · Código y shell ultra ligero (~1.0 GB)',
-    provider: 'ollama',
-    tier: 'local',
-  },
-  {
-    id: 'deepseek-r1:7b',
-    name: 'DeepSeek R1 7B Local',
-    description: 'DeepSeek · Razonamiento local (~4.7 GB)',
-    provider: 'ollama',
-    tier: 'local',
-  },
-  {
-    id: 'deepseek-r1:1.5b',
-    name: 'DeepSeek R1 1.5B Local',
-    description: 'DeepSeek · Razonamiento local ligero (~1.1 GB)',
-    provider: 'ollama',
-    tier: 'local',
-  },
-  {
-    id: 'gemma2:9b',
-    name: 'Gemma 2 9B Local',
-    description: 'Google · Excelente capacidad general local (~5.4 GB)',
-    provider: 'ollama',
-    tier: 'local',
   },
 ]
 
@@ -250,10 +193,7 @@ const PRO_CLOUD_MODELS: ModelItem[] = [
 
 export default function ModelSelectorDropdown({ settings, onSave }: Props) {
   const [isOpen, setIsOpen] = useState(false)
-  const [installedOllamaModels, setInstalledOllamaModels] = useState<string[]>([])
-  const [downloadingModel, setDownloadingModel] = useState<string | null>(null)
-  const [downloadProgress, setDownloadProgress] = useState<number>(0)
-  const [downloadStatus, setDownloadStatus] = useState<string>('')
+  const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus | null>(null)
   const [catalog, setCatalog] = useState<ModelCatalog | null>(null)
   const [catalogError, setCatalogError] = useState<string | null>(null)
   const [llamaStatus, setLlamaStatus] = useState<LlamaServerStatus | null>(null)
@@ -263,10 +203,14 @@ export default function ModelSelectorDropdown({ settings, onSave }: Props) {
   const activeModelId = settings.default_model || 'meta-llama/llama-3.2-3b-instruct:free'
   const activeEffort = settings.speed_preference === 'high' ? 'Bajo' : settings.quality_preference === 'high' ? 'Alto' : 'Medio'
 
-  const allModels = [...FREE_MODELS, ...LOCAL_OLLAMA_MODELS, ...PRO_CLOUD_MODELS]
+  const installedLocalModels = getInstalledLocalModelItems(
+    ollamaStatus?.models ?? [],
+    llamaStatus?.models ?? [],
+  )
+  const allModels = [...FREE_MODELS, ...installedLocalModels, ...PRO_CLOUD_MODELS]
   const currentModel = allModels.find((m) => m.id === activeModelId) || {
     id: activeModelId,
-    name: activeModelId.split('/').pop()?.split(':')[0] || 'Modelo',
+    name: activeModelId.split(/[\\/]/).pop()?.split(':')[0] || 'Modelo',
     tier: (settings.preferred_provider === 'ollama' ? 'local' : settings.preferred_provider === 'free' ? 'free' : 'cloud') as 'free' | 'local' | 'cloud',
   }
 
@@ -275,37 +219,31 @@ export default function ModelSelectorDropdown({ settings, onSave }: Props) {
     if (!isOpen) return
     let mounted = true
 
-    void getModelCatalog().then((cat) => {
-      if (!mounted) return
-      setCatalog(cat)
-      setCatalogError(null)
-      // Extract installed ollama models from catalog
-      const installedNames = cat.categories.local
-        .filter((m) => m.installed)
-        .map((m) => m.id.toLowerCase())
-      setInstalledOllamaModels(installedNames)
-
-      void window.helix.getLlamaServerStatus()
-        .then((status) => {
-          if (mounted) setLlamaStatus(status)
-        })
-        .catch((error: unknown) => {
-          console.warn('Could not load llama-server status.', error)
-        })
-    }).catch(() => {
-      if (mounted) {
-        setCatalogError('No se pudo cargar el catálogo de modelos. Algunos estados pueden no estar actualizados.')
-      }
-      // Fallback: check Ollama directly
-      void checkOllamaRunning().then((running) => {
+    void getModelCatalog()
+      .then((cat) => {
         if (!mounted) return
-        if (running) {
-          void getInstalledOllamaModels().then((models) => {
-            if (mounted) setInstalledOllamaModels(models)
-          })
+        setCatalog(cat)
+        setCatalogError(null)
+      })
+      .catch(() => {
+        if (mounted) {
+          setCatalogError('No se pudo cargar el catálogo de modelos cloud.')
         }
       })
-    })
+    void getOllamaStatus()
+      .then((status) => {
+        if (mounted) setOllamaStatus(status)
+      })
+      .catch((error: unknown) => {
+        console.warn('Could not load installed Ollama models.', error)
+      })
+    void window.helix.getLlamaServerStatus()
+      .then((status) => {
+        if (mounted) setLlamaStatus(status)
+      })
+      .catch((error: unknown) => {
+        console.warn('Could not load llama-server status.', error)
+      })
 
     return () => {
       mounted = false
@@ -334,103 +272,6 @@ export default function ModelSelectorDropdown({ settings, onSave }: Props) {
     setIsOpen(false)
   }
 
-  const handleDownloadModel = async (model: ModelItem, event: React.MouseEvent) => {
-    event.stopPropagation()
-    setDownloadingModel(model.id)
-    setDownloadProgress(0)
-    setDownloadStatus('Iniciando en segundo plano…')
-
-    if (model.provider === 'llama_server') {
-      try {
-        setDownloadStatus('Iniciando llama-server...')
-        await window.helix.downloadLlamaServer()
-        setDownloadStatus('Descargando modelo GGUF...')
-        setDownloadProgress(35)
-        const res = await window.helix.downloadGgufModel('qwen2.5-coder-1.5b')
-        setDownloadProgress(100)
-        if (res?.done) {
-          setInstalledOllamaModels((prev) => [...prev, model.id.toLowerCase()])
-          await onSave({ default_model: model.id, preferred_provider: 'llama_server' })
-          setDownloadStatus('¡Listo!')
-        } else {
-          setDownloadStatus(res?.error || 'Error al descargar')
-        }
-      } catch (err: unknown) {
-        setDownloadStatus('Error: ' + (err instanceof Error ? err.message : String(err)))
-      } finally {
-        setTimeout(() => {
-          setDownloadingModel(null)
-          setDownloadProgress(0)
-          setDownloadStatus('')
-        }, 2000)
-      }
-      return
-    }
-
-    // Ollama: Iniciar servicio en segundo plano primero
-    if (window.helix?.ensureOllama) {
-      try {
-        setDownloadStatus('Iniciando servicio en segundo plano...')
-        await window.helix.ensureOllama()
-      } catch {
-        /* continue */
-      }
-    }
-
-    // Try IPC-based pull first (handles hardware checks)
-    const ipcResult = await pullOllamaModelViaIpc(model.id, 'start')
-    if (ipcResult) {
-      if (ipcResult.status === 'INCOMPATIBLE') {
-        setDownloadStatus('Hardware insuficiente: ' + (ipcResult.issues?.join(', ') ?? ''))
-        setTimeout(() => {
-          setDownloadingModel(null)
-          setDownloadProgress(0)
-          setDownloadStatus('')
-        }, 3500)
-        return
-      }
-      if (ipcResult.status === 'INSTALLING') {
-        setDownloadStatus('Descargando modelo…')
-        const success = await pullOllamaModel(model.id, (status, pct) => {
-          setDownloadStatus(status)
-          setDownloadProgress(pct)
-        })
-        if (success) {
-          setInstalledOllamaModels((prev) => [...prev, model.id.toLowerCase()])
-          await onSave({ default_model: model.id, preferred_provider: 'ollama' })
-          setDownloadStatus('¡Listo para usar!')
-        } else {
-          setDownloadStatus('Error al descargar')
-        }
-        setTimeout(() => {
-          setDownloadingModel(null)
-          setDownloadProgress(0)
-          setDownloadStatus('')
-        }, 1800)
-        return
-      }
-    }
-
-    // Fallback: direct Ollama API pull
-    setDownloadStatus('Descargando modelo…')
-    const success = await pullOllamaModel(model.id, (status, pct) => {
-      setDownloadStatus(status)
-      setDownloadProgress(pct)
-    })
-    if (success) {
-      setInstalledOllamaModels((prev) => [...prev, model.id.toLowerCase()])
-      await onSave({ default_model: model.id, preferred_provider: 'ollama' })
-      setDownloadStatus('¡Listo para usar!')
-    } else {
-      setDownloadStatus('Error al descargar')
-    }
-    setTimeout(() => {
-      setDownloadingModel(null)
-      setDownloadProgress(0)
-      setDownloadStatus('')
-    }, 1800)
-  }
-
   const handleSetEffort = async (effort: 'Bajo' | 'Medio' | 'Alto') => {
     if (effort === 'Bajo') {
       await onSave({ speed_preference: 'high', quality_preference: 'low' })
@@ -440,9 +281,6 @@ export default function ModelSelectorDropdown({ settings, onSave }: Props) {
       await onSave({ speed_preference: 'balanced', quality_preference: 'balanced' })
     }
   }
-
-  const ollamaRunning = catalog?.ollama_status?.running ?? false
-  const ollamaInstalled = catalog?.ollama_status?.installed ?? false
 
   return (
     <div className="model-selector-container" ref={dropdownRef}>
@@ -505,81 +343,34 @@ export default function ModelSelectorDropdown({ settings, onSave }: Props) {
 
           <div className="model-dropdown__divider" />
 
-          {/* 2. Modelos Locales en PC (Ollama) */}
+          {/* 2. Solo modelos locales ya instalados */}
           <div className="model-dropdown__section-title">
             <LocalIcon />
-            <span>Modelos Locales (Tu PC · 100% Privado)</span>
+            <span>Modelos locales descargados</span>
           </div>
-
-          <div className="model-dropdown__key-notice" style={{ padding: '6px 10px', background: 'rgba(37, 99, 235, 0.08)', border: '1px solid rgba(37, 99, 235, 0.25)', borderRadius: '6px', margin: '4px 10px 8px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '11px', color: '#93c5fd' }}>
-              💻 Inferencia local 100% privada (CPU/GPU)
-            </span>
-            <span style={{ fontSize: '10px', color: '#60a5fa', background: 'rgba(37,99,235,0.2)', padding: '2px 6px', borderRadius: '4px' }}>
-              Auto-gestión
-            </span>
-          </div>
-
-          {LOCAL_OLLAMA_MODELS.map((m) => {
+          {installedLocalModels.length === 0 ? (
+            <div className="model-dropdown__free-tier-note">
+              Aún no hay modelos locales descargados. Encuentra las descargas en Configuración → Model Store.
+            </div>
+          ) : installedLocalModels.map((m) => {
             const isSelected = activeModelId === m.id
-            const isInstalled = m.provider === 'llama_server'
-              ? Boolean(llamaStatus?.running || (llamaStatus?.models && llamaStatus.models.length > 0))
-              : installedOllamaModels.some((name) =>
-                  name.includes(m.id.toLowerCase().split(':')[0])
-                )
-            const isDownloading = downloadingModel === m.id
-            const canDownload = !isInstalled && !isDownloading
-
             return (
-              <div
+              <button
                 key={m.id}
-                className={`model-dropdown__item model-dropdown__item--interactive ${isSelected ? 'model-dropdown__item--selected' : ''}`}
-                onClick={() => {
-                  if (isInstalled && !isDownloading) void handleSelectModel(m)
-                }}
-                role="button"
-                tabIndex={0}
+                type="button"
+                className={`model-dropdown__item ${isSelected ? 'model-dropdown__item--selected' : ''}`}
+                onClick={() => void handleSelectModel(m)}
+                title={m.description}
               >
                 <div className="model-dropdown__item-info">
                   <div className="model-dropdown__item-header">
                     <span className="model-dropdown__item-name">{m.name}</span>
-                    {isInstalled
-                      ? <span className="model-dropdown__badge model-dropdown__badge--local">Local ✓</span>
-                      : <span className="model-dropdown__badge model-dropdown__badge--local-pending">Local</span>
-                    }
+                    <span className="model-dropdown__badge model-dropdown__badge--local">{m.badge || 'Local ✓'}</span>
                   </div>
                   <span className="model-dropdown__item-desc">{m.description}</span>
-                  {isDownloading && (
-                    <div className="model-dropdown__progress-box">
-                      <div className="model-dropdown__progress-bar">
-                        <div
-                          className="model-dropdown__progress-fill"
-                          style={{ width: `${Math.max(downloadProgress, 4)}%` }}
-                        />
-                      </div>
-                      <span className="model-dropdown__progress-status">{downloadStatus}</span>
-                    </div>
-                  )}
                 </div>
-
-                {isDownloading ? (
-                  <span className="model-dropdown__pct">{downloadProgress}%</span>
-                ) : isInstalled ? (
-                  isSelected ? (
-                    <span className="model-dropdown__check">✓</span>
-                  ) : (
-                    <span className="model-dropdown__ready">Listo</span>
-                  )
-                ) : canDownload ? (
-                  <button
-                    type="button"
-                    className="model-dropdown__download-btn"
-                    onClick={(e) => void handleDownloadModel(m, e)}
-                  >
-                    Descargar
-                  </button>
-                ) : null}
-              </div>
+                {isSelected && <span className="model-dropdown__check">✓</span>}
+              </button>
             )
           })}
 

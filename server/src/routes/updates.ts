@@ -101,12 +101,12 @@ updatesRouter.post('/subscribe', async (req: Request, res: Response) => {
     if (error instanceof z.ZodError) {
       return res.status(400).json({
         success: false,
-        error: error.issues[0]?.message || 'Invalid subscription data',
+        error: 'Please enter a valid email address.',
       });
     }
     return res.status(500).json({
       success: false,
-      error: 'Internal error while registering subscription',
+      error: 'We could not process your subscription right now. Please try again later.',
     });
   }
 });
@@ -124,7 +124,7 @@ updatesRouter.post(
       if (targetRecipients.length === 0) {
         return res.status(400).json({
           success: false,
-          error: 'No subscribed recipients found to broadcast.',
+          error: 'There are no active subscribers to receive this update.',
         });
       }
 
@@ -141,7 +141,7 @@ updatesRouter.post(
       if (!result.success) {
         return res.status(500).json({
           success: false,
-          error: 'Error sending emails',
+          error: 'We could not send the update right now. Please try again later.',
         });
       }
 
@@ -155,13 +155,13 @@ updatesRouter.post(
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           success: false,
-          error: error.issues[0]?.message || 'Invalid broadcast parameters',
+          error: 'Please check the version, title, change descriptions, and download URL.',
         });
       }
       logger.error('[Updates] Broadcast failed.');
       return res.status(500).json({
         success: false,
-        error: 'Internal error while processing the email broadcast',
+        error: 'We could not send the update right now. Please try again later.',
       });
     }
   }
@@ -173,6 +173,9 @@ updatesRouter.get('/subscribers/count', async (_req: Request, res: Response) => 
     return res.status(200).json({ success: true, count: await getSubscriberCount() });
   } catch (error) {
     logger.error('[Updates] Unable to read subscriber count:', error);
-    return res.status(503).json({ success: false, error: 'Subscriber store unavailable' });
+    return res.status(503).json({
+      success: false,
+      error: 'We could not load subscriber information right now. Please try again later.',
+    });
   }
 });

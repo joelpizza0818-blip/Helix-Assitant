@@ -410,8 +410,8 @@ export class BrowserExtensionBridge {
           pending.resolve(resultBody && 'result' in resultBody ? resultBody.result : body)
         }
         sendJson(response, 200, { accepted: true })
-      } catch (error) {
-        sendJson(response, 400, { error: error instanceof Error ? error.message : String(error) })
+      } catch {
+        sendJson(response, 400, { error: 'Could not complete the browser request. Check the selected tab and try again.' })
       }
       return
     }
@@ -454,10 +454,9 @@ export class BrowserExtensionBridge {
         captured_at: snapshot.captured_at,
       }
       sendJson(response, 200, { accepted: true })
-    } catch (error) {
+    } catch {
       if (response.headersSent || response.destroyed) return
-      const message = error instanceof Error ? error.message : String(error)
-      sendJson(response, 400, { error: `Could not process browser page snapshot: ${message}` })
+      sendJson(response, 400, { error: 'Could not process the browser page. Check the selected tab and try again.' })
     }
   }
 

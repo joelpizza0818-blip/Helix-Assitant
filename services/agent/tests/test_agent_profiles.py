@@ -8,6 +8,9 @@ from services.agent.core.agent_manager import AgentManager
 from services.agent.core.agent_profiles import AgentProfileStore
 from services.agent.core.event_bus import EventBus
 from services.agent.core.task_manager import TaskManager, TaskStatus
+from services.agent.tools.context_retrieve_tool import ContextRetrieveTool
+from services.agent.tools.indexed_file_search_tool import IndexedFileSearchTool
+from services.agent.core.subagent import SubAgent
 
 
 class FakeContextManager:
@@ -47,6 +50,64 @@ def test_model_created_profiles_are_bounded_and_persistent(tmp_path: Path):
     restored = AgentProfileStore(profile_path).get("verifier")
     assert restored is not None
     assert restored.public_dict() == created.public_dict()
+
+
+def test_research_specialty_defaults_reference_registered_tool_names(tmp_path: Path):
+    profile = AgentProfileStore(tmp_path / "profiles.json").get("eliot")
+    assert profile is not None
+    agent = SubAgent(
+        agent_id="research-agent",
+        role=profile.role,
+        profile=profile,
+        react_loop=FakeReactLoop(),
+        context_manager=FakeContextManager(),
+        event_bus=EventBus(),
+    )
+
+    preferred_tools = set(agent._preferred_tools())
+    assert ContextRetrieveTool("test").name in preferred_tools
+    assert IndexedFileSearchTool().name in preferred_tools
+
+
+@pytest.mark.asyncio
+async def test_model_created_profile_applies_tools_budget_and_memory(tmp_path: Path):
+    loop = FakeReactLoop()
+    store = AgentProfileStore(tmp_path / "profiles.json")
+    manager = AgentManager(
+        react_loop=loop,
+        context_manager=FakeContextManager(),
+        event_bus=EventBus(),
+        role_config=None,
+        tool_registry=None,
+        profile_store=store,
+    )
+
+    handle = await manager.delegate_task(
+        "Verify a release checksum",
+        role="research",
+        new_profile={
+            "name": "Release Verifier",
+            "role": "research",
+            "description": "Checks release evidence.",
+            "capabilities": ["research", "verification"],
+            "color": "#a0ca92",
+            "allowed_tools": ["read_active_browser_page"],
+            "max_iterations": 4,
+            "memory_enabled": False,
+        },
+    )
+    result = await handle
+
+    profile = store.get("release-verifier")
+    agent = manager.agents[result["agent_id"]]
+    assert profile is not None
+    assert profile.allowed_tools == ["read_active_browser_page"]
+    assert profile.max_iterations == 4
+    assert profile.memory_enabled is False
+    assert agent.memory_manager is None
+    assert loop.execute_kwargs["allowed_tool_names"] == ["read_active_browser_page"]
+    assert loop.execute_kwargs["max_iterations"] == 4
+
 
 def test_profiles_can_be_personalized_without_losing_route_or_memory_identity(tmp_path: Path):
     profile_path = tmp_path / "subagents" / "profiles.json"

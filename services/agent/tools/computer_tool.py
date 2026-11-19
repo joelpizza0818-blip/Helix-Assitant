@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 from typing import Any, Callable, Optional
 
 from .base_tool import BaseTool, ToolResult
@@ -34,10 +35,21 @@ class _ComputerActions:
         if not screen_observation_is_allowed():
             raise RuntimeError("Screen observation is disabled for this task.")
 
-    async def capture_context(self, include_ocr: bool = True) -> dict:
+    async def capture_context(
+        self,
+        include_ocr: bool = True,
+        window_handle: int | None = None,
+    ) -> dict:
         self._require_screen_observation()
         if not include_ocr:
-            return await asyncio.to_thread(self.screen_engine.capture_context)
+            if window_handle is None:
+                return await asyncio.to_thread(self.screen_engine.capture_context)
+            return await asyncio.to_thread(
+                self.screen_engine.capture_context,
+                None,
+                None,
+                window_handle,
+            )
         try:
             ocr_engine = await asyncio.to_thread(self._get_ocr_engine)
         except Exception as error:
@@ -46,10 +58,18 @@ class _ComputerActions:
                 self.screen_engine.capture_context,
                 None,
                 f"{type(error).__name__}",
+                window_handle,
+            )
+        if window_handle is None:
+            return await asyncio.to_thread(
+                self.screen_engine.capture_context,
+                ocr_engine,
             )
         return await asyncio.to_thread(
             self.screen_engine.capture_context,
             ocr_engine,
+            None,
+            window_handle,
         )
 
     async def _click(self, x: int, y: int) -> None:
@@ -149,8 +169,14 @@ class ScreenObserveTool(_ComputerActions, BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Capture the current screen, active window, accessibility tree, and "
-            "OCR text. Use this before acting on the desktop."
+            "Observe one application window, its accessibility tree, and OCR "
+            "text without including HELIX overlays or windows covering it. The "
+            "tool returns available window handles for selecting other apps. "
+            "Use the selected window_handle only when visual details are needed; "
+            "otherwise prefer UI Automation. Compare apps through separate "
+            "sequential observations. If the requested content is absent, try "
+            "another relevant handle before answering; never substitute an "
+            "obstructed monitor capture."
         )
 
     @property
@@ -162,7 +188,14 @@ class ScreenObserveTool(_ComputerActions, BaseTool):
         return False
 
     def validate_params(self, params: dict) -> bool:
-        return not params
+        if not isinstance(params, dict) or set(params) - {"window_handle"}:
+            return False
+        handle = params.get("window_handle")
+        return handle is None or (
+            isinstance(handle, int)
+            and not isinstance(handle, bool)
+            and 0 < handle <= 2147483647
+        )
 
     def get_schema(self) -> dict:
         return {
@@ -170,12 +203,28 @@ class ScreenObserveTool(_ComputerActions, BaseTool):
             "description": self.description,
             "parameters": {
                 "type": "object",
-                "properties": {},
+                "properties": {
+                    "window_handle": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 2147483647,
+                        "description": (
+                            "Optional native handle from the available windows "
+                            "returned by a previous observation."
+                        ),
+                    },
+                },
                 "required": [],
             },
         }
 
     async def execute(self, params: dict) -> ToolResult:
+        if not self.validate_params(params):
+            return ToolResult(
+                success=False,
+                output=None,
+                error="Invalid screen observation target.",
+            )
         if not screen_observation_is_allowed():
             return ToolResult(
                 success=False,
@@ -183,7 +232,33 @@ class ScreenObserveTool(_ComputerActions, BaseTool):
                 error="Screen observation is disabled for this task.",
             )
         try:
-            context = await self.capture_context()
+            windows = await asyncio.to_thread(self.screen_engine.list_windows)
+            windows = [
+                window
+                for window in windows
+                if not str(window.get("title", "")).casefold().startswith("helix")
+            ]
+            window_handle = params.get("window_handle")
+            if window_handle is None:
+                window_handle = await asyncio.to_thread(
+                    self.select_window_for_request,
+                    "",
+                    windows,
+                )
+            if not any(
+                window["window_handle"] == window_handle
+                for window in windows
+            ):
+                return ToolResult(
+                    success=False,
+                    output=None,
+                    error=(
+                        "The selected application window is unavailable or "
+                        "belongs to HELIX. Refresh the window list."
+                    ),
+                )
+            context = await self.capture_context(window_handle=window_handle)
+            context["available_windows"] = windows
             return ToolResult(success=True, output=context)
         except Exception as error:
             logger.exception("Screen observation failed")
@@ -195,6 +270,68 @@ class ScreenObserveTool(_ComputerActions, BaseTool):
                     "Check the agent log for details."
                 ),
             )
+
+    def select_window_for_request(
+        self,
+        description: str,
+        windows: list[dict] | None = None,
+    ) -> int | None:
+        """Choose the requested app window, or the foremost non-HELIX app."""
+        self._require_screen_observation()
+        candidates = [
+            window
+            for window in (
+                self.screen_engine.list_windows()
+                if windows is None
+                else windows
+            )
+            if not str(window.get("title", "")).casefold().startswith("helix")
+        ]
+        if not candidates:
+            return None
+
+        ignored_terms = {
+            "about", "app", "application", "desktop", "dentro", "en", "for",
+            "from", "hay", "inspect", "la", "look", "mira", "on", "open",
+            "pantalla", "screen", "see", "the", "this", "to", "ventana",
+            "visible", "what", "window", "with", "que",
+        }
+        request_terms = {
+            term.casefold()
+            for term in re.findall(r"[a-z0-9]+", description)
+            if len(term) > 2 and term.casefold() not in ignored_terms
+        }
+        scored = []
+        for window in candidates:
+            title_terms = {
+                term.casefold()
+                for term in re.findall(r"[a-z0-9]+", window["title"])
+                if len(term) > 2 and term.casefold() not in ignored_terms
+            }
+            score = len(request_terms & title_terms)
+            if score:
+                scored.append((score, window))
+        if scored:
+            return max(
+                scored,
+                key=lambda item: (
+                    item[0],
+                    item[1]["is_foreground"],
+                    item[1]["bounds"]["width"] * item[1]["bounds"]["height"],
+                ),
+            )[1]["window_handle"]
+
+        active = self.screen_engine.get_active_window_info()
+        if (
+            active
+            and not str(active.get("title", "")).casefold().startswith("helix")
+            and any(
+                window["window_handle"] == active.get("hwnd")
+                for window in candidates
+            )
+        ):
+            return active["hwnd"]
+        return candidates[0]["window_handle"]
 
 
 class ComputerTool(_ComputerActions, BaseTool):

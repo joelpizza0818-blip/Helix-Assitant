@@ -31,7 +31,7 @@ Create a local `.env` from the repository example when available. Keep productio
 
 ## Provider routing
 
-Empty provider keys disable that provider. Keys are tried in configured order; eligible rate limits can move to the next key. Cross-provider fallback is opt-in/configured and may incur additional charges. A model is eligible only when its registered capabilities satisfy the request.
+Empty provider keys disable that provider. Keys are tried in configured order; eligible rate limits can move to the next key. Local providers marked `no_key_required` (`ollama`, `llama_server`) are invoked without API credentials. If a local request fails, configured cross-provider fallback may still route to a cloud provider and incur charges. A model is eligible only when its registered capabilities satisfy the request.
 
 Confirmed model-unavailable responses can remove a model for the current agent process. Quota and billing failures are scoped to the current execution/key according to the router implementation; they do not silently delete the configuration.
 
@@ -69,8 +69,9 @@ The desktop shell starts Python on `AGENT_WS_PORT` (default `8765`) and selects 
 
 ## Perception
 
-- Local speech uses faster-whisper when configured; the first model load may download/cache model data.
-- Edge TTS sends spoken response text to Microsoft's service; system speech stays local.
+- Local speech uses faster-whisper; the first model load may download/cache model data, then transcription runs locally. Live Voice offers a speed profile (`tiny`) and an accuracy profile (`base`), with automatic language detection.
+- Live Voice keeps TTS local, starts with a model-generated greeting, remains available for follow-up speech, and supports interrupting a spoken or pending response; supported agent responses stream to speech sentence by sentence through the existing agent, tools and permissions. Spoken replies should be conversational rather than read verbatim, and pending confirmations accept natural affirmations or rejections instead of requiring a fixed phrase; unclear replies leave the action pending.
+- Edge TTS sends spoken response text to Microsoft's service and is not used by Live Voice.
 - Camera and gestures require device access, models, OpenCV/MediaPipe, confidence, stability and cooldown settings.
 - RDP/ICA sessions may disable hardware perception gracefully.
 - `WAKE_WORD="hey helix"` requires the matching ONNX classifier; see [WAKE_WORD_TRAINING.md](./WAKE_WORD_TRAINING.md).

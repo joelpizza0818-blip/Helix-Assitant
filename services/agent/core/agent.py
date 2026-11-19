@@ -4,10 +4,14 @@ from .event_bus import EventBus
 from .state_manager import StateManager
 from .orchestrator import Orchestrator
 from .task_manager import TaskManager, TaskStatus
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 import uuid
 import asyncio
 import base64
+from datetime import datetime, timezone
+
+if TYPE_CHECKING:
+    from ..voice.confirmations import ConversationConfirmationManager
 
 try:
     from ..skills.skill_registry import SkillRegistry
@@ -28,7 +32,8 @@ logger = logging.getLogger(__name__)
 class Agent:
     def __init__(self, event_bus: EventBus, state_manager: StateManager, orchestrator: Orchestrator, 
                  task_manager: TaskManager, skill_registry: Optional[SkillRegistry] = None, 
-                 intent_matcher: Optional[IntentMatcher] = None, agent_manager: Optional[AgentManager] = None):
+                 intent_matcher: Optional[IntentMatcher] = None, agent_manager: Optional[AgentManager] = None,
+                 confirmation_manager: Optional["ConversationConfirmationManager"] = None):
         self.event_bus = event_bus
         self.state_manager = state_manager
         self.orchestrator = orchestrator
@@ -36,6 +41,7 @@ class Agent:
         self.skill_registry = skill_registry
         self.intent_matcher = intent_matcher
         self.agent_manager = agent_manager
+        self.confirmation_manager = confirmation_manager
 
         asyncio.create_task(self.event_bus.subscribe("USER_TEXT", self.handle_user_input))
         asyncio.create_task(self.event_bus.subscribe("VOICE_COMMAND", self.handle_user_input))
@@ -73,6 +79,46 @@ class Agent:
                 else "voice" if is_voice_input else "text"
             )
         }
+        if is_voice_input and payload.get("voice_greeting") is True:
+            context["voice_greeting"] = True
+        # Conversational confirmations are centralized.  While an action is
+        # pending, an explicit yes/no/change resolves it instead of creating a
+        # second task.  A plain "yes" with nothing pending remains normal chat.
+        confirmation_manager = getattr(self, "confirmation_manager", None)
+        if confirmation_manager is not None and text.strip():
+            conversation_id = payload.get("conversation_id")
+            outcome = await confirmation_manager.try_resolve_text(
+                text,
+                conversation_id=(
+                    conversation_id
+                    if isinstance(conversation_id, str) and conversation_id
+                    else None
+                ),
+                source="voice" if is_voice_input else (
+                    "mobile" if input_source == "mobile" else "text"
+                ),
+            )
+            if outcome.handled:
+                if outcome.decision == "modify" and outcome.followup_text:
+                    text = outcome.followup_text
+                    logger.info(
+                        "CONVERSATION_CONFIRMATION_MODIFIED request_id=%s",
+                        outcome.request_id,
+                    )
+                else:
+                    if outcome.decision == "ambiguous" and outcome.message:
+                        await self.event_bus.publish(
+                            "AGENT_MESSAGE",
+                            {
+                                "task_id": payload.get("task_id"),
+                                "role": "assistant",
+                                "content": outcome.message,
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "provider": "local",
+                                "model": "confirmation",
+                            },
+                        )
+                    return
         project_memory_store = getattr(
             self.orchestrator, "project_memory_store", None
         )
@@ -157,6 +203,7 @@ class Agent:
         if skill_names and skill_registry:
             skill_instructions = []
             requested_skills = []
+            resolved_skills = []
             for requested_name in dict.fromkeys(skill_names):
                 skill = skill_registry.get_skill(requested_name)
                 if skill is None:
@@ -175,6 +222,7 @@ class Agent:
                     )
                     continue
                 requested_skills.append(skill.name)
+                resolved_skills.append(skill)
                 skill_instructions.append(
                     f"Skill @{skill.name} ({skill.description}):\n{skill.instructions}"
                 )
@@ -192,6 +240,41 @@ class Agent:
                         ).tools
                     )
                 )
+                workflow_skill = next(
+                    (
+                        item
+                        for item in resolved_skills
+                        if isinstance(item.config, dict)
+                        and isinstance(item.config.get("workflow_id"), str)
+                        and item.config["workflow_id"]
+                    ),
+                    None,
+                )
+                if workflow_skill is not None and "workflow_definition" not in context:
+                    workflow_id = workflow_skill.config["workflow_id"]
+                    try:
+                        workflow = (
+                            workflow_store.get_workflow(workflow_id)
+                            if workflow_store is not None
+                            else None
+                        )
+                    except ValueError:
+                        workflow = None
+                    if workflow is not None:
+                        context["workflow_definition"] = workflow
+                        context["workflow_id"] = workflow["id"]
+                        cleaned_input = text
+                        for skill_name in requested_skills:
+                            cleaned_input = re.sub(
+                                rf"(?<!\w)@{re.escape(skill_name)}(?![\w.-])",
+                                "",
+                                cleaned_input,
+                                count=1,
+                                flags=re.IGNORECASE,
+                            )
+                        context["workflow_input"] = re.sub(
+                            r" {2,}", " ", cleaned_input
+                        ).strip()
 
         tool_registry = getattr(self.orchestrator, "tool_registry", None)
         get_tools_by_source = getattr(tool_registry, "get_tools_by_source", None)

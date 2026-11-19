@@ -80,7 +80,7 @@ class MCPClient:
 
     def configure_sandbox(self, enabled: bool, mode: str = "restricted") -> None:
         self.sandbox_enabled = bool(enabled)
-        if mode in {"restricted", "isolated", "windows_sandbox", "docker"}:
+        if mode in {"restricted", "isolated"}:
             self.sandbox_mode = mode
 
     @staticmethod
@@ -396,7 +396,7 @@ class MCPClientManager:
 
     def configure_sandbox(self, enabled: bool, mode: str = "restricted") -> None:
         self.sandbox_enabled = bool(enabled)
-        if mode in {"restricted", "isolated", "windows_sandbox", "docker"}:
+        if mode in {"restricted", "isolated"}:
             self.sandbox_mode = mode
         for client in self.clients.values():
             client.configure_sandbox(self.sandbox_enabled, self.sandbox_mode)

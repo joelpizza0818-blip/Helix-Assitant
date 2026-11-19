@@ -4,7 +4,7 @@
 
 ### The Persistent, Local-First AI Desktop Assistant for Windows
 
-HELIX is a local-first desktop agent that works with your operating system, terminal, and the context you choose to share; it asks for confirmation before system-level or critical actions.
+HELIX is a local-first desktop agent that works with your operating system, terminal, and the context you choose to share; it applies configurable confirmation policies before sensitive actions.
 
 [Website](https://helix-assistant.vercel.app) | [Downloads](https://helix-assistant.vercel.app/download) | [Features](https://helix-assistant.vercel.app/features) | [Docs](https://helix-assistant.vercel.app/docs) | [Releases](https://github.com/joelpizza0818-blip/Helix-Assitant/releases) | [FAQ](FAQ.md) | [Support](SUPPORT.md) | [Security](SECURITY.md)
 
@@ -64,7 +64,7 @@ Click any preview to play the video from the live landing page.
     <td width="50%" align="center">
       <strong>Natural desktop interaction</strong><br><br>
       <img src="docs/assets/demo/helix-chat-capabilities.png" alt="HELIX chat capabilities" width="100%">
-      <p align="left"><em>Use chat to request supported desktop, terminal, file, and browser tasks, with confirmation for sensitive actions.</em></p>
+      <p align="left"><em>Use chat to request supported desktop, terminal, file, and browser tasks, with configurable confirmation for sensitive actions.</em></p>
     </td>
     <td width="50%" align="center">
       <strong>Provider key failover</strong><br><br>
@@ -101,9 +101,9 @@ Gallery videos are opened on demand rather than eagerly downloaded on first load
 <!-- HELIX-DATA:download-rows:start -->
 | Product | Platform | Public release / download | Status |
 |---|---|---|---|
-| HELIX Normal | Windows x64 | [v0.8.0](https://github.com/joelpizza0818-blip/Helix-Assitant/releases) / [Download page](https://helix-assistant.vercel.app/download) | Source v0.8.0; no published public release found. |
-| HELIX Mobile | Android APK | [mobile-v0.8.0](https://github.com/joelpizza0818-blip/Helix-Assitant/releases) | Source mobile-v0.8.0; no published public release found. |
-| HELIX CLI | Node.js / npm | [npm package](https://www.npmjs.com/package/helix-assistant-cli) | npm latest 0.6.1; repository source is 0.8.0. |
+| HELIX Normal | Windows x64 | [v0.8.0](https://github.com/joelpizza0818-blip/Helix-Assitant/releases/tag/v0.8.0) / [Download page](https://helix-assistant.vercel.app/download) | Public release published; no installer asset is attached. Use the authenticated download page. |
+| HELIX Mobile | Android APK | [mobile-v0.9.0](https://github.com/joelpizza0818-blip/Helix-Assitant/releases) | Source mobile-v0.9.0; no published public release found. |
+| HELIX CLI | Node.js / npm | [npm package](https://www.npmjs.com/package/helix-assistant-cli) | npm latest 0.8.0; repository source is 0.9.0. |
 <!-- HELIX-DATA:download-rows:end -->
 
 The Windows desktop installers are not Authenticode-signed, so SmartScreen may show a warning. Verify the SHA-256 published with the artifact before running it. Official desktop installers are currently available for Windows x64 only; Linux and macOS desktop installers are not published.
@@ -132,7 +132,7 @@ helix
 ```
 
 <!-- HELIX-DATA:cli-version:start -->
-npm's current `latest` version is **0.6.1**; the repository source package is **0.8.0**. The `/subagents` and `/browser live` commands require version **0.5.0 or newer**.
+npm's current `latest` version is **0.8.0**; the repository source package is **0.9.0**. The `/subagents` and `/browser live` commands require version **0.5.0 or newer**.
 <!-- HELIX-DATA:cli-version:end -->
 
 ### From source (Windows PowerShell)
@@ -196,7 +196,7 @@ flowchart LR
 
 ## Security and privacy
 
-HELIX classifies tool operations as `READ_ONLY`, `LOW_RISK`, `MODIFY`, `EXECUTE`, `SYSTEM`, or `CRITICAL`. Policies are action-specific; system and critical operations require human confirmation before execution. Confirmation checks do not replace operating-system permissions.
+HELIX classifies tool operations as `READ_ONLY`, `LOW_RISK`, `MODIFY`, `EXECUTE`, `SYSTEM`, or `CRITICAL`. Policies are action-specific; system and critical operations require human confirmation in Always Ask, Smart Approval, and Auto Approve. The explicit Allow All mode disables confirmation prompts. Confirmation checks do not replace operating-system permissions.
 
 The agent runs locally, but prompts and context you provide—including selected screen content—may be sent to the configured AI provider. Remote speech services, account/download flows, and other enabled integrations may also send data to their respective services. Credentials can come from the operating-system keyring or the agent environment; never share logs or configuration files without checking them for sensitive data.
 
@@ -234,7 +234,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete testing command list and
 ## Project status
 
 <!-- HELIX-DATA:project-status:start -->
-Desktop 0.8.0: not published (no installer asset on the public release); Android 0.8.0: not published; CLI npm latest 0.6.1 (repository source 0.8.0).
+Desktop 0.8.0: published (no installer asset on the public release); Android 0.9.0: not published; CLI npm latest 0.8.0 (repository source 0.9.0).
 <!-- HELIX-DATA:project-status:end -->
 
 ## License

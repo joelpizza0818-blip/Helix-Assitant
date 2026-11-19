@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React from 'react'
 import type { FallbackEvent } from '../../types/global'
 import './ModelFallbackBar.css'
 
@@ -7,12 +7,9 @@ interface Props {
   onDismiss: () => void
 }
 
+// Componente presentacional: el descarte automático a los 5 s vive en useAgent, que es quien
+// posee `fallbackEvent`. Duplicarlo aquí creaba dos fuentes de verdad para el mismo descarte.
 export default function ModelFallbackBar({ event, onDismiss }: Props) {
-  useEffect(() => {
-    const timer = setTimeout(onDismiss, 5000)
-    return () => clearTimeout(timer)
-  }, [event, onDismiss])
-
   return (
     <div className="fallback-bar" role="status">
       <span className="fallback-bar__icon">~</span>

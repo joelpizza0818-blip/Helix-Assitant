@@ -9,10 +9,20 @@ import sys
 import uuid
 from pathlib import Path
 from datetime import datetime, timezone
+from typing import Optional
 
 # Add the project root to sys.path to allow absolute imports like 'services.agent.mcp'
 project_root = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(project_root))
+
+from storage_paths import (
+    configure_cache_directories,
+    configure_temp_directory,
+    get_agent_data_dir,
+    get_desktop_data_dir,
+    get_storage_root,
+    migrate_legacy_agent_data,
+)
 
 from dotenv import load_dotenv
 import websockets
@@ -34,6 +44,7 @@ from security.websocket_auth import authenticate_websocket_handshake
 from services.agent.relay_client import run_relay_connector
 from core.state_manager import StateManager
 from core.task_manager import TaskManager
+from core.task_store import TaskStore
 from core.planner import Planner
 from core.orchestrator import Orchestrator
 from core.task_checkpoint_store import TaskCheckpointStore
@@ -73,6 +84,13 @@ from skills.intent_matcher import IntentMatcher
 from mcp.client import MCPClientManager, safe_mcp_diagnostic
 from mcp.server import MCPServer
 from mcp.tool_provider import MCPToolBridge
+try:
+    from voice import VoiceSessionManager, ConversationConfirmationManager
+except ImportError:
+    from services.agent.voice import (
+        VoiceSessionManager,
+        ConversationConfirmationManager,
+    )
 
 from plugins.plugin_manager import PluginManager
 from security.permission_manager import PermissionManager
@@ -93,6 +111,8 @@ try:
     log_dir_env = os.environ.get("HELIX_LOG_DIR")
     if log_dir_env:
         log_dir = Path(log_dir_env)
+    elif os.name == "nt" or os.environ.get("HELIX_STORAGE_DIR"):
+        log_dir = get_storage_root() / "logs"
     elif getattr(sys, "frozen", False):
         log_dir = Path(os.environ.get("APPDATA", ".")) / "helix" / "logs"
     else:
@@ -110,6 +130,7 @@ async def ws_handler(
     clients: set,
     request_handler: DesktopRequestHandler,
     conversation_clients: dict[str, set],
+    voice_session_manager: Optional[VoiceSessionManager] = None,
 ):
     clients.add(websocket)
     response_lock = asyncio.Lock()
@@ -117,12 +138,24 @@ async def ws_handler(
     request_tasks_by_id: dict[str, asyncio.Task] = {}
     registered_conversations: list[str] = []
 
+    async def send_to_ws(event: dict) -> None:
+        try:
+            async with response_lock:
+                await websocket.send(json.dumps(event))
+        except Exception:
+            pass
+
     async def dispatch_message(raw_message: str) -> None:
         request_id = None
         try:
             message = json.loads(raw_message)
             if not isinstance(message, dict):
                 raise ValueError("WebSocket message must be a JSON object")
+            msg_type = message.get("type", "")
+            if isinstance(msg_type, str) and msg_type.startswith("VOICE_") and voice_session_manager is not None:
+                payload = message.get("payload") if isinstance(message.get("payload"), dict) else {}
+                await voice_session_manager.handle_message(msg_type, payload, send_to_ws)
+                return
             request_id = message.get("request_id")
             response = await request_handler.dispatch(message)
             if response:
@@ -214,6 +247,11 @@ async def ws_handler(
             task.cancel()
         if request_tasks:
             await asyncio.gather(*request_tasks, return_exceptions=True)
+        if voice_session_manager is not None:
+            try:
+                await voice_session_manager.close_sessions_for_sender(send_to_ws)
+            except Exception:
+                logger.debug("Failed closing voice sessions on disconnect", exc_info=True)
         clients.discard(websocket)
         for conversation_id in registered_conversations:
             recipients = conversation_clients.get(conversation_id)
@@ -231,9 +269,19 @@ async def main():
     args = parser.parse_args()
 
     load_dotenv(project_root / ".env")
+    storage_root = get_storage_root()
+    if os.name == "nt":
+        os.environ["HELIX_STORAGE_DIR"] = str(storage_root)
+    configure_temp_directory()
+    configure_cache_directories()
+    try:
+        if migrate_legacy_agent_data():
+            logger.info("Migrated existing HELIX agent data into %s", get_agent_data_dir())
+    except OSError:
+        logger.exception("Could not migrate existing HELIX agent data")
     ws_token = os.environ.pop("HELIX_WS_TOKEN", None)
     pairing_file = os.environ.get("HELIX_WS_PAIRING_FILE")
-    token_dir = Path(os.environ.get("APPDATA", Path.home() / ".config")) / "HELIX"
+    token_dir = get_desktop_data_dir() / "security"
     token_file = token_dir / ".ws_token"
 
     if not ws_token and token_file.is_file():
@@ -257,7 +305,13 @@ async def main():
     # Core Infrastructure
     event_bus = EventBus()
     state_manager = StateManager()
-    task_manager = TaskManager(event_bus)
+    default_settings_path = get_desktop_data_dir() / "settings.json"
+    settings_path = Path(os.environ.get("HELIX_SETTINGS_PATH", default_settings_path))
+    task_manager = TaskManager(
+        event_bus,
+        store=TaskStore(settings_path.parent / "tasks"),
+    )
+    await task_manager.restore()
     permission_manager = PermissionManager()
     
     # Key & Provider Management
@@ -337,11 +391,10 @@ async def main():
         role_config=role_config,
         permission_manager=permission_manager,
         capability_requester=request_capability,
+        task_manager=task_manager,
     )
 
     # Skills Subsystem
-    default_settings_path = Path(os.environ.get("APPDATA", Path.home())) / "HELIX" / "settings.json"
-    settings_path = Path(os.environ.get("HELIX_SETTINGS_PATH", default_settings_path))
     project_memory_store = ProjectMemoryStore(settings_path.parent / "projects")
     workflow_store = WorkflowStore(settings_path.parent / "workflows", tool_registry)
     skill_loader = SkillLoader()
@@ -402,6 +455,9 @@ async def main():
         workflow_store=workflow_store,
     )
     
+    conversation_confirmation_manager = ConversationConfirmationManager(event_bus)
+    await conversation_confirmation_manager.start()
+
     agent = Agent(
         event_bus=event_bus,
         state_manager=state_manager,
@@ -410,6 +466,7 @@ async def main():
         skill_registry=skill_registry,
         intent_matcher=intent_matcher,
         agent_manager=agent_manager,
+        confirmation_manager=conversation_confirmation_manager,
     )
 
     request_handler = DesktopRequestHandler(
@@ -488,6 +545,7 @@ async def main():
             "BROWSER_FRAME": "browser_frame",
             "BROWSER_PROGRESS": "browser_progress",
             "DESKTOP_FRAME": "desktop_frame",
+            "DESKTOP_CURSOR": "desktop_cursor",
             "HAND_LANDMARKS": "hand_landmarks",
             "CAPABILITY_REQUIRED": "capability-required",
         }
@@ -1216,8 +1274,16 @@ async def main():
                 "the desktop agent will remain available."
             )
 
+    voice_session_manager = VoiceSessionManager(
+        event_bus=event_bus,
+        confirmation_manager=conversation_confirmation_manager,
+        settings_provider=request_handler.get_settings,
+    )
+    await voice_session_manager.start()
+    voice_session_manager.start_warmup()
+
     server = await websockets.serve(
-        lambda ws: ws_handler(ws, clients, request_handler, conversation_clients),
+        lambda ws: ws_handler(ws, clients, request_handler, conversation_clients, voice_session_manager),
         "127.0.0.1", 
         args.ws_port,
         max_size=MAX_AGENT_WEBSOCKET_MESSAGE_BYTES,
@@ -1279,9 +1345,20 @@ async def main():
             await gesture_engine.stop()
         if voice_engine:
             await voice_engine.stop()
+        if voice_session_manager:
+            try:
+                await voice_session_manager.shutdown()
+            except Exception:
+                pass
+        if conversation_confirmation_manager:
+            try:
+                await conversation_confirmation_manager.stop()
+            except Exception:
+                pass
         if screen_vision_sampler:
             screen_vision_enabled["value"] = False
             await screen_vision_sampler.stop()
+        await task_manager.flush_persist()
         server.close()
         await server.wait_closed()
         logger.info(

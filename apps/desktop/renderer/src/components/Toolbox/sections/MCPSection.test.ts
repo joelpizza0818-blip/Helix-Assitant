@@ -91,3 +91,10 @@ test('URL transport save failures explain stdio-only support', () => {
     'URL-based MCP servers are not supported. Configure a local stdio launch command.',
   )
 })
+
+test('unknown MCP save errors do not expose exception details', () => {
+  assert.equal(
+    mcpSaveErrorMessage(new Error('TypeError at saveMcpServerDraft in internal module')),
+    'No se pudo guardar la configuración del servidor MCP. Revisa los datos e inténtalo de nuevo.',
+  )
+})

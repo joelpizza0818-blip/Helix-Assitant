@@ -1,6 +1,8 @@
 import React, { useState } from 'react'
 import type { HelixSettings } from '../../../types/global'
+import { getUserFacingError } from '../../../lib/userError'
 import '../Toolbox.css'
+import './VoiceSection.css'
 
 interface Props {
   settings: HelixSettings
@@ -8,12 +10,104 @@ interface Props {
 }
 
 const WAKE_WORD_PRESETS = [
-  { label: 'Helix (Default)', value: 'helix' },
+  { label: 'Helix (Predeterminado)', value: 'helix' },
   { label: 'Jarvis', value: 'jarvis' },
   { label: 'Nova', value: 'nova' },
   { label: 'Computer', value: 'computer' },
   { label: 'Hey Assistant', value: 'hey assistant' },
-  { label: 'Custom...', value: 'custom' }
+  { label: 'Personalizado...', value: 'custom' },
+]
+
+interface CatalogVoice {
+  id: string
+  name: string
+  language: string
+  langLabel: string
+  gender: 'Femenina' | 'Masculina'
+  provider: 'windows_sapi' | 'edge_tts'
+  description: string
+  sampleText: string
+  isLocal: boolean
+}
+
+const VOICE_CATALOG: CatalogVoice[] = [
+  {
+    id: 'Microsoft Sabina Desktop - Spanish (Mexico)',
+    name: 'Sabina (Windows SAPI)',
+    language: 'es-MX',
+    langLabel: 'Español (México)',
+    gender: 'Femenina',
+    provider: 'windows_sapi',
+    description: 'Voz local Windows · 100% Offline, síntesis instantánea ultra-rápida (0ms latencia de red).',
+    sampleText: 'Hola, soy Sabina. Tu voz local de Windows para Helix sin conexión a internet.',
+    isLocal: true,
+  },
+  {
+    id: 'Microsoft David Desktop - English (United States)',
+    name: 'David (Windows SAPI)',
+    language: 'en-US',
+    langLabel: 'English (US)',
+    gender: 'Masculina',
+    provider: 'windows_sapi',
+    description: 'Voz local Windows · 100% Offline, articulación clara, técnica y formal.',
+    sampleText: 'Hello, I am David. Local offline speech synthesis for Helix.',
+    isLocal: true,
+  },
+  {
+    id: 'Microsoft Zira Desktop - English (United States)',
+    name: 'Zira (Windows SAPI)',
+    language: 'en-US',
+    langLabel: 'English (US)',
+    gender: 'Femenina',
+    provider: 'windows_sapi',
+    description: 'Voz local Windows · 100% Offline, dicción nítida y equilibrada.',
+    sampleText: 'Hello, I am Zira. Ready for voice interaction at zero cost.',
+    isLocal: true,
+  },
+  {
+    id: 'es-MX-DaliaNeural',
+    name: 'Dalia Neural',
+    language: 'es-MX',
+    langLabel: 'Español (México)',
+    gender: 'Femenina',
+    provider: 'edge_tts',
+    description: 'Voz neuronal Microsoft Edge · Entonación sumamente natural, suave y expresiva ($0 gratis).',
+    sampleText: 'Hola, soy Dalia. Puedo responder a tus preguntas en Helix con entonación natural.',
+    isLocal: false,
+  },
+  {
+    id: 'es-ES-AlvaroNeural',
+    name: 'Álvaro Neural',
+    language: 'es-ES',
+    langLabel: 'Español (España)',
+    gender: 'Masculina',
+    provider: 'edge_tts',
+    description: 'Voz neuronal Microsoft Edge · Tono profesional, seguro y dinámico ($0 gratis).',
+    sampleText: 'Hola, soy Álvaro. Estoy listo para asistirte en tiempo real con tus tareas.',
+    isLocal: false,
+  },
+  {
+    id: 'en-US-AndrewMultilingualNeural',
+    name: 'Andrew Multilingual',
+    language: 'multilingual',
+    langLabel: 'Multilingüe (Global)',
+    gender: 'Masculina',
+    provider: 'edge_tts',
+    description: 'Voz neuronal avanzada · Gran fidelidad y fluidez en inglés y español ($0 gratis).',
+    sampleText: 'Hello! I am Andrew. I can speak both Spanish and English fluently.',
+    isLocal: false,
+  },
+  {
+    id: 'en-US-AriaNeural',
+    name: 'Aria Neural',
+    language: 'en-US',
+    langLabel: 'English (US)',
+    gender: 'Femenina',
+    provider: 'edge_tts',
+    description: 'Voz neuronal Microsoft Edge · Ágil, clara y muy expresiva ($0 gratis).',
+    sampleText: 'Hi, I am Aria. Helix voice assistant is ready to converse with you.',
+    isLocal: false,
+  },
 ]
 
 export default function VoiceSection({ settings, onSave }: Props) {
@@ -22,8 +116,12 @@ export default function VoiceSection({ settings, onSave }: Props) {
   const [selectedPreset, setSelectedPreset] = useState(isPreset ? currentWake : 'custom')
   const [customWordInput, setCustomWordInput] = useState(settings.wake_word || 'helix')
   const [newAliasInput, setNewAliasInput] = useState('')
-  const [isPlayingTestAudio, setIsPlayingTestAudio] = useState(false)
+  const [previewingVoiceId, setPreviewingVoiceId] = useState<string | null>(null)
+  const [catalogFilter, setCatalogFilter] = useState<'all' | 'offline' | 'neural'>('all')
   const [testAudioResult, setTestAudioResult] = useState<string | null>(null)
+
+  const activeProvider = settings.voice_tts_provider || 'edge_tts'
+  const activeVoiceId = settings.voice_tts_voice || 'en-US-AndrewMultilingualNeural'
 
   const handlePresetSelect = async (preset: string) => {
     setSelectedPreset(preset)
@@ -51,32 +149,238 @@ export default function VoiceSection({ settings, onSave }: Props) {
     await onSave({ custom_wake_words: currentAliases.filter((a) => a !== alias) })
   }
 
-  const handleTestVoiceAudio = async () => {
-    setIsPlayingTestAudio(true)
+  const handlePreviewVoice = async (voice: CatalogVoice) => {
+    setPreviewingVoiceId(voice.id)
     setTestAudioResult(null)
     try {
-      const result = await window.helix.testTts(`HELIX activation phrase is set to ${settings.wake_word || 'Helix'}. Audio system online.`)
-      setTestAudioResult(result.fallback_used
-        ? `Played through ${result.provider} fallback. Primary error: ${result.error || 'unavailable'}`
-        : `Played through ${result.provider}.`)
+      await window.helix.testTts({
+        text: voice.sampleText,
+        provider: voice.provider,
+        voice_id: voice.id,
+      })
+      setTestAudioResult(`Muestra reproducida con éxito mediante ${voice.name}.`)
     } catch (error) {
-      setTestAudioResult(error instanceof Error ? error.message : 'Audio test failed.')
+      setTestAudioResult(
+        getUserFacingError(
+          error,
+          'No se pudo reproducir la muestra de audio. Comprueba el dispositivo de salida.',
+        )
+      )
     } finally {
-      setIsPlayingTestAudio(false)
+      setPreviewingVoiceId(null)
     }
+  }
+
+  const handleSelectVoice = async (voice: CatalogVoice) => {
+    await onSave({
+      voice_tts_provider: voice.provider,
+      voice_tts_voice: voice.id,
+    })
+  }
+
+  const filteredVoices = VOICE_CATALOG.filter((voice) => {
+    if (catalogFilter === 'offline') return voice.isLocal
+    if (catalogFilter === 'neural') return !voice.isLocal
+    return true
+  })
+
+  const isVoiceActive = (voice: CatalogVoice): boolean => {
+    if (activeProvider === voice.provider && activeVoiceId === voice.id) return true
+    if (activeProvider === 'windows_sapi' && voice.provider === 'windows_sapi') {
+      if (activeVoiceId.toLowerCase().includes(voice.name.toLowerCase().split(' ')[0])) {
+        return true
+      }
+    }
+    return false
   }
 
   return (
     <div className="toolbox-section">
-      <h2 className="toolbox-section__title">Voice Activation & Persona</h2>
+      <h2 className="toolbox-section__title">Voz, Personalidad y Live Audio</h2>
       <p className="toolbox-section__desc">
-        Configure the wake phrase and speech providers. A custom wake phrase needs a matching trained OpenWakeWord ONNX model in the wakeword models folder; HELIX does not train wake-word models from text.
+        Configura la interacción por voz de Helix: activa la escucha por palabra clave o pulsa para hablar, y selecciona la voz que mejor se adapte a tu estilo conversacional (100% gratuito, coste $0).
       </p>
 
-      {/* ── Activation & Wake Word Configuration ──────────────── */}
+      {/* ── Catálogo de Voces para Live y Normal Audio ──────────── */}
+      <div className="toolbox-card voice-catalog-card">
+        <div className="toolbox-card__header">
+          <div>
+            <span className="toolbox-card__title">Catálogo de Voces Helix</span>
+            <p className="toolbox-card__hint">
+              Elige la voz utilizada en Live Voice y respuestas habladas. Las voces locales de Windows funcionan offline sin conexión; las voces neuronales ofrecen máxima naturalidad ($0).
+            </p>
+          </div>
+        </div>
+
+        {/* Filter Pills */}
+        <div className="voice-catalog-filters">
+          <button
+            type="button"
+            className={`voice-catalog-filter-btn ${catalogFilter === 'all' ? 'voice-catalog-filter-btn--active' : ''}`}
+            onClick={() => setCatalogFilter('all')}
+          >
+            Todas ({VOICE_CATALOG.length})
+          </button>
+          <button
+            type="button"
+            className={`voice-catalog-filter-btn ${catalogFilter === 'offline' ? 'voice-catalog-filter-btn--active' : ''}`}
+            onClick={() => setCatalogFilter('offline')}
+          >
+            Locales Offline (0ms lag)
+          </button>
+          <button
+            type="button"
+            className={`voice-catalog-filter-btn ${catalogFilter === 'neural' ? 'voice-catalog-filter-btn--active' : ''}`}
+            onClick={() => setCatalogFilter('neural')}
+          >
+            Neuronales Expresivas ($0)
+          </button>
+        </div>
+
+        {testAudioResult && (
+          <p className="text-xs text-muted" role="status" style={{ marginBottom: 12 }}>
+            {testAudioResult}
+          </p>
+        )}
+
+        {/* Voice Grid */}
+        <div className="voice-catalog-grid">
+          {filteredVoices.map((voice) => {
+            const active = isVoiceActive(voice)
+            const isPreviewing = previewingVoiceId === voice.id
+
+            return (
+              <div
+                key={voice.id}
+                className={`voice-card ${active ? 'voice-card--active' : ''}`}
+              >
+                <div className="voice-card__header">
+                  <div className="voice-card__identity">
+                    <div className="voice-card__avatar">
+                      {voice.gender === 'Femenina' ? '♀' : '♂'}
+                    </div>
+                    <div className="voice-card__meta">
+                      <span className="voice-card__name">{voice.name}</span>
+                      <span className="voice-card__lang">{voice.langLabel}</span>
+                    </div>
+                  </div>
+                  <span
+                    className={`voice-card__badge ${voice.isLocal ? 'voice-card__badge--offline' : 'voice-card__badge--neural'}`}
+                  >
+                    {voice.isLocal ? 'Offline 0ms' : 'Neural $0'}
+                  </span>
+                </div>
+
+                <p className="voice-card__desc">{voice.description}</p>
+
+                <div className="voice-card__actions">
+                  <button
+                    type="button"
+                    className="voice-card__preview-btn"
+                    onClick={() => void handlePreviewVoice(voice)}
+                    disabled={isPreviewing}
+                    title="Escuchar una muestra de esta voz"
+                  >
+                    {isPreviewing ? (
+                      'Reproduciendo...'
+                    ) : (
+                      <>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                          <polygon points="5 3 19 12 5 21 5 3" />
+                        </svg>
+                        <span>Probar</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    className={`voice-card__select-btn ${active ? 'voice-card__select-btn--active' : ''}`}
+                    onClick={() => void handleSelectVoice(voice)}
+                    disabled={active}
+                  >
+                    {active ? '✓ Activa' : 'Seleccionar'}
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* ── Cadencia y Ajustes de Live Voice ────────────────────── */}
       <div className="toolbox-card" style={{ marginBottom: 16 }}>
         <div className="toolbox-card__header">
-          <span className="toolbox-card__title">Wake Phrase & Trigger Name</span>
+          <div>
+            <span className="toolbox-card__title">Conversación continua (Live Audio)</span>
+            <p className="toolbox-card__hint">
+              El micrófono permanece activo durante la llamada. Helix espera el tiempo elegido y permite un segundo adicional para retomar la frase antes de responder.
+            </p>
+          </div>
+        </div>
+
+        <div className="voice-live-tuning">
+          <button
+            type="button"
+            className={`voice-tuning-option ${(settings.voice_live_silence_ms ?? 1000) <= 450 ? 'voice-tuning-option--active' : ''}`}
+            onClick={() => onSave({ voice_live_silence_ms: 400 })}
+          >
+            <span className="voice-tuning-title">Respuesta ágil · 400 ms</span>
+            <span className="voice-tuning-desc">
+              Menos espera; puede detectar antes el final entre frases.
+            </span>
+          </button>
+
+          <button
+            type="button"
+            className={`voice-tuning-option ${(settings.voice_live_silence_ms ?? 1000) > 450 && (settings.voice_live_silence_ms ?? 1000) <= 800 ? 'voice-tuning-option--active' : ''}`}
+            onClick={() => onSave({ voice_live_silence_ms: 650 })}
+          >
+            <span className="voice-tuning-title">Natural · 650 ms</span>
+            <span className="voice-tuning-desc">
+              Equilibrio recomendado para hablar y hacer pausas breves al pensar.
+            </span>
+          </button>
+
+          <button
+            type="button"
+            className={`voice-tuning-option ${(settings.voice_live_silence_ms ?? 1000) > 800 ? 'voice-tuning-option--active' : ''}`}
+            onClick={() => onSave({ voice_live_silence_ms: 1000 })}
+          >
+            <span className="voice-tuning-title">Recomendado · 1000 ms + 1 s para retomar</span>
+            <span className="voice-tuning-desc">
+              Helix espera hasta 2 segundos sin voz; si continúas antes, une todo en el mismo turno.
+            </span>
+          </button>
+        </div>
+
+        <div className="form-row" style={{ marginTop: 14 }}>
+          <label className="form-label" htmlFor="vad-threshold">Sensibilidad de Micrófono (RMS)</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
+            <input
+              id="vad-threshold"
+              className="form-input"
+              type="range"
+              min={50}
+              max={1000}
+              step={25}
+              value={settings.vad_threshold ?? 250}
+              onChange={(e) => {
+                const threshold = Number.parseInt(e.target.value, 10)
+                if (Number.isFinite(threshold)) onSave({ vad_threshold: threshold })
+              }}
+            />
+            <span className="text-xs" style={{ minWidth: 50 }}>
+              {settings.vad_threshold ?? 250} RMS
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Activación por Palabra Clave (Wake Word) ───────────── */}
+      <div className="toolbox-card" style={{ marginBottom: 16 }}>
+        <div className="toolbox-card__header">
+          <span className="toolbox-card__title">Activación por Palabra Clave</span>
           <label className="toggle">
             <input
               type="checkbox"
@@ -87,57 +391,12 @@ export default function VoiceSection({ settings, onSave }: Props) {
           </label>
         </div>
 
-        <div className="toolbox-card__header toolbox-card__header--subtle">
-          <div>
-            <span className="toolbox-card__title">Require activation phrase</span>
-            <p className="toolbox-card__hint">Disable it for direct text chat. The microphone remains controlled separately.</p>
-          </div>
-          <label className="toggle">
-            <input
-              type="checkbox"
-              checked={settings.activation_phrase_enabled ?? true}
-              onChange={(e) => onSave({ activation_phrase_enabled: e.target.checked })}
-            />
-            <span className="toggle__slider" />
-          </label>
-        </div>
-
-        <div className="toolbox-card__header toolbox-card__header--subtle">
-          <div>
-            <span className="toolbox-card__title">Suppression mode</span>
-            <p className="toolbox-card__hint">Shows only the message field and enables spoken replies. Press Escape in the field to exit.</p>
-          </div>
-          <label className="toggle">
-            <input
-              type="checkbox"
-              checked={settings.floating_ui_mode === 'suppressed'}
-              onChange={(e) => onSave({
-                floating_ui_mode: e.target.checked ? 'suppressed' : 'full',
-                ...(e.target.checked ? { voice_response_enabled: true, voice_enabled: true } : {}),
-              })}
-            />
-            <span className="toggle__slider" />
-          </label>
-        </div>
-
-        <div className="toolbox-card__header" style={{ marginTop: 10 }}>
-          <span className="toolbox-card__title">Speak assistant replies</span>
-          <label className="toggle">
-            <input
-              type="checkbox"
-              checked={settings.voice_response_enabled ?? true}
-              onChange={(e) => onSave({ voice_response_enabled: e.target.checked })}
-            />
-            <span className="toggle__slider" />
-          </label>
-        </div>
-
         <div className="form-row">
-          <label className="form-label">Primary Activation Preset</label>
+          <label className="form-label">Palabras Clave Predefinidas</label>
           <select
             className="form-input"
             value={selectedPreset}
-            onChange={(e) => handlePresetSelect(e.target.value)}
+            onChange={(e) => void handlePresetSelect(e.target.value)}
           >
             {WAKE_WORD_PRESETS.map((p) => (
               <option key={p.value} value={p.value}>{p.label}</option>
@@ -146,58 +405,34 @@ export default function VoiceSection({ settings, onSave }: Props) {
         </div>
 
         <div className="form-row">
-          <label className="form-label">Active Wake Word / Keyword</label>
+          <label className="form-label">Palabra Clave Activa</label>
           <div style={{ display: 'flex', gap: 8, flex: 1 }}>
             <input
               className="form-input"
               type="text"
               value={customWordInput}
               onChange={(e) => setCustomWordInput(e.target.value)}
-              placeholder="Enter custom activation word (e.g. Jarvis, Nova, Matrix)..."
+              placeholder="Ej. Helix, Jarvis, Nova..."
             />
             <button
               type="button"
               className="validate-btn"
               onClick={handleCustomWordSave}
             >
-              Save Phrase
+              Guardar
             </button>
           </div>
         </div>
 
-        <div className="form-row">
-          <label className="form-label" htmlFor="wake-word-threshold">
-            Wake phrase detection threshold
-          </label>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
-            <input
-              id="wake-word-threshold"
-              className="form-input"
-              type="range"
-              min={0.1}
-              max={0.9}
-              step={0.05}
-              value={settings.wake_word_threshold ?? 0.5}
-              onChange={(e) => onSave({ wake_word_threshold: Number(e.target.value) })}
-            />
-            <span className="text-xs" style={{ minWidth: 40 }}>
-              {Math.round((settings.wake_word_threshold ?? 0.5) * 100)}%
-            </span>
-          </div>
-        </div>
-        <p className="text-xs text-muted">
-          Lower values make “Hey HELIX” easier to detect but may cause false activations. Default: 50%.
-        </p>
-
         {/* Alternate Wake Aliases */}
         <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--color-hairline)' }}>
           <label className="text-xs text-muted" style={{ display: 'block', marginBottom: 8 }}>
-            Alternate Trigger Keywords (each requires a matching trained ONNX model):
+            Alias adicionales de activación:
           </label>
 
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
             <span className="cap-badge" style={{ background: 'rgba(238, 96, 24, 0.2)', color: 'var(--orange)', border: '1px solid var(--orange)' }}>
-              Primary: {settings.wake_word || 'helix'}
+              Principal: {settings.wake_word || 'helix'}
             </span>
             {settings.custom_wake_words?.map((alias) => (
               <span key={alias} className="cap-badge" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -217,7 +452,7 @@ export default function VoiceSection({ settings, onSave }: Props) {
             <input
               className="form-input"
               type="text"
-              placeholder="Add alternate trigger word (e.g. 'Oye', 'Hey Helix', 'Robot')..."
+              placeholder="Añadir alias (ej. 'Oye Helix', 'Robot')..."
               value={newAliasInput}
               onChange={(e) => setNewAliasInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') handleAddAlias() }}
@@ -228,114 +463,59 @@ export default function VoiceSection({ settings, onSave }: Props) {
               onClick={handleAddAlias}
               disabled={!newAliasInput.trim()}
             >
-              + Add Alias
+              + Añadir
             </button>
           </div>
         </div>
       </div>
 
-      {/* ── Speech Recognition & Synthesis ─────────────────────── */}
+      {/* ── Motor de Reconocimiento de Voz (STT) ───────────────── */}
       <div className="toolbox-card" style={{ marginBottom: 16 }}>
         <div className="toolbox-card__header">
-          <span className="toolbox-card__title">Speech Processing Pipeline</span>
-          <button
-            type="button"
-            className="validate-btn"
-            onClick={() => void handleTestVoiceAudio()}
-            disabled={isPlayingTestAudio}
-          >
-            {isPlayingTestAudio ? 'Playing...' : 'Test Audio Output'}
-          </button>
+          <div>
+            <span className="toolbox-card__title">Reconocimiento de voz de Live Audio</span>
+            <p className="toolbox-card__hint">
+              Live usa Faster-Whisper local y multilingüe. El perfil se aplica al iniciar la siguiente llamada.
+            </p>
+          </div>
         </div>
-        {testAudioResult && <p className="text-xs text-muted" role="status">{testAudioResult}</p>}
 
         <div className="form-row">
-          <label className="form-label">Speech-To-Text Provider</label>
+          <label className="form-label">Proveedor de Normal Audio</label>
           <select
             className="form-input"
-            value={settings.voice_stt_provider || 'openai_whisper'}
+            value={settings.voice_stt_provider || 'local_whisper'}
             onChange={(e) => onSave({ voice_stt_provider: e.target.value })}
           >
-            <option value="openai_whisper">OpenAI Whisper Cloud API (High Accuracy)</option>
-            <option value="local_whisper">Local Whisper (Offline CPU/GPU)</option>
+            <option value="local_whisper">Faster-Whisper Local (Offline $0 · Privado)</option>
+            <option value="openai_whisper">OpenAI Whisper Cloud API</option>
           </select>
         </div>
 
-        <div className="form-row">
-          <label className="form-label">Text-To-Speech Voice Persona</label>
-          <select
-            className="form-input"
-            value={settings.voice_tts_provider || 'edge_tts'}
-            onChange={(e) => {
-              const provider = e.target.value
-              const defaultVoice =
-                provider === 'edge_tts' ? 'en-US-AndrewMultilingualNeural'
-                  : provider === 'openai_tts' ? 'echo'
-                    : provider === 'elevenlabs' ? '21m00Tcm4TlvDq8ikWAM'
-                      : ''
-              onSave({
-                voice_tts_provider: provider,
-                voice_tts_voice: defaultVoice,
-              })
-            }}
+        <div className="voice-live-tuning">
+          <button
+            type="button"
+            className={`voice-tuning-option ${(settings.voice_stt_mode ?? 'accuracy') === 'speed' ? 'voice-tuning-option--active' : ''}`}
+            onClick={() => onSave({ voice_stt_mode: 'speed' })}
           >
-            <option value="edge_tts">Microsoft Edge TTS · Andrew (multilingual)</option>
-            <option value="openai_tts">OpenAI TTS · Echo (masculina, multilingüe)</option>
-            <option value="elevenlabs">ElevenLabs (Ultra-Realistic Streaming)</option>
-            <option value="windows_sapi">Windows Native SAPI Voice (Microsoft David / Zira)</option>
-          </select>
+            <span className="voice-tuning-title">Velocidad · Whisper tiny</span>
+            <span className="voice-tuning-desc">
+              Reconoce más rápido con un posible costo de precisión, especialmente en frases largas.
+            </span>
+          </button>
+          <button
+            type="button"
+            className={`voice-tuning-option ${(settings.voice_stt_mode ?? 'accuracy') === 'accuracy' ? 'voice-tuning-option--active' : ''}`}
+            onClick={() => onSave({ voice_stt_mode: 'accuracy' })}
+          >
+            <span className="voice-tuning-title">Precisión · Whisper base</span>
+            <span className="voice-tuning-desc">
+              Recomendado para mayor calidad de reconocimiento; puede tardar más en CPU.
+            </span>
+          </button>
         </div>
-        {settings.voice_tts_provider === 'edge_tts' && (
-          <div className="form-row">
-            <label className="form-label">Edge TTS voice</label>
-            <select
-              className="form-input"
-              value={settings.voice_tts_voice || 'en-US-AndrewMultilingualNeural'}
-              onChange={(e) => onSave({ voice_tts_voice: e.target.value })}
-            >
-              <option value="en-US-AndrewMultilingualNeural">Andrew · masculine, multilingual</option>
-            </select>
-          </div>
-        )}
-        {settings.voice_tts_provider === 'openai_tts' && (
-          <div className="form-row">
-            <label className="form-label">OpenAI TTS voice</label>
-            <select
-              className="form-input"
-              value={settings.voice_tts_voice || 'echo'}
-              onChange={(e) => onSave({ voice_tts_voice: e.target.value })}
-            >
-              <option value="echo">Echo · masculine, multilingual</option>
-            </select>
-          </div>
-        )}
-        {settings.voice_tts_provider === 'edge_tts' && (
-          <p className="text-xs text-muted">
-            Edge TTS requires internet and sends response text to Microsoft.
-          </p>
-        )}
-        <p className="text-xs text-muted">
-          If cloud speech is unavailable or fails, HELIX falls back to your current Windows system voice.
-        </p>
-
-        <div className="form-row">
-          <label className="form-label" htmlFor="vad-threshold">Microphone sensitivity (RMS)</label>
-          <input
-            id="vad-threshold"
-            className="form-input"
-            type="number"
-            min={50}
-            max={2000}
-            step={25}
-            value={settings.vad_threshold ?? 250}
-            onChange={(e) => {
-              const threshold = Number.parseInt(e.target.value, 10)
-              if (Number.isFinite(threshold)) onSave({ vad_threshold: threshold })
-            }}
-          />
-        </div>
-        <p className="text-xs text-muted">
-          Lower values detect quieter speech. The default is more sensitive; valid range: 50–2000 RMS.
+        <p className="text-xs text-muted" style={{ marginTop: 10 }}>
+          En Live, ambos modelos son gratuitos y se ejecutan localmente después de descargarse. El idioma se detecta automáticamente; el proveedor de arriba solo afecta Normal Audio.
         </p>
       </div>
     </div>

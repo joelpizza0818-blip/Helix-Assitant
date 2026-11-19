@@ -18,9 +18,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from services.agent.storage_paths import get_agent_data_dir
+
 logger = logging.getLogger(__name__)
 
-DEFAULT_LEARNED_SKILLS_DIR = Path.home() / ".helix" / "learned_skills"
+DEFAULT_LEARNED_SKILLS_DIR = get_agent_data_dir() / "learned_skills"
 
 
 class SelfLearningSkillManager:

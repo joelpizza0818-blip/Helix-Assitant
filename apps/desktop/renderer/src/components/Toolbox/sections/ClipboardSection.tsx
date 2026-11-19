@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { ClipboardHistoryItem } from '../../../types/global'
+import { getUserFacingError } from '../../../lib/userError'
 import '../Toolbox.css'
 import './ClipboardSection.css'
 
@@ -24,7 +25,7 @@ export default function ClipboardSection() {
       setMonitoring(enabled)
       setError(null)
     }).catch((cause: unknown) => {
-      if (active) setError(cause instanceof Error ? cause.message : 'Could not load clipboard history.')
+      if (active) setError(getUserFacingError(cause, 'No se pudo cargar el historial del portapapeles. Inténtalo de nuevo.'))
     })
     return () => {
       active = false
@@ -40,7 +41,7 @@ export default function ClipboardSection() {
       await window.helix.setClipboardMonitoring(next)
       setMonitoring(next)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not update clipboard monitoring.')
+      setError(getUserFacingError(cause, 'No se pudo actualizar la supervisión del portapapeles. Comprueba los permisos e inténtalo de nuevo.'))
     } finally {
       setBusy(false)
     }
@@ -52,7 +53,7 @@ export default function ClipboardSection() {
     try {
       await window.helix.clearClipboardHistory()
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not clear clipboard history.')
+      setError(getUserFacingError(cause, 'No se pudo limpiar el historial del portapapeles. Inténtalo de nuevo.'))
     } finally {
       setBusy(false)
     }
@@ -63,7 +64,7 @@ export default function ClipboardSection() {
     try {
       await window.helix.restoreClipboardItem(id)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not restore clipboard item.')
+      setError(getUserFacingError(cause, 'No se pudo restaurar el elemento del portapapeles. Inténtalo de nuevo.'))
     }
   }
 

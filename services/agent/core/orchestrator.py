@@ -28,7 +28,9 @@ try:
         _append_requested_screen_observation,
         _conversation_failure_message,
         _fast_os_answer,
+        _should_control_desktop,
         _should_observe_screen,
+        _requires_desktop_control_tool,
     )
 except ImportError:
     from core.orchestrator_content import (
@@ -40,7 +42,9 @@ except ImportError:
         _append_requested_screen_observation,
         _conversation_failure_message,
         _fast_os_answer,
+        _should_control_desktop,
         _should_observe_screen,
+        _requires_desktop_control_tool,
     )
 
 

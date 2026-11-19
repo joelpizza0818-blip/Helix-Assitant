@@ -36,7 +36,7 @@ export const Security: React.FC = () => {
             </div>
             <h3 className="security-title">Tool Confirmation Policy</h3>
             <p className="security-body">
-              The local policy engine requires confirmation for shell-command execution and rejects unrecognized tools. Other actions may have different confirmation requirements.
+              The local policy engine applies confirmations according to the selected approval mode and rejects unrecognized tools. Allow All explicitly disables confirmation prompts.
             </p>
           </div>
 

@@ -17,7 +17,93 @@ const DESKTOP_TO_MOBILE_TYPES = new Set([
   'skills_response',
   'subagent_response',
   'browser_frame',
+  'VOICE_MESSAGE',
 ])
+
+const MOBILE_VOICE_TYPES = new Set([
+  'VOICE_SESSION_START',
+  'VOICE_SESSION_STOP',
+  'VOICE_AUDIO_CHUNK',
+  'VOICE_RECORDING_START',
+  'VOICE_RECORDING_STOP',
+  'VOICE_INTERRUPT',
+  'VOICE_CONFIRMATION',
+  'VOICE_CONFIRMATION_TEXT',
+  'VOICE_MUTE',
+  'VOICE_UNMUTE',
+  'VOICE_PLAYBACK_PROGRESS',
+  'VOICE_PLAYBACK_DONE',
+  'VOICE_PING',
+])
+
+const SERVER_VOICE_TYPES = new Set([
+  'VOICE_SESSION_READY',
+  'VOICE_STATE',
+  'VOICE_TRANSCRIPT',
+  'VOICE_ASSISTANT_TEXT',
+  'VOICE_SPEECH_TEXT',
+  'VOICE_AUDIO_SEGMENT',
+  'VOICE_AUDIO_STOP',
+  'VOICE_SPEAKING_END',
+  'VOICE_INTERRUPTED',
+  'VOICE_CONFIRMATION_REQUEST',
+  'VOICE_CONFIRMATION_RESOLVED',
+  'VOICE_LEVEL',
+  'VOICE_ERROR',
+  'VOICE_PONG',
+  'VOICE_SESSION_CLOSED',
+])
+
+const VOICE_SERVER_FIELDS = new Set([
+  'session_id',
+  'state',
+  'reason',
+  'mode',
+  'conversation_id',
+  'muted',
+  'awaiting_agent',
+  'previous',
+  'server_audio',
+  'sample_rate',
+  'stt',
+  'tts',
+  'local_only',
+  'confirmation_ttl_seconds',
+  'policy',
+  'text',
+  'speech_text',
+  'had_code',
+  'kinds',
+  'task_id',
+  'level',
+  'index',
+  'segment_index',
+  'audio_base64',
+  'mime_type',
+  'duration_ms',
+  'segment_count',
+  'total_duration_ms',
+  'expects_playback',
+  'preserve_state',
+  'request_id',
+  'action',
+  'what_will_change',
+  'why',
+  'expires_in_seconds',
+  'code',
+  'message',
+  'recoverable',
+  'committed_text',
+  'during',
+  'final',
+  'empty',
+  'error',
+])
+const VOICE_SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/
+const VOICE_SAMPLE_RATES = new Set([8000, 16000, 22050, 24000, 32000, 44100, 48000])
+const MAX_VOICE_CHUNK_BASE64 = 300_000
+const MAX_VOICE_TEXT = 20_000
+const MAX_VOICE_OUTPUT_AUDIO = 900_000
 
 interface Env {
   ROOMS: DurableObjectNamespace<RelayRoom>
@@ -86,6 +172,211 @@ function messageText(data: string | ArrayBuffer): string {
   return typeof data === 'string' ? data : new TextDecoder().decode(data)
 }
 
+function optionalIndex(value: unknown): number | undefined | null {
+  if (value === undefined) return undefined
+  if (!Number.isInteger(value) || (value as number) < 0 || (value as number) > 100_000) {
+    return null
+  }
+  return value as number
+}
+
+function sanitizeVoicePayload(
+  voiceType: string,
+  payload: Record<string, unknown>,
+): Record<string, unknown> | null {
+  const sessionId = payload.session_id
+  if (typeof sessionId !== 'string' || !VOICE_SESSION_ID_PATTERN.test(sessionId)) {
+    return null
+  }
+  if (voiceType === 'VOICE_SESSION_START') {
+    const mode = payload.mode
+    const language = payload.language
+    const voiceId = payload.voice_id
+    const silenceMs = payload.silence_ms
+    const maxUtteranceMs = payload.max_utterance_ms
+    const sampleRate = payload.sample_rate
+    const vadThreshold = payload.vad_threshold
+    if (
+      (mode !== undefined && mode !== 'live' && mode !== 'normal')
+      || (language !== undefined
+        && (typeof language !== 'string'
+          || !/^[A-Za-z]{2,8}(?:[-_][A-Za-z0-9]{2,8})?$/.test(language)))
+      || (voiceId !== undefined && (typeof voiceId !== 'string' || voiceId.length > 256))
+      || (silenceMs !== undefined
+        && (!Number.isInteger(silenceMs) || (silenceMs as number) < 200 || (silenceMs as number) > 4000))
+      || (maxUtteranceMs !== undefined
+        && (!Number.isInteger(maxUtteranceMs)
+          || (maxUtteranceMs as number) < 1000
+          || (maxUtteranceMs as number) > 120_000))
+      || (sampleRate !== undefined
+        && (!Number.isInteger(sampleRate) || !VOICE_SAMPLE_RATES.has(sampleRate as number)))
+      || (vadThreshold !== undefined
+        && (typeof vadThreshold !== 'number' || !Number.isFinite(vadThreshold)
+          || vadThreshold < 0 || vadThreshold > 1))
+      || (payload.tts_enabled !== undefined && typeof payload.tts_enabled !== 'boolean')
+    ) {
+      return null
+    }
+    return {
+      session_id: sessionId,
+      mode: typeof mode === 'string' ? mode : 'live',
+      // Audio capture always happens on the phone; the relay never grants
+      // remote access to the Desktop microphone.
+      server_audio: false,
+      ...(typeof language === 'string' ? { language } : {}),
+      ...(typeof voiceId === 'string' ? { voice_id: voiceId } : {}),
+      ...(typeof silenceMs === 'number' ? { silence_ms: silenceMs } : {}),
+      ...(typeof maxUtteranceMs === 'number' ? { max_utterance_ms: maxUtteranceMs } : {}),
+      ...(typeof sampleRate === 'number' ? { sample_rate: sampleRate } : {}),
+      ...(typeof vadThreshold === 'number' ? { vad_threshold: vadThreshold } : {}),
+      ...(typeof payload.tts_enabled === 'boolean' ? { tts_enabled: payload.tts_enabled } : {}),
+    }
+  }
+
+  if (voiceType === 'VOICE_AUDIO_CHUNK') {
+    const audio = payload.audio_base64
+    const sampleRate = payload.sample_rate
+    const channels = payload.channels
+    if (
+      typeof audio !== 'string'
+      || audio.length === 0
+      || audio.length > MAX_VOICE_CHUNK_BASE64
+      || !/^[A-Za-z0-9+/]+={0,2}$/.test(audio)
+      || !Number.isInteger(sampleRate)
+      || !VOICE_SAMPLE_RATES.has(sampleRate as number)
+      || channels !== 1
+    ) {
+      return null
+    }
+    return {
+      session_id: sessionId,
+      audio_base64: audio,
+      sample_rate: sampleRate,
+      channels: 1,
+    }
+  }
+
+  if (voiceType === 'VOICE_CONFIRMATION_TEXT') {
+    const text = payload.text
+    const requestId = payload.request_id
+    if (
+      typeof text !== 'string'
+      || text.trim().length === 0
+      || text.length > MAX_VOICE_TEXT
+      || (requestId !== undefined
+        && (typeof requestId !== 'string' || !CONFIRMATION_ID_PATTERN.test(requestId)))
+    ) {
+      return null
+    }
+    return {
+      session_id: sessionId,
+      text,
+      ...(typeof requestId === 'string' ? { request_id: requestId } : {}),
+    }
+  }
+
+  if (voiceType === 'VOICE_CONFIRMATION') {
+    const decision = payload.decision
+    const instructions = payload.instructions
+    const requestId = payload.request_id
+    if (
+      typeof decision !== 'string'
+      || !['approve', 'reject', 'modify'].includes(decision)
+      || (instructions !== undefined
+        && (typeof instructions !== 'string' || instructions.length > 2000))
+      || (requestId !== undefined
+        && (typeof requestId !== 'string' || !CONFIRMATION_ID_PATTERN.test(requestId)))
+      || (decision === 'modify'
+        && (typeof instructions !== 'string' || instructions.trim().length === 0))
+    ) {
+      return null
+    }
+    return {
+      session_id: sessionId,
+      decision,
+      ...(typeof instructions === 'string' ? { instructions } : {}),
+      ...(typeof requestId === 'string' ? { request_id: requestId } : {}),
+    }
+  }
+
+  if (voiceType === 'VOICE_PLAYBACK_PROGRESS' || voiceType === 'VOICE_PLAYBACK_DONE') {
+    const index = optionalIndex(payload.last_index ?? payload.index)
+    if (index === null) return null
+    if (
+      voiceType === 'VOICE_PLAYBACK_DONE'
+      && payload.interrupted !== undefined
+      && typeof payload.interrupted !== 'boolean'
+    ) {
+      return null
+    }
+    return {
+      session_id: sessionId,
+      ...(typeof index === 'number' ? { last_index: index } : {}),
+      ...(typeof payload.interrupted === 'boolean' ? { interrupted: payload.interrupted } : {}),
+    }
+  }
+
+  return { session_id: sessionId }
+}
+
+function sanitizeServerVoicePayload(
+  voiceType: unknown,
+  value: unknown,
+): Record<string, unknown> | null {
+  if (typeof voiceType !== 'string' || !SERVER_VOICE_TYPES.has(voiceType) || !isRecord(value)) {
+    return null
+  }
+  const sessionId = value.session_id
+  if (typeof sessionId !== 'string' || !VOICE_SESSION_ID_PATTERN.test(sessionId)) {
+    return null
+  }
+  if (voiceType === 'VOICE_AUDIO_SEGMENT') {
+    const audio = value.audio_base64
+    if (
+      audio !== undefined
+      && (typeof audio !== 'string'
+        || audio.length > MAX_VOICE_OUTPUT_AUDIO
+        || !/^[A-Za-z0-9+/]+={0,2}$/.test(audio))
+    ) {
+      return null
+    }
+  }
+  const safePayload: Record<string, unknown> = { session_id: sessionId }
+  for (const [key, field] of Object.entries(value)) {
+    if (key !== 'session_id' && VOICE_SERVER_FIELDS.has(key)) safePayload[key] = field
+  }
+  return safePayload
+}
+
+export function sanitizeMobileVoiceMessage(
+  voiceType: unknown,
+  payload: unknown,
+  deviceId: string,
+  deviceName = 'HELIX Mobile',
+): {
+  type: 'VOICE_MESSAGE'
+  payload: { voice_type: string; voice_payload: Record<string, unknown> }
+  source_device_id: string
+  source_device_name: string
+} | null {
+  if (
+    typeof voiceType !== 'string'
+    || !MOBILE_VOICE_TYPES.has(voiceType)
+    || !DEVICE_ID_PATTERN.test(deviceId)
+    || !isRecord(payload)
+  ) {
+    return null
+  }
+  const voicePayload = sanitizeVoicePayload(voiceType, payload)
+  if (!voicePayload) return null
+  return {
+    type: 'VOICE_MESSAGE',
+    payload: { voice_type: voiceType, voice_payload: voicePayload },
+    source_device_id: deviceId,
+    source_device_name: deviceName,
+  }
+}
+
 export function sanitizeMobileMessage(
   message: {
     type?: unknown
@@ -101,6 +392,7 @@ export function sanitizeMobileMessage(
     | 'SKILLS_REQUEST'
     | 'SUBAGENT_QUERY'
     | 'BROWSER_LIVE_CONTROL'
+    | 'VOICE_MESSAGE'
   payload: Record<string, unknown>
   source_device_id: string
   source_device_name: string
@@ -111,7 +403,8 @@ export function sanitizeMobileMessage(
       && message.type !== 'CONFIRMATION_RESPONSE'
       && message.type !== 'SKILLS_REQUEST'
       && message.type !== 'SUBAGENT_QUERY'
-      && message.type !== 'BROWSER_LIVE_CONTROL')
+      && message.type !== 'BROWSER_LIVE_CONTROL'
+      && message.type !== 'VOICE_MESSAGE')
     || message.request_id !== undefined
     || !DEVICE_ID_PATTERN.test(deviceId)
     || !payload
@@ -127,6 +420,11 @@ export function sanitizeMobileMessage(
       source_device_id: deviceId,
       source_device_name: deviceName,
     }
+  }
+  if (message.type === 'VOICE_MESSAGE') {
+    const voiceType = (payload as Record<string, unknown>).voice_type
+    const voicePayload = (payload as Record<string, unknown>).voice_payload
+    return sanitizeMobileVoiceMessage(voiceType, voicePayload, deviceId, deviceName)
   }
   if (message.type === 'BROWSER_LIVE_CONTROL') {
     const paused = (payload as Record<string, unknown>).paused
@@ -237,6 +535,19 @@ export function sanitizeDesktopMessage(
     return null
   }
   const payload = message.payload as Record<string, unknown>
+  if (message.type === 'VOICE_MESSAGE') {
+    const voiceType = payload.voice_type
+    const voicePayload = sanitizeServerVoicePayload(voiceType, payload.voice_payload)
+    if (!voicePayload) return null
+    return {
+      type: 'VOICE_MESSAGE',
+      payload: {
+        voice_type: voiceType as string,
+        voice_payload: voicePayload,
+      },
+      target_device_id: message.target_device_id,
+    }
+  }
   if (message.type === 'subagent_response') {
     const correlationId = payload.correlation_id
     const error = payload.error

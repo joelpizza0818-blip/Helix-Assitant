@@ -28,6 +28,8 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>NSCameraUsageDescription</key>
 	<string>HELIX usa la cámara para escanear invitaciones QR de vinculación con Desktop.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>HELIX usa el micrófono solo mientras hablas con Helix Voice. El audio se procesa localmente en tu equipo y no se guarda.</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

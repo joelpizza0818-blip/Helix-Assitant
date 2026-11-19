@@ -9,12 +9,19 @@ import json
 from .base_provider import BaseAIProvider, ChatMessage, ChatResponse, StreamChunk, ToolCallResponse, Usage, ModelDefinition, ModelCapabilities, AgentError, KeyHealth, ToolCall
 
 class OpenAIProvider(BaseAIProvider):
-    def _client(self, api_key: str, base_url: str | None = None):
+    def _client(
+        self,
+        api_key: str,
+        base_url: str | None = None,
+        default_headers: Dict[str, str] | None = None,
+    ):
         if not openai:
             raise RuntimeError("openai SDK not installed")
         options = {"api_key": api_key}
         if base_url:
             options["base_url"] = base_url.rstrip("/")
+        if default_headers is not None:
+            options["default_headers"] = default_headers
         return AsyncOpenAI(**options)
 
     @property
@@ -133,6 +140,66 @@ class OpenAIProvider(BaseAIProvider):
                 content=msg.content or "",
                 model=model,
                 provider=self.provider_id
+            )
+        except Exception as e:
+            raise self.normalize_error(e)
+
+    async def stream_tool_call(
+        self,
+        messages: List[ChatMessage],
+        tools: List[Dict],
+        model: str,
+        **kwargs,
+    ) -> ToolCallResponse:
+        """Stream assistant text while preserving the normal tool-call contract."""
+        if not openai:
+            raise RuntimeError("openai SDK not installed")
+        api_key = kwargs.get("api_key")
+        client = self._client(api_key, kwargs.get("base_url"))
+        on_text_delta = kwargs.get("on_text_delta")
+        content_parts = []
+        streamed_calls: dict[int, dict[str, str]] = {}
+        try:
+            response = await client.chat.completions.create(
+                model=model,
+                messages=self._convert_messages(messages),
+                tools=self._convert_tools(tools),
+                stream=True,
+            )
+            async for chunk in response:
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                content = delta.content or ""
+                if content:
+                    content_parts.append(content)
+                    if callable(on_text_delta):
+                        await on_text_delta(content)
+                for partial in delta.tool_calls or []:
+                    index = partial.index
+                    call = streamed_calls.setdefault(
+                        index,
+                        {"id": "", "name": "", "arguments": ""},
+                    )
+                    if partial.id:
+                        call["id"] = partial.id
+                    if partial.function:
+                        call["name"] += partial.function.name or ""
+                        call["arguments"] += partial.function.arguments or ""
+
+            tool_calls = [
+                ToolCall(
+                    id=call["id"],
+                    name=call["name"],
+                    arguments=json.loads(call["arguments"] or "{}"),
+                )
+                for _index, call in sorted(streamed_calls.items())
+            ]
+            return ToolCallResponse(
+                tool_calls=tool_calls,
+                content="".join(content_parts),
+                model=model,
+                provider=self.provider_id,
             )
         except Exception as e:
             raise self.normalize_error(e)

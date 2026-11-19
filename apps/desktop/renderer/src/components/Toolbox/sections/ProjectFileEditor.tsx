@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
 import { indentUnit, LanguageDescription, type LanguageSupport } from '@codemirror/language'
 import { EditorView } from '@codemirror/view'
+import { getUserFacingError } from '../../../lib/userError'
 import './ProjectFilesPanel.css'
 
 const ProjectMarkdownPreview = lazy(() => import('./ProjectMarkdownPreview'))
@@ -120,7 +121,7 @@ export default function ProjectFileEditor({
       })
       .catch((reason: unknown) => {
         if (active) {
-          setError(reason instanceof Error ? reason.message : 'Could not open this project file.')
+          setError(getUserFacingError(reason, 'No se pudo abrir este archivo del proyecto. Comprueba que siga disponible.'))
         }
       })
       .finally(() => {
@@ -140,9 +141,12 @@ export default function ProjectFileEditor({
           if (active) setLanguage(support)
         })
         .catch((reason: unknown) => {
-          if (active) setError(reason instanceof Error
-            ? `Could not load syntax support: ${reason.message}`
-            : 'Could not load syntax support.')
+          if (active) {
+            setError(getUserFacingError(
+              reason,
+              'No se pudo cargar el resaltado de sintaxis. El archivo sigue disponible como texto.',
+            ))
+          }
         })
     }
     return () => { active = false }
@@ -166,7 +170,7 @@ export default function ProjectFileEditor({
       await window.helix.writeProjectFile(projectId, relativePath, content)
       setSavedContent(content)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not save this project file.')
+      setError(getUserFacingError(reason, 'No se pudo guardar este archivo. Inténtalo de nuevo.'))
     } finally {
       setSaving(false)
     }

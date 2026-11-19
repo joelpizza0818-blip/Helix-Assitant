@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { HelixSettings, MCPServerConfig, MCPServerStatus } from '../../../types/global'
 import { isLegacyMcpServer, type SettingsSaveResult } from '../../../hooks/settingsSave'
+import { getUserFacingError } from '../../../lib/userError'
 import { mcpSaveErrorMessage, saveMcpServerDraft } from './mcpDraft'
 import '../Toolbox.css'
 
@@ -43,7 +44,10 @@ export default function MCPSection({ settings, onSave, saveError }: Props) {
         if (active) setStatuses(result)
       } catch (err) {
         if (active) {
-          setError(err instanceof Error ? err.message : 'Could not load MCP server status.')
+          setError(getUserFacingError(
+            err,
+            'No se pudo consultar el estado de los servidores MCP. Comprueba la conexión e inténtalo de nuevo.',
+          ))
         }
       }
     }
@@ -148,9 +152,12 @@ export default function MCPSection({ settings, onSave, saveError }: Props) {
                       : label === 'disabled'
                         ? 'Disabled'
                         : label === 'unsupported'
-                          ? status?.error ?? 'URL-based MCP servers are not supported.'
+                          ? 'Los servidores MCP por URL no son compatibles.'
                           : label === 'error'
-                            ? status?.error ?? 'Connection failed'
+                            ? getUserFacingError(
+                              status?.error,
+                              'No se pudo conectar con este servidor MCP. Revisa el comando e inténtalo de nuevo.',
+                            )
                             : 'Waiting for connection'}
                 </div>
               </div>

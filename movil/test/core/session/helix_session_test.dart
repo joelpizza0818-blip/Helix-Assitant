@@ -74,6 +74,55 @@ void main() {
     await session.close();
   });
 
+  test('sends raw voice messages over a direct desktop session', () async {
+    final transport = _SkillsTransport();
+    final session = HelixSession(transport);
+
+    await session.sendVoiceMessage('VOICE_SESSION_START', {
+      'session_id': 'mobile_voice_session_1',
+      'mode': 'live',
+      'server_audio': false,
+    });
+
+    expect(transport.sent.single.type, 'VOICE_SESSION_START');
+    expect(transport.sent.single.payload['server_audio'], isFalse);
+    await session.close();
+  });
+
+  test('wraps voice messages in the relay envelope', () async {
+    final transport = _SkillsTransport();
+    final session = HelixSession(transport, relaySkillsRequests: true);
+
+    await session.sendVoiceMessage('VOICE_AUDIO_CHUNK', {
+      'session_id': 'mobile_voice_session_1',
+      'audio_base64': 'AAAAAA==',
+      'sample_rate': 16000,
+      'channels': 1,
+    });
+
+    expect(transport.sent.single.type, 'VOICE_MESSAGE');
+    expect(transport.sent.single.payload['voice_type'], 'VOICE_AUDIO_CHUNK');
+    expect(transport.sent.single.payload['voice_payload'], {
+      'session_id': 'mobile_voice_session_1',
+      'audio_base64': 'AAAAAA==',
+      'sample_rate': 16000,
+      'channels': 1,
+    });
+    await session.close();
+  });
+
+  test('rejects arbitrary messages through the voice helper', () async {
+    final transport = _SkillsTransport();
+    final session = HelixSession(transport);
+
+    expect(
+      () => session.sendVoiceMessage('USER_TEXT', {'text': 'not voice'}),
+      throwsArgumentError,
+    );
+    expect(transport.sent, isEmpty);
+    await session.close();
+  });
+
   test('uses the relay device id announced on an authenticated reconnect',
       () async {
     final transport = _SkillsTransport();

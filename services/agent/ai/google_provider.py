@@ -8,6 +8,7 @@ except ImportError:
 from typing import Any, AsyncIterator, List, Dict
 import json
 import re
+import uuid
 from .base_provider import BaseAIProvider, ChatMessage, ChatResponse, StreamChunk, ToolCallResponse, Usage, ModelDefinition, ModelCapabilities, AgentError, KeyHealth, ToolCall
 
 
@@ -181,7 +182,7 @@ class GoogleProvider(BaseAIProvider):
                 for index, fc in enumerate(response.function_calls):
                     tool_calls.append(
                         ToolCall(
-                            id=f"{fc.name}-{index}",
+                            id=f"{fc.name}-{index}-{uuid.uuid4().hex}",
                             # Google receives a normalized name, while the
                             # rest of HELIX must continue using the canonical
                             # registry name (for example computer.click_text).

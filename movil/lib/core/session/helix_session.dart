@@ -68,8 +68,7 @@ class HelixSession {
             'conversation_history': const <Map<String, String>>[],
             if (attachments != null && attachments.isNotEmpty)
               'attachments': attachments,
-            if (model != null && model.isNotEmpty)
-              'model': model,
+            if (model != null && model.isNotEmpty) 'model': model,
             if (sourceDeviceId != null) ...{
               'input_source': 'mobile',
               'source_device_id': sourceDeviceId,
@@ -220,6 +219,30 @@ class HelixSession {
   Future<void> cancelTask(String taskId) => transport.send(
         HelixMessage(type: 'TASK_CANCEL', payload: {'task_id': taskId}),
       );
+
+  /// Sends one voice protocol message.
+  ///
+  /// SSH forwards raw `VOICE_*` types to the agent. Relay mode wraps them in a
+  /// `VOICE_MESSAGE` envelope so the Worker can validate and route the voice
+  /// traffic without forwarding arbitrary WebSocket message types.
+  Future<void> sendVoiceMessage(
+    String voiceType,
+    Map<String, dynamic> payload,
+  ) {
+    if (!RegExp(r'^VOICE_[A-Z_]{3,40}$').hasMatch(voiceType)) {
+      throw ArgumentError.value(voiceType, 'voiceType', 'Invalid voice type');
+    }
+    if (relaySkillsRequests) {
+      return transport.send(HelixMessage(
+        type: 'VOICE_MESSAGE',
+        payload: {
+          'voice_type': voiceType,
+          'voice_payload': payload,
+        },
+      ));
+    }
+    return transport.send(HelixMessage(type: voiceType, payload: payload));
+  }
 
   void _handleMessage(HelixMessage message) {
     if (message.type == 'HELIX_DEVICE_READY') {

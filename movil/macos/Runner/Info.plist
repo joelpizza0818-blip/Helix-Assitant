@@ -26,6 +26,8 @@
 	<string>$(PRODUCT_COPYRIGHT)</string>
 	<key>NSMainNibFile</key>
 	<string>MainMenu</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>HELIX usa el micrófono solo mientras hablas con Helix Voice. El audio se procesa localmente en tu equipo y no se guarda.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 </dict>

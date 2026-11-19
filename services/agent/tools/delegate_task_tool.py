@@ -76,6 +76,22 @@ class DelegateTaskTool(BaseTool):
                 return False
             if not isinstance(new_profile.get("color"), str):
                 return False
+            allowed_tools = new_profile.get("allowed_tools", [])
+            if (
+                not isinstance(allowed_tools, list)
+                or len(allowed_tools) > 30
+                or any(not isinstance(tool, str) or not tool.strip() for tool in allowed_tools)
+            ):
+                return False
+            max_iterations = new_profile.get("max_iterations", 10)
+            if (
+                isinstance(max_iterations, bool)
+                or not isinstance(max_iterations, int)
+                or not 1 <= max_iterations <= 50
+            ):
+                return False
+            if not isinstance(new_profile.get("memory_enabled", True), bool):
+                return False
             if params.get("agent_id") is not None:
                 return False
         return True
@@ -122,8 +138,39 @@ class DelegateTaskTool(BaseTool):
                                 "type": "string",
                                 "enum": ["#ee6018", "#02b8cc", "#8b5cf6", "#a0ca92"],
                             },
+                            "allowed_tools": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "maxItems": 30,
+                                "description": (
+                                    "Optional strict tool allowlist. Use an empty "
+                                    "array to apply the specialty's recommended tools."
+                                ),
+                            },
+                            "max_iterations": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 50,
+                                "description": "Maximum ReAct steps for this specialist.",
+                            },
+                            "memory_enabled": {
+                                "type": "boolean",
+                                "description": (
+                                    "Whether this specialist may use its private "
+                                    "profile memory."
+                                ),
+                            },
                         },
-                        "required": ["name", "role", "description", "capabilities", "color"],
+                        "required": [
+                            "name",
+                            "role",
+                            "description",
+                            "capabilities",
+                            "color",
+                            "allowed_tools",
+                            "max_iterations",
+                            "memory_enabled",
+                        ],
                     },
                 },
                 "required": ["task"],

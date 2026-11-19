@@ -2,6 +2,7 @@ import prompts from 'prompts';
 import chalk from 'chalk';
 import type { AgentClient } from '../client/agent-client';
 import { formatSkill, ORANGE_BOLD, GREEN, RED, YELLOW, GRAY, BOLD, DIM } from '../ui/colors';
+import { getUserFacingError } from '../ui/userError';
 
 export async function handleListSkills(client: AgentClient, specificSkill?: string): Promise<void> {
   try {
@@ -45,7 +46,7 @@ export async function handleListSkills(client: AgentClient, specificSkill?: stri
       console.log('');
     }
   } catch (err) {
-    console.log(RED(`  Error al obtener skills: ${(err as Error).message}\n`));
+    console.log(RED(`  ${getUserFacingError(err, 'No se pudieron cargar las skills. Comprueba que HELIX esté conectado e inténtalo de nuevo.')}\n`));
   }
 }
 
@@ -104,6 +105,6 @@ export async function handleCreateSkill(client: AgentClient): Promise<void> {
     console.log(GREEN(`✔ ¡Skill ${formatSkill(skillPayload.name)} creada con éxito!`));
     console.log(DIM(`  Puedes invocarla usando: ${formatSkill(skillPayload.name)} <tu consulta>\n`));
   } catch (err) {
-    console.log(RED(`✖ Error al crear la skill: ${(err as Error).message}\n`));
+    console.log(RED(`✖ ${getUserFacingError(err, 'No se pudo crear la skill. Revisa los datos e inténtalo de nuevo.')}\n`));
   }
 }

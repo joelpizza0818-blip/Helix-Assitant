@@ -119,6 +119,63 @@ class WorkflowStore:
             for capability, description in sorted(capabilities.items())
         ]
 
+    def to_skill(
+        self,
+        workflow: dict[str, Any],
+        triggers: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Build a custom skill draft that executes this workflow deterministically."""
+        normalized = self._validate(workflow, workflow_id=workflow.get("id"))
+        if triggers is None:
+            triggers = [normalized["name"]]
+        if (
+            not isinstance(triggers, list)
+            or len(triggers) > 12
+            or not all(
+                isinstance(item, str)
+                and item.strip()
+                and len(item.strip()) <= 80
+                for item in triggers
+            )
+        ):
+            raise ValueError(
+                "Workflow skill triggers must be up to 12 non-empty phrases."
+            )
+        normalized_triggers = list(
+            dict.fromkeys(item.strip() for item in triggers)
+        )
+        tools = sorted({
+            node["config"]["action"]
+            for node in normalized["nodes"]
+            if node["type"] == "tool"
+            and isinstance(node["config"].get("action"), str)
+        })
+        node_lines = [
+            f"- {node['title']} ({node['type']}): "
+            f"{node['config'].get('action') or node['config'].get('role') or node['type']}"
+            for node in normalized["nodes"]
+        ]
+        instructions = "\n".join([
+            f"This advanced skill runs the saved workflow %{normalized['id']} "
+            f"(\"{normalized['name']}\") step by step.",
+            "Execute the saved workflow graph in its stored order. Do not recreate, "
+            "reorder, or replace its tools or agent roles.",
+            f"Workflow description: {normalized['description'] or normalized['name']}",
+            "Workflow steps:",
+            *node_lines,
+            "Use the remaining user text as the workflow trigger input.",
+        ])
+        return {
+            "name": normalized["id"],
+            "description": (
+                normalized["description"] or normalized["name"]
+            )[:500],
+            "triggers": normalized_triggers,
+            "tools": tools,
+            "instructions": instructions,
+            "workflow_id": normalized["id"],
+        }
+
     def to_plan(
         self,
         workflow: dict[str, Any],

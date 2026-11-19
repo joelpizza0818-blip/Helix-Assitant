@@ -113,7 +113,11 @@ class AgentManager:
             context_manager=self.context_manager,
             event_bus=self.event_bus,
             parent_id=parent_id,
-            memory_manager=self._memory_manager(profile.profile_id) if profile else None,
+            memory_manager=(
+                self._memory_manager(profile.profile_id)
+                if profile and profile.memory_enabled
+                else None
+            ),
         )
         async with self._lock:
             self.agents[agent_id] = agent
@@ -149,6 +153,9 @@ class AgentManager:
                 description=new_profile.get("description", ""),
                 capabilities=new_profile.get("capabilities", []),
                 color=new_profile.get("color", ""),
+                allowed_tools=new_profile.get("allowed_tools", []),
+                max_iterations=new_profile.get("max_iterations", 10),
+                memory_enabled=new_profile.get("memory_enabled", True),
             )
             profile_id = profile.profile_id
         agent = await self.spawn_agent(role, task, parent_id, profile_id)
@@ -409,7 +416,11 @@ class AgentManager:
                 react_loop=self.react_loop,
                 context_manager=self.context_manager,
                 event_bus=self.event_bus,
-                memory_manager=self._memory_manager(profile_id),
+                memory_manager=(
+                    self._memory_manager(profile_id)
+                    if profile.memory_enabled
+                    else None
+                ),
             )
             self._chat_agents[profile_id] = agent
 

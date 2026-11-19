@@ -8,11 +8,15 @@ import type {
   AgentRoutingOptions,
   UserMemory,
 } from '../../types/global'
+import { getUserFacingError } from '../../lib/userError'
 import './AgentPanel.css'
 
 type ChatTurn = { role: 'user' | 'assistant'; content: string }
 type ProfileFilter = 'all' | 'invoked' | 'available'
-type ProfileDraft = Omit<AgentProfileDraft, 'capabilities'> & { capabilities: string }
+type ProfileDraft = Omit<AgentProfileDraft, 'capabilities' | 'allowed_tools'> & {
+  capabilities: string
+  allowed_tools: string
+}
 
 const EMPTY_PROFILE_DRAFT: ProfileDraft = {
   name: '',
@@ -21,6 +25,9 @@ const EMPTY_PROFILE_DRAFT: ProfileDraft = {
   capabilities: '',
   color: '#ee6018',
   instructions: '',
+  allowed_tools: '',
+  max_iterations: 10,
+  memory_enabled: true,
 }
 
 function toProfileDraft(profile: AgentProfile): ProfileDraft {
@@ -31,11 +38,17 @@ function toProfileDraft(profile: AgentProfile): ProfileDraft {
     capabilities: profile.capabilities.join(', '),
     color: profile.color,
     instructions: profile.instructions,
+    allowed_tools: profile.allowed_tools.join(', '),
+    max_iterations: profile.max_iterations,
+    memory_enabled: profile.memory_enabled,
   }
 }
 
 function messageFromError(error: unknown): string {
-  return error instanceof Error ? error.message : 'The requested operation failed.'
+  return getUserFacingError(
+    error,
+    'No se pudo completar la operación del agente. Comprueba la conexión e inténtalo de nuevo.',
+  )
 }
 
 export default function AgentPanel() {
@@ -312,6 +325,9 @@ export default function AgentPanel() {
       capabilities: profileDraft.capabilities.split(',').map((item) => item.trim()).filter(Boolean),
       color: profileDraft.color,
       instructions: profileDraft.instructions.trim(),
+      allowed_tools: profileDraft.allowed_tools.split(',').map((item) => item.trim()).filter(Boolean),
+      max_iterations: profileDraft.max_iterations,
+      memory_enabled: profileDraft.memory_enabled,
     }
     setSavingProfile(true)
     setError(null)
@@ -656,6 +672,34 @@ export default function AgentPanel() {
                 <input type="color" value={profileDraft.color} onChange={(event) => setProfileDraft({ ...profileDraft, color: event.target.value })} />
               </label>
               <label>
+                Allowed tools (comma-separated)
+                <input
+                  maxLength={2400}
+                  placeholder="Leave empty to use the specialty defaults"
+                  value={profileDraft.allowed_tools}
+                  onChange={(event) => setProfileDraft({ ...profileDraft, allowed_tools: event.target.value })}
+                />
+                <small>When set, this is a hard allowlist: other tools are not offered to this teammate.</small>
+              </label>
+              <label>
+                Execution budget (ReAct steps)
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={profileDraft.max_iterations}
+                  onChange={(event) => setProfileDraft({ ...profileDraft, max_iterations: Number(event.target.value) })}
+                />
+              </label>
+              <label className="agent-profile-editor__checkbox">
+                <input
+                  type="checkbox"
+                  checked={profileDraft.memory_enabled}
+                  onChange={(event) => setProfileDraft({ ...profileDraft, memory_enabled: event.target.checked })}
+                />
+                Use the private memory for this teammate
+              </label>
+              <label>
                 Additional instructions
                 <textarea maxLength={6000} rows={5} value={profileDraft.instructions} onChange={(event) => setProfileDraft({ ...profileDraft, instructions: event.target.value })} />
               </label>
@@ -690,6 +734,15 @@ export default function AgentPanel() {
                 <span>{selectedProfile.model_route
                   ? `${selectedProfile.model_route.provider} · ${selectedProfile.model_route.model} · key ${selectedProfile.model_route.key_slot + 1}`
                   : 'Automatic model routing'}
+                </span>
+                <span>
+                  {selectedProfile.allowed_tools.length > 0
+                    ? `Tools: ${selectedProfile.allowed_tools.join(', ')}`
+                    : 'Tools: specialty defaults'}
+                  {' · '}
+                  Budget: {selectedProfile.max_iterations} steps
+                  {' · '}
+                  Memory: {selectedProfile.memory_enabled ? 'on' : 'off'}
                 </span>
                 {(selectedStatus?.status === 'running' || selectedStatus?.status === 'queued')
                   && selectedStatus.agent_id && (

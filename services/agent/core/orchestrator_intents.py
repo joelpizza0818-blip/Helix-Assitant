@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import platform
@@ -47,7 +48,28 @@ _SCREEN_OBSERVATION_INTENT = re.compile(
     re.IGNORECASE,
 )
 _SCREEN_ACTION_INTENT = re.compile(
-    r"^\s*(?:(?:please|kindly|por\s+favor)\s+)?"
+    r"(?:"
+    r"\b(?:use|uses|utili[sz]e|usa|usar|utiliza|utilice)\s+"
+    r"(?:(?:the|el|la|mi)\s+)?"
+    r"(?:computer[-\s]+use|desktop[-\s]+control|"
+    r"control(?:ar)?\s+(?:del|de|de\s+la|de\s+mi)\s+"
+    r"(?:escritorio|computadora|ordenador))\b"
+    r"|^\s*(?:(?:please|kindly|por\s+favor)\s+)?"
+    r"(?:controla|maneja|opera)\s+"
+    r"(?:(?:el|mi|la)\s+)?(?:escritorio|computadora|ordenador)\b"
+    r"|"
+    r"\b(?:use|usa|utiliza)\s+(?:(?:the|el|la|mi)\s+)?"
+    r"(?:desktop|computer|escritorio|computadora)\s+"
+    r"(?:control|to|para)\b"
+    r"|^\s*(?:(?:please|kindly|por\s+favor)\s+)?"
+    r"(?:"
+    r"(?:open|launch|start|abre|inicia|ejecuta)\s+"
+    r"(?:(?:the|my|a|an|la|el|mi|un|una)\s+)?"
+    r"[\w.-]+(?:\s+[\w.-]+){0,2}\s+"
+    r"(?:and|then|y|luego)\s+"
+    r"(?:click|clic|tap|press|select|choose|type|write|paste|drag|"
+    r"pulsa|selecciona|escribe|pega|arrastra)\b"
+    r"|"
     r"(?:click|clic|tap|press|select|choose|type|write|paste|drag|"
     r"haz\s+clic(?:\s+en)?|pulsa|selecciona|escribe|pega|arrastra)"
     r"\s+(?:(?:the|a|an|my|this|el|la|un|una|mi)\s+)?"
@@ -66,9 +88,62 @@ _SCREEN_ACTION_INTENT = re.compile(
     r"(?:on|in|en)\s+"
     r"(?:(?:the|my|current|active|this|el|la|mi|actual)\s+)?"
     r"(?:screen|desktop|window|pantalla|escritorio|ventana)"
-    r")\b",
+    r")))\b",
     re.IGNORECASE,
 )
+_REQUESTED_DESKTOP_ACTION = re.compile(
+    r"\b(?:"
+    r"(?:quiero|necesito|puedes|podr[ií]as)\s+(?:que\s+)?"
+    r"(?:abras|inicies|ejecutes|uses|utilices|escribas|selecciones|"
+    r"busques|encuentres|hagas\s+clic)"
+    r"|(?:i\s+want\s+you\s+to|please|can\s+you|could\s+you)\s+"
+    r"(?:open|launch|start|click|type|write|select|use)"
+    r").{0,80}\b(?:word|excel|notepad|bloc\s+de\s+notas|"
+    r"window|screen|desktop|ventana|pantalla|escritorio|"
+    r"aplicaci[oó]n|app)\b",
+    re.IGNORECASE,
+)
+_DESKTOP_CONTROL_TOOL_REQUIRED = re.compile(
+    r"(?:"
+    r"\b(?:use|utili[sz]e|usa|utiliza)\s+(?:(?:the|el|la|mi)\s+)?"
+    r"(?:desktop|computer|escritorio|computadora)\s+"
+    r"(?:control|use|automation|control)\b"
+    r"|^\s*(?:(?:please|kindly|por\s+favor)\s+)?"
+    r"(?:open|launch|start|abre|inicia|ejecuta)\s+"
+    r"[\w.-]+(?:\s+[\w.-]+){0,2}\s+(?:and|then|y|luego)\s+"
+    r"(?:click|clic|tap|press|select|choose|type|write|paste|drag|"
+    r"pulsa|selecciona|escribe|pega|arrastra)\b"
+    r")",
+    re.IGNORECASE,
+)
+_HOST_DESKTOP_INTENT = re.compile(
+    r"(?i)\b(?:"
+    r"host|windows|principal|main\s+desktop|main\s+environment|"
+    r"mi\s+escritorio|escritorio\s+principal|entorno\s+principal|"
+    r"pc\s+real|mi\s+pc|mi\s+computadora|equipo\s+real|sistema\s+principal|"
+    r"escritorio\s+real|en\s+el\s+host|en\s+windows|en\s+el\s+principal|"
+    r"en\s+mi\s+m[aá]quina\s+real|en\s+mi\s+equipo"
+    r")\b"
+)
+_ISOLATED_DESKTOP_INTENT = re.compile(
+    r"(?i)\b(?:"
+    r"docker|guest|linux|aislado|virtual|privad[oa]|isolated|"
+    r"m[aá]quina\s+virtual|maquina\s+virtual|entorno\s+aislado|"
+    r"entorno\s+virtual|escritorio\s+privado|en\s+la\s+virtual|"
+    r"en\s+el\s+contenedor|debian"
+    r")\b"
+)
+
+
+def _detect_desktop_environment_intent(text: str) -> str | None:
+    """Detect whether a task explicitly requests the host or Docker desktop."""
+    if not text or not isinstance(text, str):
+        return None
+    if _HOST_DESKTOP_INTENT.search(text):
+        return "windows_host"
+    if _ISOLATED_DESKTOP_INTENT.search(text):
+        return "docker_guest"
+    return None
 _METALINGUISTIC_INTENT = re.compile(
     r"^\s*(?:"
     r"what\s+does\b.*\bmean\b|"
@@ -139,10 +214,20 @@ def _conversation_failure_message(error: Exception) -> str:
             "El proveedor rechazó la autenticación. Vuelve a validar la clave "
             "en la configuración de IA."
         )
+    if "INVALID_API_KEY" in detail or "API KEY INVALID" in detail:
+        return (
+            "La clave del proveedor no es válida. Comprueba que esté bien copiada "
+            "y guardada en la configuración de IA."
+        )
     if "MODEL_UNAVAILABLE" in detail:
         return (
             "El modelo seleccionado no está disponible para esta clave. "
             "Selecciona otro modelo o proveedor."
+        )
+    if "SERVICE_UNAVAILABLE" in detail or "SERVER_ERROR" in detail:
+        return (
+            "El proveedor de IA no está disponible en este momento. Espera un poco "
+            "o prueba con otro modelo o proveedor."
         )
     if "CONTEXT_LENGTH_EXCEEDED" in detail or "PROMPT_TOO_LONG" in detail:
         return (
@@ -157,7 +242,12 @@ def _conversation_failure_message(error: Exception) -> str:
             "haberse ejecutado, así que verifica su resultado antes de reintentar. "
             "Comprueba el almacén seguro de credenciales del sistema."
         )
-    return "No pude completar la solicitud. Revisa la configuración del proveedor de IA y vuelve a intentarlo."
+    return (
+        "HELIX no pudo obtener una respuesta de los proveedores configurados. "
+        "Comprueba tu conexión y que el modelo seleccionado esté disponible; "
+        "si continúa, prueba otro modelo o proveedor. No se muestran detalles "
+        "técnicos en el chat."
+    )
 
 
 def _should_observe_screen(enabled: bool, description: str) -> bool:
@@ -167,6 +257,27 @@ def _should_observe_screen(enabled: bool, description: str) -> bool:
     return bool(
         _SCREEN_OBSERVATION_INTENT.search(description)
         or _SCREEN_ACTION_INTENT.search(description)
+        or _REQUESTED_DESKTOP_ACTION.search(description)
+    )
+
+
+def _should_control_desktop(enabled: bool, description: str) -> bool:
+    """Recognize explicit desktop actions without enabling general screen access."""
+    if not enabled or _METALINGUISTIC_INTENT.search(description):
+        return False
+    return bool(
+        _SCREEN_ACTION_INTENT.search(description)
+        or _REQUESTED_DESKTOP_ACTION.search(description)
+    )
+
+
+def _requires_desktop_control_tool(enabled: bool, description: str) -> bool:
+    """Identify tasks that must stay on the dedicated desktop-control tool."""
+    if not enabled or _METALINGUISTIC_INTENT.search(description):
+        return False
+    return bool(
+        _DESKTOP_CONTROL_TOOL_REQUIRED.search(description)
+        or _should_control_desktop(enabled, description)
     )
 
 
@@ -174,6 +285,7 @@ async def _append_requested_screen_observation(
     messages: list,
     tool_registry,
     task_id: str,
+    task_description: str = "",
 ) -> None:
     """Attach a safe screen observation or explain why it is unavailable."""
     observe_tool = tool_registry.get_tool("computer.observe_screen")
@@ -184,7 +296,20 @@ async def _append_requested_screen_observation(
     else:
         try:
             with screen_observation_scope(True):
-                observation = await observe_tool.execute({})
+                parameters = {}
+                select_window = getattr(
+                    observe_tool,
+                    "select_window_for_request",
+                    None,
+                )
+                if callable(select_window):
+                    window_handle = await asyncio.to_thread(
+                        select_window,
+                        task_description,
+                    )
+                    if window_handle is not None:
+                        parameters["window_handle"] = window_handle
+                observation = await observe_tool.execute(parameters)
         except Exception as error:
             logger.exception(
                 "On-demand screen observation raised an error for task %s",

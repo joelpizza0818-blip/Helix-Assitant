@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { UpdaterStatus } from '../../../types/global'
+import { getUserFacingError } from '../../../lib/userError'
 import './UpdateSection.css'
 
 const INITIAL_STATUS: UpdaterStatus = { status: 'unsupported' }
@@ -48,7 +49,10 @@ export default function UpdateSection() {
     } catch (cause) {
       setStatus({
         status: 'error',
-        message: cause instanceof Error ? cause.message : 'Could not check for updates.',
+        message: getUserFacingError(
+          cause,
+          'No se pudo comprobar si hay actualizaciones. Comprueba tu conexión e inténtalo de nuevo.',
+        ),
       })
     } finally {
       setBusy(false)
@@ -62,7 +66,10 @@ export default function UpdateSection() {
     } catch (cause) {
       setStatus({
         status: 'error',
-        message: cause instanceof Error ? cause.message : 'Could not download the update.',
+        message: getUserFacingError(
+          cause,
+          'No se pudo descargar la actualización. Comprueba tu conexión y el espacio disponible e inténtalo de nuevo.',
+        ),
       })
     } finally {
       setBusy(false)
@@ -87,7 +94,14 @@ export default function UpdateSection() {
       case 'downloaded':
         return <p role="status">Version {status.version} is ready to install.</p>
       case 'error':
-        return <p className="toolbox-error" role="alert">{status.message}</p>
+        return (
+          <p className="toolbox-error" role="alert">
+            {getUserFacingError(
+              status.message,
+              'No se pudo completar la actualización. Comprueba tu conexión e inténtalo de nuevo.',
+            )}
+          </p>
+        )
       case 'unsupported':
         return <p role="status">Updates are available in the installed Windows version of HELIX.</p>
     }

@@ -183,6 +183,36 @@
   color: var(--color-void);
 }
 
+.task-pause-btn,
+.task-resume-btn {
+  padding: 3px 8px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  border-radius: var(--radius-buttons);
+  background: transparent;
+  transition: all var(--duration-fast) var(--ease);
+}
+
+.task-pause-btn {
+  color: var(--orange);
+  border: 1px solid rgba(238, 96, 24, 0.35);
+}
+
+.task-pause-btn:hover {
+  background: var(--orange);
+  color: var(--color-void);
+}
+
+.task-resume-btn {
+  color: var(--color-pulse-green);
+  border: 1px solid rgba(39, 166, 68, 0.35);
+}
+
+.task-resume-btn:hover {
+  background: var(--color-pulse-green);
+  color: var(--color-void);
+}
+
 .task-item__chevron {
   font-size: 11px;
   color: var(--color-ash);

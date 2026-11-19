@@ -4,10 +4,16 @@ import fs from 'fs';
 import crypto from 'crypto';
 import net from 'net';
 import WebSocket from 'ws';
+import { getUserFacingError } from '../ui/userError';
 
 let spawnedAgentProcess: ChildProcess | null = null;
 let activeSpawnToken: string | null = null;
 let startupPromise: Promise<boolean> | null = null;
+// Motivo ya saneado del último fallo de lanzamiento. Se guarda para que la
+// espera de arranque pueda abortar en lugar de quedarse el tiempo máximo
+// esperando un proceso que nunca llegó a existir.
+// TODO(jornada): exponer el motivo en agent_start_failed — requiere aprobación por cambio de texto visible.
+let agentSpawnFailure: string | null = null;
 
 export function getTokenFilePath(): string {
   const appData =
@@ -258,6 +264,13 @@ export async function waitForAgentReady(
     const startTime = Date.now();
     try {
       while (Date.now() - startTime < maxWaitMs) {
+        // Si el lanzamiento falló (p. ej. intérprete Python inexistente o no
+        // ejecutable) el hijo nunca emite 'exit', así que se corta aquí para no
+        // bloquear al usuario durante maxWaitMs por un proceso que no existe.
+        if (agentSpawnFailure !== null) {
+          return false;
+        }
+
         // If the spawned child process exited prematurely with an error code, abort
         if (spawnedAgentProcess !== null && spawnedAgentProcess.exitCode !== null) {
           return false;
@@ -316,6 +329,9 @@ export async function spawnAgentDaemon(port: number = 8765): Promise<{ success: 
   const repoRoot = path.resolve(agentDir, '../..');
   const pythonExec = findPythonExecutable(repoRoot);
 
+  // Cada intento parte de cero: un fallo anterior no debe condicionar la espera.
+  agentSpawnFailure = null;
+
   try {
     const child = spawn(
       pythonExec,
@@ -344,12 +360,32 @@ export async function spawnAgentDaemon(port: number = 8765): Promise<{ success: 
       spawnedAgentProcess = null;
     });
 
+    // `spawn()` NO lanza cuando el ejecutable no existe, no es ejecutable o no
+    // se puede crear el proceso: el fallo llega como evento asíncrono 'error'
+    // del ChildProcess, cuando esta función ya retornó. Por eso el try/catch de
+    // abajo no puede verlo y hace falta un listener propio: sin él Node trata
+    // el evento como excepción no capturada y aborta todo el CLI, en vez de
+    // dejar que el usuario vea el error controlado de `agent_start_failed`.
+    child.on('error', (err) => {
+      // Solo se limpia si el proceso fallido sigue siendo el actual, para no
+      // pisar una instancia posterior lanzada por un reintento.
+      if (spawnedAgentProcess === child) {
+        spawnedAgentProcess = null;
+      }
+      // Se sanea con getUserFacingError para no filtrar rutas absolutas del
+      // intérprete (ni el HELIX_WS_TOKEN que viaja en el entorno del hijo):
+      // el mensaje original de spawn incluye el ejecutable y el detalle del SO.
+      agentSpawnFailure = getUserFacingError(
+        err,
+        'No se pudo iniciar el agente local. Abre HELIX Desktop y vuelve a intentarlo.',
+      );
+    });
+
     return { success: true };
-  } catch (err) {
+  } catch {
     return {
       success: false,
-      error: `Error al invocar proceso Python: ${(err as Error).message}`,
+      error: 'No se pudo iniciar el agente local. Abre HELIX Desktop y vuelve a intentarlo.',
     };
   }
 }
-

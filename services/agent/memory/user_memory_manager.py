@@ -20,9 +20,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from services.agent.storage_paths import get_agent_data_dir
+
 logger = logging.getLogger(__name__)
 
-_DEFAULT_MEMORY_DIR = Path.home() / ".helix"
+_DEFAULT_MEMORY_DIR = get_agent_data_dir()
 _MEMORY_FILE = _DEFAULT_MEMORY_DIR / "user_memories.json"
 _MAX_SUMMARY_LENGTH = 4000
 _MAX_NOTES_LENGTH = 2000

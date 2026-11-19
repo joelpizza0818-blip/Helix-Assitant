@@ -196,7 +196,9 @@ export function FeaturesPage() {
         setNotifyEmail('');
       } else {
         setNotifyStatus('error');
-        setNotifyMessage(data?.error || 'Could not register the subscription.');
+        setNotifyMessage(
+          'No se pudo registrar la suscripción. Comprueba tu dirección de correo e inténtalo de nuevo.',
+        );
       }
     } catch (error: unknown) {
       console.error('Could not register for HELIX release updates.', error);

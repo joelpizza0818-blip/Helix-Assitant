@@ -10,6 +10,7 @@
 import chalk from 'chalk';
 import type { AgentClient } from '../client/agent-client';
 import { CYAN, CYAN_BOLD, GREEN, YELLOW, GRAY, DIM, BOLD, ORANGE_BOLD, RED } from '../ui/colors';
+import { getUserFacingError } from '../ui/userError';
 
 // ── Model catalog (mirrors ModelSelectorDropdown.tsx) ──────────────────────────
 export interface ModelEntry {
@@ -109,7 +110,7 @@ export async function handleModelStatus(client: AgentClient): Promise<void> {
     console.log(DIM('  Usa /model list para ver opciones, /model set <id> para cambiar.'));
     console.log('');
   } catch (err) {
-    console.log(RED(`  Error al obtener modelo: ${(err as Error).message}\n`));
+    console.log(RED(`  ${getUserFacingError(err, 'No se pudo consultar el modelo actual. Comprueba que HELIX esté conectado e inténtalo de nuevo.')}\n`));
   }
 }
 
@@ -159,7 +160,7 @@ export async function handleModelSet(client: AgentClient, modelId: string): Prom
     console.log(`  ${chalk.gray('Proveedor:')} ${chalk.white(provider)}`);
     console.log('');
   } catch (err) {
-    console.log(RED(`  ✖ Error al cambiar modelo: ${(err as Error).message}\n`));
+    console.log(RED(`  ✖ ${getUserFacingError(err, 'No se pudo cambiar el modelo. Comprueba que esté disponible e inténtalo de nuevo.')}\n`));
   }
 }
 
@@ -186,7 +187,7 @@ export async function handleModelEffort(client: AgentClient, level: string): Pro
     console.log(DIM(`  Velocidad: ${speedMap[normalized]}  |  Calidad: ${qualityMap[normalized]}`));
     console.log('');
   } catch (err) {
-    console.log(RED(`  ✖ Error al ajustar esfuerzo: ${(err as Error).message}\n`));
+    console.log(RED(`  ✖ ${getUserFacingError(err, 'No se pudo cambiar el nivel de respuesta. Inténtalo de nuevo.')}\n`));
   }
 }
 

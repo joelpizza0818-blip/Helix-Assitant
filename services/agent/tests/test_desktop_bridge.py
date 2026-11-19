@@ -12,6 +12,7 @@ from services.agent.ai.capability_registry import CapabilityRegistry
 from services.agent.ai.google_provider import GoogleProvider
 from services.agent.ai.key_manager import KeyManager
 from services.agent.ai.openai_provider import OpenAIProvider
+from services.agent.ai.openrouter_provider import OpenRouterProvider
 from services.agent.ai.custom_provider import OpenAICompatibleProvider
 from services.agent.ai.provider_registry import ProviderRegistry
 from services.agent.ai.base_provider import AgentError, KeyHealth
@@ -134,6 +135,49 @@ def test_runtime_settings_apply_approval_ceiling_to_permission_manager(
     assert request_handler.permission_manager.auto_approve_up_to.name == "MODIFY"
 
 
+def test_runtime_settings_use_canonical_permissions_mode_when_aliases_differ(
+    request_handler,
+):
+    from services.agent.security.permission_manager import PermissionManager
+
+    request_handler.permission_manager = PermissionManager()
+    request_handler._apply_runtime_settings({
+        **request_handler.get_settings(),
+        "permissions_mode": "ALLOW_ALL",
+        "permission_mode": "SMART_APPROVAL",
+    })
+
+    assert request_handler.permission_manager.mode.value == "ALLOW_ALL"
+
+
+def test_get_settings_syncs_stale_legacy_permission_mode(request_handler):
+    request_handler.settings_path.write_text(
+        json.dumps({
+            "permissions_mode": "ALLOW_ALL",
+            "permission_mode": "SMART_APPROVAL",
+        }),
+        encoding="utf-8",
+    )
+
+    settings = request_handler.get_settings()
+
+    assert settings["permissions_mode"] == "ALLOW_ALL"
+    assert settings["permission_mode"] == "ALLOW_ALL"
+
+
+@pytest.mark.asyncio
+async def test_saving_allow_all_syncs_legacy_permission_mode(request_handler):
+    saved = await request_handler._save_settings({
+        "permissions_mode": "ALLOW_ALL",
+    })
+
+    assert saved["permissions_mode"] == "ALLOW_ALL"
+    assert saved["permission_mode"] == "ALLOW_ALL"
+    persisted = json.loads(request_handler.settings_path.read_text(encoding="utf-8"))
+    assert persisted["permissions_mode"] == "ALLOW_ALL"
+    assert persisted["permission_mode"] == "ALLOW_ALL"
+
+
 def test_runtime_settings_reject_invalid_approval_ceiling(request_handler):
     with pytest.raises(ValueError, match="auto_approve_up_to"):
         request_handler._apply_runtime_settings({
@@ -232,6 +276,15 @@ def test_cross_provider_failover_migrates_old_default(request_handler):
 
     assert settings["cross_provider_fallback"] is True
     assert settings["_cross_provider_failover_migrated"] is True
+
+
+def test_legacy_live_silence_default_migrates_to_one_second(request_handler):
+    request_handler.settings_path.write_text(
+        json.dumps({"voice_live_silence_ms": 650}),
+        encoding="utf-8",
+    )
+
+    assert request_handler.get_settings()["voice_live_silence_ms"] == 1000
 
 
 @pytest.mark.asyncio
@@ -621,6 +674,49 @@ async def test_validated_key_is_saved_for_model_routing(request_handler, monkeyp
     )
 
 @pytest.mark.asyncio
+async def test_unvalidated_key_is_still_saved_for_model_routing(request_handler, monkeypatch):
+    provider = OpenRouterProvider()
+    request_handler.provider_registry.register_provider(provider)
+
+    async def validate_key(_api_key):
+        return KeyHealth.UNAVAILABLE
+
+    monkeypatch.setattr(provider, "validate_key", validate_key)
+    response = await request_handler.dispatch({
+        "type": "VALIDATE_KEY",
+        "request_id": "save-openrouter-key-transient-failure",
+        "payload": {"provider": "openrouter", "slot": 1, "key": "saved-despite-outage"},
+    })
+
+    assert response["payload"] == "unavailable"
+    assert request_handler.key_manager.get_key("openrouter", 0) == "saved-despite-outage"
+    assert request_handler.key_manager.is_provider_configured("openrouter")
+    assert request_handler.key_manager.get_available_keys("openrouter") == [
+        (0, "saved-despite-outage")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_rejected_key_is_saved_but_excluded_from_the_pool(request_handler, monkeypatch):
+    provider = OpenRouterProvider()
+    request_handler.provider_registry.register_provider(provider)
+
+    async def validate_key(_api_key):
+        return KeyHealth.AUTH_ERROR
+
+    monkeypatch.setattr(provider, "validate_key", validate_key)
+    response = await request_handler.dispatch({
+        "type": "VALIDATE_KEY",
+        "request_id": "save-openrouter-key-rejected",
+        "payload": {"provider": "openrouter", "slot": 1, "key": "rejected-key"},
+    })
+
+    assert response["payload"] == "auth_error"
+    assert request_handler.key_manager.get_key("openrouter", 0) == "rejected-key"
+    assert request_handler.key_manager.get_available_keys("openrouter") == []
+
+
+@pytest.mark.asyncio
 async def test_validated_key_supports_slots_beyond_three(request_handler, monkeypatch):
     provider = request_handler.provider_registry.get_registered_provider("openai")
 
@@ -739,7 +835,13 @@ async def test_settings_are_saved_and_loaded(request_handler):
     saved = await request_handler.dispatch({
         "type": "SAVE_SETTINGS",
         "request_id": "save-1",
-        "payload": {"settings": {"wake_word": "computer"}},
+        "payload": {
+            "settings": {
+                "wake_word": "computer",
+                "voice_stt_mode": "speed",
+                "voice_live_silence_ms": 1000,
+            }
+        },
     })
     loaded = await request_handler.dispatch({
         "type": "GET_SETTINGS",
@@ -750,7 +852,18 @@ async def test_settings_are_saved_and_loaded(request_handler):
     assert saved["payload"]["wake_word"] == "computer"
     assert saved["payload"]["voice_enabled"] is True
     assert saved["payload"]["gesture_window_sequence_enabled"] is True
+    assert saved["payload"]["voice_stt_mode"] == "speed"
+    assert saved["payload"]["voice_live_silence_ms"] == 1000
     assert loaded["payload"] == saved["payload"]
+
+
+@pytest.mark.asyncio
+async def test_live_voice_settings_reject_invalid_profile_and_pause(request_handler):
+    with pytest.raises(ValueError, match="voice_stt_mode must be"):
+        await request_handler._save_settings({"voice_stt_mode": ["speed"]})
+
+    with pytest.raises(ValueError, match="voice_live_silence_ms must be"):
+        await request_handler._save_settings({"voice_live_silence_ms": 100})
 
 
 @pytest.mark.asyncio

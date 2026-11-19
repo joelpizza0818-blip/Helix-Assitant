@@ -6,7 +6,7 @@ export function mcpSaveErrorMessage(error: unknown): string {
   if (/MCP URL transport is not supported/i.test(message)) {
     return 'URL-based MCP servers are not supported. Configure a local stdio launch command.'
   }
-  return message || 'Could not save MCP configuration.'
+  return 'No se pudo guardar la configuración del servidor MCP. Revisa los datos e inténtalo de nuevo.'
 }
 
 export async function saveMcpServerDraft(

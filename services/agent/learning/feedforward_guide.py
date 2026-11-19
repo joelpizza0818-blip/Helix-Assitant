@@ -1,6 +1,6 @@
 """Feedforward Dynamic Guide for HELIX Adaptive Learning.
 
-Generates and maintains ~/.helix/USER.md and injects tailored system guidance
+Generates and maintains HELIX's USER.md and injects tailored system guidance
 before each model turn, ensuring the model acts according to the user's learned
 preferences and verified procedural guidelines.
 """
@@ -11,9 +11,11 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from services.agent.storage_paths import get_agent_data_dir
+
 logger = logging.getLogger(__name__)
 
-DEFAULT_USER_MD_PATH = Path.home() / ".helix" / "USER.md"
+DEFAULT_USER_MD_PATH = get_agent_data_dir() / "USER.md"
 
 
 class FeedforwardGuide:
@@ -30,7 +32,7 @@ class FeedforwardGuide:
         self.ensure_user_md()
 
     def ensure_user_md(self) -> None:
-        """Initializes ~/.helix/USER.md if not yet present."""
+        """Initializes USER.md if not yet present."""
         if not self.user_md_path.exists():
             default_content = (
                 "# HELIX - Perfil Adaptativo del Usuario (USER.md)\n\n"

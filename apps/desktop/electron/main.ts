@@ -32,13 +32,54 @@ import {
   type InstallationProfile,
 } from './capability-manager'
 import { readCapabilityConfig } from './capability-config'
+import { migrateUserData, resolveHelixStoragePaths } from './storage-paths'
 import {
   isSupportedMediaRequest,
   isSupportedMediaType,
   isTrustedRendererRequest,
 } from './media-permissions'
+import {
+  buildCursorUpdateScript,
+  buildDesktopCursorHtml,
+  cursorPointInDisplay,
+  matchDisplayForScreenBounds,
+  parseDesktopCursorEvent,
+  type DesktopCursorState,
+} from './desktop-cursor-overlay'
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
+const checkoutName = isDev
+  ? path.basename(path.resolve(app.getAppPath(), '..', '..'))
+  : null
+const previousUserDataPath = checkoutName
+  ? path.join(app.getPath('appData'), `@helix-desktop-dev-${checkoutName}`)
+  : app.getPath('userData')
+const storagePaths = resolveHelixStoragePaths(
+  app.getPath('desktop'),
+  process.env.HELIX_STORAGE_DIR,
+)
+process.env.HELIX_STORAGE_DIR = storagePaths.root
+process.env.TEMP = storagePaths.temp
+process.env.TMP = storagePaths.temp
+process.env.TMPDIR = storagePaths.temp
+process.env.HF_HOME = path.join(storagePaths.cache, 'huggingface')
+process.env.HUGGINGFACE_HUB_CACHE = path.join(storagePaths.cache, 'huggingface', 'hub')
+process.env.TORCH_HOME = path.join(storagePaths.cache, 'torch')
+process.env.XDG_CACHE_HOME = storagePaths.cache
+for (const directory of [
+  storagePaths.root,
+  storagePaths.cache,
+  path.join(storagePaths.cache, 'electron'),
+  storagePaths.logs,
+  storagePaths.temp,
+]) {
+  fs.mkdirSync(directory, { recursive: true })
+}
+if (!migrateUserData(previousUserDataPath, storagePaths.appData)) {
+  fs.mkdirSync(storagePaths.appData, { recursive: true })
+}
+app.setPath('userData', storagePaths.appData)
+app.setPath('cache', path.join(storagePaths.cache, 'electron'))
 const rendererPort = Number(process.env.HELIX_RENDERER_PORT || 5173)
 const RENDERER_URL = isDev
   ? `http://127.0.0.1:${rendererPort}`
@@ -47,20 +88,18 @@ const DEFAULT_WS_PORT = parseInt(process.env.AGENT_WS_PORT || '8765', 10)
 const UPDATE_POLICY_URL = 'https://zqjktbpymrfjmggjmbfp.supabase.co/functions/v1/installer-updates/policy.json'
 let wsPort = DEFAULT_WS_PORT
 
-if (isDev) {
-  const checkoutName = path.basename(path.resolve(app.getAppPath(), '..', '..'))
-  app.setPath(
-    'userData',
-    path.join(app.getPath('appData'), `@helix-desktop-dev-${checkoutName}`)
-  )
-}
-
 const APP_ICON_PATH = path.join(__dirname, '../assets/icon.ico')
 
 let floatingWindow: BrowserWindow | null = null
 let toolboxWindow: BrowserWindow | null = null
 let confirmationWindow: BrowserWindow | null = null
 let agentsWindow: BrowserWindow | null = null
+let desktopPreviewWindow: BrowserWindow | null = null
+let desktopControlIndicatorWindow: BrowserWindow | null = null
+let desktopCursorWindow: BrowserWindow | null = null
+let desktopCursorDisplayId: number | null = null
+let desktopCursorReady = false
+let pendingDesktopCursor: DesktopCursorState | null = null
 let trayManager: TrayManager | null = null
 let pythonManager: PythonManager | null = null
 let ipcBridge: IPCBridge | null = null
@@ -74,6 +113,210 @@ let isQuitting = false
 let shutdownComplete = false
 let adminAuthenticated = false
 let pendingOAuthCallback: string | null = null
+let emergencyStopShortcut = 'Control+Shift+Escape'
+let emergencyStopShortcutAvailable = false
+let activeDesktopTaskId: string | null = null
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => {
+    switch (character) {
+      case '&': return '&amp;'
+      case '<': return '&lt;'
+      case '>': return '&gt;'
+      case '"': return '&quot;'
+      case "'": return '&#39;'
+      default: return character
+    }
+  })
+}
+
+function setDesktopControlIndicator(active: boolean): void {
+  if (!active) {
+    if (desktopControlIndicatorWindow && !desktopControlIndicatorWindow.isDestroyed()) {
+      desktopControlIndicatorWindow.close()
+    }
+    desktopControlIndicatorWindow = null
+    return
+  }
+
+  if (desktopControlIndicatorWindow && !desktopControlIndicatorWindow.isDestroyed()) {
+    return
+  }
+
+  const { workArea } = screen.getPrimaryDisplay()
+  const width = 340
+  const height = 48
+  const indicator = new BrowserWindow({
+    width,
+    height,
+    x: workArea.x + workArea.width - width - 18,
+    y: workArea.y + workArea.height - height - 18,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    movable: false,
+    focusable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    show: false,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  })
+  desktopControlIndicatorWindow = indicator
+  indicator.setVisibleOnAllWorkspaces(true)
+  indicator.setAlwaysOnTop(true, 'floating')
+  indicator.setIgnoreMouseEvents(true)
+  indicator.on('closed', () => {
+    if (desktopControlIndicatorWindow === indicator) {
+      desktopControlIndicatorWindow = null
+    }
+  })
+
+  const html = `<!doctype html><meta charset="utf-8"><style>
+    *{box-sizing:border-box}body{margin:0;font:13px Segoe UI, sans-serif;color:#fff}
+    .banner{height:48px;display:flex;align-items:center;gap:10px;padding:0 14px;
+      border:1px solid #ee6018;border-radius:8px;background:rgba(29,26,24,.97);
+      box-shadow:0 4px 18px rgba(0,0,0,.38)}
+    .dot{width:9px;height:9px;border-radius:50%;background:#ee6018;
+      box-shadow:0 0 8px #ee6018;flex:none}
+    .text{font-weight:600}.hint{margin-left:auto;color:#eee;font-size:11px}
+  </style><div class="banner"><span class="dot"></span>
+    <span class="text">HELIX controla el escritorio</span>
+    <span class="hint">${emergencyStopShortcutAvailable
+      ? `Detener: ${escapeHtml(emergencyStopShortcut)}`
+      : 'Atajo de emergencia no disponible'}</span></div>`
+  void indicator.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+    .then(() => indicator.showInactive())
+    .catch((error: unknown) => {
+      console.error('[Main] Could not display desktop-control indicator:', error)
+      if (desktopControlIndicatorWindow === indicator) {
+        desktopControlIndicatorWindow = null
+      }
+      if (!indicator.isDestroyed()) indicator.close()
+    })
+}
+
+function hideDesktopCursorOverlay(): void {
+  pendingDesktopCursor = null
+  if (desktopCursorWindow && !desktopCursorWindow.isDestroyed()) {
+    desktopCursorWindow.close()
+  }
+  desktopCursorWindow = null
+  desktopCursorDisplayId = null
+  desktopCursorReady = false
+}
+
+function applyDesktopCursorState(
+  state: DesktopCursorState,
+  display: Electron.Display,
+): void {
+  const overlay = desktopCursorWindow
+  if (!overlay || overlay.isDestroyed() || !desktopCursorReady) return
+  const point = cursorPointInDisplay(display, state.screenBounds, state.cursor)
+  void overlay.webContents
+    .executeJavaScript(buildCursorUpdateScript(state, point), true)
+    .catch((error: unknown) => {
+      console.error('[Main] Could not update the desktop cursor overlay:', error)
+    })
+  if (!overlay.isVisible()) overlay.showInactive()
+}
+
+function ensureDesktopCursorWindow(display: Electron.Display): BrowserWindow {
+  if (desktopCursorWindow && !desktopCursorWindow.isDestroyed()) {
+    return desktopCursorWindow
+  }
+
+  const overlay = new BrowserWindow({
+    x: display.bounds.x,
+    y: display.bounds.y,
+    width: Math.max(1, display.bounds.width),
+    height: Math.max(1, display.bounds.height),
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    focusable: false,
+    skipTaskbar: true,
+    hasShadow: false,
+    alwaysOnTop: true,
+    enableLargerThanScreen: true,
+    show: false,
+    title: 'HELIX cursor',
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      backgroundThrottling: false,
+    },
+  })
+  desktopCursorWindow = overlay
+  desktopCursorDisplayId = display.id
+  desktopCursorReady = false
+  overlay.setAlwaysOnTop(true, 'screen-saver')
+  overlay.setIgnoreMouseEvents(true)
+  overlay.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  overlay.setMenuBarVisibility(false)
+  overlay.on('closed', () => {
+    if (desktopCursorWindow === overlay) {
+      desktopCursorWindow = null
+      desktopCursorDisplayId = null
+      desktopCursorReady = false
+    }
+  })
+
+  void overlay
+    .loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(buildDesktopCursorHtml())}`)
+    .then(() => {
+      if (overlay.isDestroyed()) return
+      desktopCursorReady = true
+      const target = screen.getAllDisplays().find(
+        (candidate) => candidate.id === desktopCursorDisplayId,
+      ) ?? display
+      overlay.setBounds(target.bounds)
+      overlay.showInactive()
+      if (pendingDesktopCursor) {
+        applyDesktopCursorState(pendingDesktopCursor, target)
+      }
+    })
+    .catch((error: unknown) => {
+      console.error('[Main] Could not display the desktop cursor overlay:', error)
+      if (desktopCursorWindow === overlay) {
+        desktopCursorWindow = null
+        desktopCursorDisplayId = null
+        desktopCursorReady = false
+      }
+      if (!overlay.isDestroyed()) overlay.close()
+    })
+  return overlay
+}
+
+function updateDesktopCursorOverlay(payload: unknown): void {
+  const state = parseDesktopCursorEvent(payload)
+  if (!state || !state.cursor.visible) {
+    hideDesktopCursorOverlay()
+    return
+  }
+  const display = matchDisplayForScreenBounds(
+    screen.getAllDisplays(),
+    state.screenBounds,
+  ) ?? screen.getPrimaryDisplay()
+  pendingDesktopCursor = state
+
+  const overlay = ensureDesktopCursorWindow(display)
+  if (overlay.isDestroyed()) return
+  if (display.id !== desktopCursorDisplayId) {
+    overlay.setBounds(display.bounds)
+    desktopCursorDisplayId = display.id
+  }
+  applyDesktopCursorState(state, display)
+}
 
 const MAX_LOG_BUFFER_LINES = 2000
 const recentLogBuffer: string[] = []
@@ -413,18 +656,36 @@ function createFloatingWindow(): BrowserWindow {
   return win
 }
 
-function resizeFloatingWindow(mode: 'full' | 'suppressed'): void {
+function resizeFloatingWindow(
+  mode: 'full' | 'suppressed' | 'voice' | 'voice-suppressed',
+): void {
   if (!floatingWindow || floatingWindow.isDestroyed()) return
 
   const bounds = floatingWindow.getBounds()
-  const nextWidth = mode === 'suppressed' ? 620 : 420
-  const nextHeight = mode === 'suppressed' ? 76 : 640
+  const nextWidth =
+    mode === 'suppressed'
+      ? 620
+      : mode === 'voice'
+        ? 920
+        : mode === 'voice-suppressed'
+          ? 300
+          : 420
+  const nextHeight =
+    mode === 'suppressed'
+      ? 76
+      : mode === 'voice'
+        ? 720
+        : mode === 'voice-suppressed'
+          ? 300
+          : 640
   const center = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 }
   const display = screen.getDisplayNearestPoint(center)
   const area = display.workArea
-  const x = Math.max(area.x, Math.min(Math.round(center.x - nextWidth / 2), area.x + area.width - nextWidth))
-  const y = Math.max(area.y, Math.min(Math.round(center.y - nextHeight / 2), area.y + area.height - nextHeight))
-  floatingWindow.setBounds({ x, y, width: nextWidth, height: nextHeight }, true)
+  const width = Math.min(nextWidth, area.width)
+  const height = Math.min(nextHeight, area.height)
+  const x = Math.max(area.x, Math.min(Math.round(center.x - width / 2), area.x + area.width - width))
+  const y = Math.max(area.y, Math.min(Math.round(center.y - height / 2), area.y + area.height - height))
+  floatingWindow.setBounds({ x, y, width, height }, true)
 }
 
 function createToolboxWindow(): BrowserWindow {
@@ -459,6 +720,48 @@ function createToolboxWindow(): BrowserWindow {
   })
 
   return win
+}
+
+function showDesktopPreviewWindow(): void {
+  if (!desktopPreviewWindow || desktopPreviewWindow.isDestroyed()) {
+    const area = screen.getPrimaryDisplay().workArea
+    desktopPreviewWindow = new BrowserWindow({
+      width: Math.min(1100, area.width),
+      height: Math.min(760, area.height),
+      minWidth: 640,
+      minHeight: 420,
+      show: false,
+      backgroundColor: '#090909',
+      title: 'HELIX desktop preview',
+      icon: APP_ICON_PATH,
+      webPreferences: {
+        preload: path.join(__dirname, 'preload.js'),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: false,
+      },
+    })
+    const preview = desktopPreviewWindow
+    preview.on('closed', () => {
+      if (desktopPreviewWindow === preview) {
+        desktopPreviewWindow = null
+      }
+      if (activeDesktopTaskId) {
+        const taskId = activeDesktopTaskId
+        activeDesktopTaskId = null
+        try {
+          ipcBridge?.cancelTask(taskId)
+        } catch (error) {
+          console.error('[Main] Could not cancel desktop task after closing preview:', error)
+        }
+      }
+      setDesktopControlIndicator(false)
+      hideDesktopCursorOverlay()
+    })
+    loadWithRetry(preview, `${RENDERER_URL}#desktop-preview`)
+  }
+  if (desktopPreviewWindow.isMinimized()) desktopPreviewWindow.restore()
+  desktopPreviewWindow.show()
 }
 
 function createConfirmationWindow(): BrowserWindow {
@@ -618,6 +921,98 @@ function setupIPC(): void {
   ipcBridge = new IPCBridge()
   ipcBridge.onSettingsApplied(applyDesktopSettings)
   ipcBridge.onAgentEvent((message) => {
+    if (message.type === 'desktop_control_status') {
+      const active = message.payload.active === true
+      const taskId = typeof message.payload.task_id === 'string'
+        ? message.payload.task_id
+        : null
+      if (active && taskId && /^[0-9a-f-]{36}$/i.test(taskId)) {
+        activeDesktopTaskId = taskId
+        setDesktopControlIndicator(true)
+        showDesktopPreviewWindow()
+      } else if (!active && (!taskId || taskId === activeDesktopTaskId)) {
+        setDesktopControlIndicator(false)
+        hideDesktopCursorOverlay()
+      }
+      if (desktopPreviewWindow && !desktopPreviewWindow.isDestroyed()) {
+        desktopPreviewWindow.webContents.send('helix:desktop-control-status', {
+          active,
+          ...(taskId ? { task_id: taskId } : {}),
+          ...(typeof message.payload.action === 'string'
+            ? { action: message.payload.action }
+            : {}),
+          ...(message.payload.desktop_backend === 'windows_host'
+            || message.payload.desktop_backend === 'docker_guest'
+            ? { desktop_backend: message.payload.desktop_backend }
+            : {}),
+        })
+      }
+    }
+    if (
+      message.type === 'task_update'
+      && typeof message.payload.id === 'string'
+      && message.payload.id === activeDesktopTaskId
+      && ['completed', 'failed', 'cancelled'].includes(String(message.payload.status))
+    ) {
+      activeDesktopTaskId = null
+      if (desktopPreviewWindow && !desktopPreviewWindow.isDestroyed()) {
+        desktopPreviewWindow.webContents.send('helix:desktop-control-status', {
+          active: false,
+        })
+      }
+      setDesktopControlIndicator(false)
+      hideDesktopCursorOverlay()
+    }
+    if (message.type === 'desktop_frame') {
+      const { task_id: taskId, image_base64: imageBase64, mime_type: mimeType } = message.payload
+      if (
+        typeof taskId === 'string'
+        && taskId === activeDesktopTaskId
+        && mimeType === 'image/jpeg'
+        && typeof imageBase64 === 'string'
+        && imageBase64.length > 0
+        && imageBase64.length <= 750_000
+      ) {
+        const cursor = message.payload.cursor
+        const source = message.payload.source === 'windows_host'
+          || message.payload.source === 'docker_guest'
+          ? message.payload.source
+          : undefined
+        const windowTitle = typeof message.payload.window_title === 'string'
+          ? message.payload.window_title.slice(0, 200)
+          : undefined
+        const validCursor = cursor !== null
+          && typeof cursor === 'object'
+          && typeof (cursor as Record<string, unknown>).x === 'number'
+          && typeof (cursor as Record<string, unknown>).y === 'number'
+          && typeof (cursor as Record<string, unknown>).visible === 'boolean'
+        const frame = {
+          task_id: taskId,
+          mime_type: 'image/jpeg',
+          image_base64: imageBase64,
+          captured_at: typeof message.payload.captured_at === 'string'
+            ? message.payload.captured_at
+            : new Date().toISOString(),
+          ...(source ? { source } : {}),
+          ...(source === 'windows_host' && windowTitle
+            ? { window_title: windowTitle }
+            : {}),
+          ...(validCursor ? { cursor } : {}),
+        }
+        if (desktopPreviewWindow && !desktopPreviewWindow.isDestroyed()) {
+          desktopPreviewWindow.webContents.send('helix:desktop-frame', frame)
+        }
+      }
+    }
+    if (message.type === 'desktop_cursor') {
+      const taskId = message.payload.task_id
+      if (
+        typeof taskId === 'string'
+        && taskId === activeDesktopTaskId
+      ) {
+        updateDesktopCursorOverlay(message.payload)
+      }
+    }
     if (
       message.type === 'agent_update'
       && typeof message.payload.promotion === 'string'
@@ -679,6 +1074,14 @@ function setupIPC(): void {
     }
   })
   ipcBridge.setupHandlers(floatingWindow, toolboxWindow, confirmationWindow, agentsWindow)
+  ipcMain.on('helix:stop-desktop-control', (event) => {
+    if (event.sender !== desktopPreviewWindow?.webContents || !activeDesktopTaskId) return
+    try {
+      ipcBridge?.cancelTask(activeDesktopTaskId)
+    } catch (error) {
+      console.error('[Main] Could not stop desktop control from its preview:', error)
+    }
+  })
   mobileRelayClient = new MobileRelayClient(mobileRelayWorkerConfigPath(), {
     approvePairing: async (deviceName) => {
       const options = {
@@ -715,6 +1118,10 @@ function setupIPC(): void {
     queryMobileSubagent: async (action, payload) => {
       if (!ipcBridge) throw new Error('HELIX Desktop agent bridge is unavailable.')
       return ipcBridge.queryMobileSubagent(action, payload)
+    },
+    receiveMobileVoice: (deviceId, voiceType, payload) => {
+      if (!ipcBridge) throw new Error('HELIX Desktop agent bridge is unavailable.')
+      return ipcBridge.sendMobileVoiceMessage(deviceId, voiceType, payload)
     },
   }, {
     encrypt: (value) => {
@@ -1175,7 +1582,19 @@ function applyDesktopSettings(settings: Record<string, unknown>): void {
 
   const emergency = settings.emergency_stop_shortcut
   if (typeof emergency === 'string' && emergency.trim()) {
-    globalShortcut.register(emergency, () => ipcBridge?.sendEmergencyStop())
+    emergencyStopShortcut = emergency
+    emergencyStopShortcutAvailable = globalShortcut.register(
+      emergency,
+      () => ipcBridge?.sendEmergencyStop(),
+    )
+    if (!emergencyStopShortcutAvailable) {
+      console.error(
+        `[Main] Emergency stop shortcut could not be registered: ${emergency}`,
+      )
+    }
+  } else {
+    emergencyStopShortcutAvailable = false
+    console.error('[Main] Emergency stop shortcut is not configured.')
   }
 }
 
@@ -1189,6 +1608,9 @@ async function connectWebSocket(retryCount = 0, maxRetries = 15): Promise<void> 
     )
     console.log('[Main] Connected to Python agent WebSocket')
     const settings = await ipcBridge.loadSettings()
+    void ipcBridge.startComputerUseIfNeeded(settings).catch((error: unknown) => {
+      console.error('[Main] Could not prepare Computer Use:', error)
+    })
     try {
       await mobileRelayClient?.initialize(process.env.HELIX_RELAY_WORKER_URL ?? '')
     } catch (error) {
@@ -1320,6 +1742,22 @@ app.whenReady().then(async () => {
   if (startupOAuthUrl) handleOAuthCallbackUrl(startupOAuthUrl)
   setupIPC()
 
+  // Live Voice expands the always-on-top floating window instead of spawning a
+  // second renderer. One window means one microphone owner and no cross-window
+  // voice event routing.
+  ipcMain.handle(
+    'helix:set-live-voice-mode',
+    (_event, enabled: unknown, suppressed: unknown = false) => {
+      if (typeof enabled !== 'boolean' || typeof suppressed !== 'boolean') {
+        return false
+      }
+      resizeFloatingWindow(
+        enabled ? (suppressed ? 'voice-suppressed' : 'voice') : 'full',
+      )
+      return true
+    },
+  )
+
   // Create tray
   const iconPath = path.join(__dirname, '../assets/tray-icon.png')
   trayManager = new TrayManager()
@@ -1385,11 +1823,10 @@ app.whenReady().then(async () => {
   // the tray remains available even when HELIX starts minimized.
   trayManager.updateStatus('idle')
 }).catch((error: unknown) => {
-  const message = error instanceof Error ? error.message : String(error)
   console.error('[Main] HELIX failed to start:', error)
   dialog.showErrorBox(
     'HELIX could not start its agent',
-    `${message}\n\nCheck services/agent/requirements.txt and the Python environment, then start HELIX again.`
+    'No se pudo iniciar el agente de HELIX. Comprueba que la instalación esté completa y vuelve a intentarlo. Si el problema continúa, revisa los registros de diagnóstico.'
   )
   app.quit()
 })
@@ -1412,7 +1849,7 @@ app.on('before-quit', (event) => {
     if (agentsWindow && !agentsWindow.isDestroyed()) agentsWindow.destroy()
     trayManager?.destroy()
     mobileRelayClient?.close()
-    ipcBridge?.close()
+    await ipcBridge?.close()
     clipboardHistory?.stop()
     await browserExtensionBridge?.close()
     await pythonManager?.stop()

@@ -45,7 +45,7 @@ export const DownloadPage: React.FC = () => {
       .catch((err: unknown) => {
         if (controller.signal.aborted) return;
         console.error('Failed to load the public installer catalog.', err);
-        setCatalogError(err instanceof Error ? err.message : 'Published installer catalog is unavailable.')
+        setCatalogError('No se pudo cargar el catálogo de instaladores publicados. Inténtalo más tarde.')
         setMobileReleaseError(true)
         setIosReleaseError(true)
       });
@@ -63,7 +63,7 @@ export const DownloadPage: React.FC = () => {
       .catch((err: unknown) => {
         if (controller.signal.aborted) return;
         console.error('Failed to load the public release history.', err);
-        setHistoryError(err instanceof Error ? err.message : 'Published release history is unavailable.')
+        setHistoryError('No se pudo cargar el historial de versiones. Inténtalo más tarde.')
         setMobileReleaseError(true)
         setIosReleaseError(true)
       });

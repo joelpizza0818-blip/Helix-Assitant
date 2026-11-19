@@ -30,7 +30,9 @@ import { getWsUrl, getWsToken } from './config/env';
 import { AgentClient } from './client/agent-client';
 import type { HelixSettings } from './client/types';
 import { handleShowApiKey } from './commands/apikey';
+import { runVoiceCommand } from './commands/live';
 import { ORANGE, CYAN, GREEN, RED, BOLD, DIM } from './ui/colors';
+import { getUserFacingError } from './ui/userError';
 import { getAsciiLogo } from './ui/banner';
 import packageJson from '../package.json';
 
@@ -102,6 +104,33 @@ program
   });
 
 program
+  .command('live')
+  .description('Iniciar Helix Live Voice con micrófono del host (audio local, $0)')
+  .option('--normal', 'Usar audio normal: grabar una vez y recibir respuesta')
+  .action(async (cmdOptions: { normal?: boolean }) => {
+    const opts = program.opts();
+    const code = await runVoiceCommand({
+      mode: cmdOptions.normal ? 'normal' : 'live',
+      wsUrl: opts.wsUrl || getWsUrl(),
+      wsToken: opts.token || getWsToken(),
+    });
+    process.exitCode = code;
+  });
+
+program
+  .command('voice')
+  .description('Grabar un mensaje de voz normal y recibir respuesta hablada')
+  .action(async () => {
+    const opts = program.opts();
+    const code = await runVoiceCommand({
+      mode: 'normal',
+      wsUrl: opts.wsUrl || getWsUrl(),
+      wsToken: opts.token || getWsToken(),
+    });
+    process.exitCode = code;
+  });
+
+program
   .command('run [prompt...]')
   .description('Ejecutar un prompt directamente y esperar la respuesta (soporta pipes: cat file | helix run)')
   .action(async (promptParts: string[]) => {
@@ -125,7 +154,10 @@ program
     try {
       await client.connect();
     } catch (err) {
-      console.error(RED(`No se pudo conectar al agente HELIX: ${(err as Error).message}`));
+      console.error(RED(getUserFacingError(
+        err,
+        'No se pudo conectar con el agente. Abre HELIX Desktop y vuelve a intentarlo.',
+      )));
       process.exit(1);
     }
 
@@ -184,7 +216,7 @@ program
       client.close();
     } catch (err) {
       console.log(`  ${RED('● Desconectado')} del agente en ${client.url}`);
-      console.log(DIM(`  Detalle: ${(err as Error).message}\n`));
+      console.log(DIM('  Comprueba que HELIX Desktop siga abierto e inténtalo de nuevo.\n'));
     }
   });
 
@@ -203,7 +235,10 @@ program
       await client.connect();
       await handleShowApiKey(client);
     } catch (err) {
-      console.error(RED(`Error de conexión con el agente: ${(err as Error).message}`));
+      console.error(RED(getUserFacingError(
+        err,
+        'No se pudo conectar con el agente. Abre HELIX Desktop y vuelve a intentarlo.',
+      )));
     } finally {
       client.close();
     }

@@ -71,6 +71,8 @@ def test_voice_orchestration_returns_direct_conversational_answer():
     messages = react_loop.execute.await_args.args[0]
     assert messages[0].role == "system"
     assert "spoken conversation" in messages[0].content
+    assert "rather than reading a screen" in messages[0].content
+    assert "Read something verbatim only when the user explicitly asks" in messages[0].content
     assert [(message.role, message.content) for message in messages[1:]] == [
         (message["role"], message["content"]) for message in history
     ]
@@ -86,6 +88,54 @@ def test_voice_orchestration_returns_direct_conversational_answer():
             "input_source": "voice",
             "conversation_id": "conversation-1",
         },
+    )
+
+
+def test_desktop_control_request_bypasses_general_workflow_planner():
+    event_bus = EventBusStub()
+    task_manager = TaskManagerStub()
+    react_loop = SimpleNamespace(
+        execute=AsyncMock(return_value=SimpleNamespace(content="Listo.")),
+        complex_workflows_enabled=True,
+        continuous_screen_vision_enabled=True,
+        screen_context_enabled=True,
+        on_demand_screen_context_enabled=True,
+    )
+    planner = SimpleNamespace(create_plan=AsyncMock())
+    orchestrator = Orchestrator(
+        planner=planner,
+        task_manager=task_manager,
+        event_bus=event_bus,
+        react_loop=react_loop,
+        agent_manager=None,
+        tool_registry=None,
+        role_config=None,
+    )
+    screen_observation_calls = []
+    orchestrator.continuous_screen_context_provider = lambda: (
+        screen_observation_calls.append(True) or {"summary": "screen"}
+    )
+
+    asyncio.run(
+        orchestrator.execute_task(
+            "task-desktop",
+            "Open Notepad and type a test sentence.",
+            {
+                "input_source": "text",
+                "conversation_id": "conversation-desktop",
+            },
+        )
+    )
+
+    planner.create_plan.assert_not_awaited()
+    assert screen_observation_calls == []
+    react_loop.execute.assert_awaited_once()
+    messages = react_loop.execute.await_args.args[0]
+    assert any(
+        message.role == "system"
+        and "computer.desktop_control" in message.content
+        and "browser_control" in message.content
+        for message in messages
     )
 
 
@@ -215,7 +265,7 @@ def test_markdown_is_removed_before_voice_synthesis():
         "- Read [the guide](https://example.com).\n"
         "- `inline code`\n"
         "> ~~Not this~~"
-    ) == "Important Read the guide. inline code Not this"
+    ) == "Important Read the guide. Not this"
 
 
 def test_voice_engine_sends_plain_text_to_tts():
@@ -680,6 +730,56 @@ def test_faster_whisper_transcribes_standard_wav_with_cpu_int8(monkeypatch, tmp_
     assert captured["model_name"] == "base"
     assert captured["model_options"] == {"device": "cpu", "compute_type": "int8"}
     assert captured["options"] == {"beam_size": 5, "language": "es"}
+
+
+def test_faster_whisper_transcribes_live_pcm_without_a_temp_wav(monkeypatch):
+    captured = {}
+
+    def transcribe(audio, **options):
+        captured["audio"] = audio
+        captured["options"] = options
+        return iter([SimpleNamespace(text="Hola.")]), SimpleNamespace(language="es")
+
+    faster_whisper_module = ModuleType("faster_whisper")
+    faster_whisper_module.WhisperModel = lambda *_args, **_kwargs: SimpleNamespace(
+        transcribe=transcribe
+    )
+    monkeypatch.setitem(sys.modules, "faster_whisper", faster_whisper_module)
+    monkeypatch.setattr(
+        speech_to_text.importlib.util,
+        "find_spec",
+        lambda name: object() if name == "faster_whisper" else None,
+    )
+    monkeypatch.setattr(
+        speech_to_text.tempfile,
+        "NamedTemporaryFile",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("Live PCM must not create a temporary WAV")
+        ),
+    )
+
+    stt = speech_to_text.SpeechToText(provider="whisper_local", model="base")
+    transcript = asyncio.run(
+        stt.transcribe_pcm16(
+            b"\x00\x00\x00\x40",
+            sample_rate=16000,
+            language="es",
+            beam_size=1,
+            low_latency=True,
+        )
+    )
+
+    assert transcript == "Hola."
+    assert captured["audio"].tolist() == [0.0, 0.5]
+    assert captured["options"] == {
+        "beam_size": 1,
+        "best_of": 1,
+        "temperature": 0.0,
+        "condition_on_previous_text": False,
+        "without_timestamps": True,
+        "vad_filter": False,
+        "language": "es",
+    }
 
 
 def test_faster_whisper_reads_non_pcm_wav_without_ffmpeg(monkeypatch, tmp_path):
