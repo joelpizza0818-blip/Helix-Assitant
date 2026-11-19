@@ -1655,8 +1655,17 @@ app.whenReady().then(async () => {
     app.setAppUserModelId('com.helix.agent')
   }
 
-  // Disable default menu
-  Menu.setApplicationMenu(null)
+  // macOS needs an application menu for standard shortcuts (Cmd+Q, Cmd+C,
+  // Cmd+V). Other platforms keep the frameless, menu-less experience.
+  if (process.platform === 'darwin') {
+    Menu.setApplicationMenu(Menu.buildFromTemplate([
+      { role: 'appMenu' },
+      { role: 'editMenu' },
+      { role: 'windowMenu' },
+    ]))
+  } else {
+    Menu.setApplicationMenu(null)
+  }
   setupAutoUpdater()
 
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
