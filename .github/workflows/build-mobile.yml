@@ -49,6 +49,10 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
+          # Fijado a la version verificada en local. Flutter 3.50 marca como
+          # deprecado package:flutter/material.dart y `flutter analyze` falla
+          # con avisos informativos antes de una migracion planificada.
+          flutter-version: '3.47.7'
           channel: stable
           cache: true
 
