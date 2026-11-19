@@ -98,6 +98,15 @@ async function main() {
   const icoBuffer = await pngToIco(pngBuffers);
   writeFileSync(path.join(assetsDir, 'icon.ico'), icoBuffer);
   console.log('[OK] icon.ico written (multi-size: 16/32/48/64/128/256)');
+
+  // Source PNG for Linux icons and macOS .icns conversion (electron-builder
+  // converts a 1024x1024 PNG into the platform-specific icon formats).
+  const iconPng = await sharp(svgBuf, { density: 300 })
+    .resize(1024, 1024, { fit: 'contain', background: { r: 16, g: 16, b: 16, alpha: 1 } })
+    .png()
+    .toBuffer();
+  writeFileSync(path.join(assetsDir, 'icon.png'), iconPng);
+  console.log('[OK] icon.png written (1024x1024)');
 }
 
 main().catch(err => {

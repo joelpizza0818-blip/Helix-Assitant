@@ -88,7 +88,11 @@ const DEFAULT_WS_PORT = parseInt(process.env.AGENT_WS_PORT || '8765', 10)
 const UPDATE_POLICY_URL = 'https://zqjktbpymrfjmggjmbfp.supabase.co/functions/v1/installer-updates/policy.json'
 let wsPort = DEFAULT_WS_PORT
 
-const APP_ICON_PATH = path.join(__dirname, '../assets/icon.ico')
+const APP_ICON_PATH = path.join(
+  __dirname,
+  process.platform === 'win32' ? '../assets/icon.ico' : '../assets/icon.png',
+)
+const SMOKE_TEST = process.env.HELIX_SMOKE_TEST === '1'
 
 let floatingWindow: BrowserWindow | null = null
 let toolboxWindow: BrowserWindow | null = null
@@ -846,9 +850,13 @@ async function startPythonAgent(): Promise<void> {
   console.log(`[Main] Desktop app root: ${app.getAppPath()}`)
   console.log(`[Main] Found Python agent at: ${agentDir}`)
 
+  // PyInstaller appends .exe on Windows; Linux and macOS binaries have no
+  // extension. Both layouts are accepted so older packages keep working.
   const packagedAgentCandidates = [
     path.join(process.resourcesPath, 'agent-runtime', 'helix-agent', 'helix-agent.exe'),
-    path.join(process.resourcesPath, 'agent-runtime', 'helix-agent.exe')
+    path.join(process.resourcesPath, 'agent-runtime', 'helix-agent', 'helix-agent'),
+    path.join(process.resourcesPath, 'agent-runtime', 'helix-agent.exe'),
+    path.join(process.resourcesPath, 'agent-runtime', 'helix-agent')
   ]
   const packagedAgent = !isDev
     ? packagedAgentCandidates.find((candidate) => fs.existsSync(candidate))
@@ -1647,8 +1655,17 @@ app.whenReady().then(async () => {
     app.setAppUserModelId('com.helix.agent')
   }
 
-  // Disable default menu
-  Menu.setApplicationMenu(null)
+  // macOS needs an application menu for standard shortcuts (Cmd+Q, Cmd+C,
+  // Cmd+V). Other platforms keep the frameless, menu-less experience.
+  if (process.platform === 'darwin') {
+    Menu.setApplicationMenu(Menu.buildFromTemplate([
+      { role: 'appMenu' },
+      { role: 'editMenu' },
+      { role: 'windowMenu' },
+    ]))
+  } else {
+    Menu.setApplicationMenu(null)
+  }
   setupAutoUpdater()
 
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
@@ -1758,11 +1775,17 @@ app.whenReady().then(async () => {
     },
   )
 
-  // Create tray
+  // Create tray. Linux desktops without an AppIndicator host can reject tray
+  // creation; HELIX must keep running because the overlay is the main surface.
   const iconPath = path.join(__dirname, '../assets/tray-icon.png')
   trayManager = new TrayManager()
-  trayManager.create(iconPath)
-  trayManager.setOnLeftClick(() => {
+  try {
+    trayManager.create(iconPath)
+  } catch (error) {
+    console.warn('[Main] System tray is unavailable on this desktop:', error)
+    trayManager = null
+  }
+  trayManager?.setOnLeftClick(() => {
     if (!floatingWindow) return
     if (floatingWindow.isVisible()) {
       floatingWindow.hide()
@@ -1809,21 +1832,32 @@ app.whenReady().then(async () => {
     ])
   }
 
-  trayManager.setContextMenu(buildContextMenu())
+  trayManager?.setContextMenu(buildContextMenu())
 
   // Start the local browser bridge before the agent so browser control can use
   // the paired extension instead of launching a second browser.
   await startBrowserExtensionBridge()
   await startPythonAgent()
 
+  if (SMOKE_TEST) {
+    console.log('[Main] HELIX_SMOKE_TEST=1: bundled agent reached WebSocket readiness')
+    await pythonManager?.stop()
+    app.exit(0)
+    return
+  }
+
   // Connect WebSocket only after the Python agent reports readiness.
   connectWebSocket()
 
   // The persisted startup preference controls whether the overlay is shown;
   // the tray remains available even when HELIX starts minimized.
-  trayManager.updateStatus('idle')
+  trayManager?.updateStatus('idle')
 }).catch((error: unknown) => {
   console.error('[Main] HELIX failed to start:', error)
+  if (SMOKE_TEST) {
+    app.exit(1)
+    return
+  }
   dialog.showErrorBox(
     'HELIX could not start its agent',
     'No se pudo iniciar el agente de HELIX. Comprueba que la instalación esté completa y vuelve a intentarlo. Si el problema continúa, revisa los registros de diagnóstico.'
