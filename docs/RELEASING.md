@@ -55,6 +55,10 @@ The landing site deployment and its download/catalog data are separate from GitH
 
 Do not announce an installer as available because its source tag exists. Linux and macOS agent/relay test-matrix results do not prove that desktop installers exist for those operating systems.
 
+Linux and macOS desktop packages are built by `publish-desktop-linux.yml` and `publish-desktop-macos.yml` from the tags `desktop-linux-vX.Y.Z` and `desktop-macos-vX.Y.Z`. Each workflow validates that the tag matches `apps/desktop/package.json`, runs the desktop typecheck and tests, builds the PyInstaller agent runtime, packages the app, runs the packaged app with `HELIX_SMOKE_TEST=1` until the bundled agent reports WebSocket readiness, writes SHA-256 sidecars, and publishes the artifacts to the private installer repository. The tags are separate from `vX.Y.Z` (Windows) and `mobile-vX.Y.Z` (Android) and must never be reused across channels.
+
+Publishing to the private installer repository does not make a package visible on the landing site. An administrator must still select the version in the public installer catalog.
+
 ## Artifacts, signatures, and checksums
 
 - Check the exact asset names, platform, architecture, version, and release status.

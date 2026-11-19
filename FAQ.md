@@ -9,11 +9,13 @@ boundaries and request flow.
 
 ## Which operating systems have official desktop installers?
 
-Official desktop installers are currently available for Windows x64 only.
-Agent and relay tests on Linux or macOS do not mean desktop installers are
-available for those systems. The Android companion and Node.js
-CLI are separate distribution channels; see the current [release matrix in the
-README](README.md#download).
+Official desktop installers are available for Windows x64 (NSIS), Linux x64
+(AppImage and .deb) and macOS on Apple Silicon (DMG and ZIP). The Linux and
+macOS packages are unsigned, the macOS build is not notarized, and neither
+platform supports auto-update yet. Agent and relay tests on Linux or macOS are
+not, by themselves, evidence that a desktop package exists; check the
+[release matrix in the README](README.md#download) for the current artifacts.
+The Android companion and Node.js CLI are separate distribution channels.
 
 ## Does HELIX work without an internet connection?
 

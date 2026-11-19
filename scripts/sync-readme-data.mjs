@@ -212,6 +212,8 @@ function renderDownloadRows(data) {
     '| Product | Platform | Public release / download | Status |',
     '|---|---|---|---|',
     `| HELIX Normal | Windows x64 | ${releaseLink(normal)} / [Download page](${downloadUrl}) | ${escapeCell(normalStatus)} |`,
+    `| HELIX Linux desktop | Linux x64 | [Download page](${downloadUrl}) | ${escapeCell(`AppImage and .deb ${data.sourceVersions.normal} built and published; unsigned, no auto-update.`)} |`,
+    `| HELIX macOS desktop | macOS arm64 | [Download page](${downloadUrl}) | ${escapeCell(`DMG and ZIP ${data.sourceVersions.normal} built and published; unsigned and not notarized, no auto-update.`)} |`,
     `| HELIX Mobile | Android APK | ${releaseLink(mobile)} | ${escapeCell(mobileStatus)} |`,
     `| HELIX CLI | Node.js / npm | [npm package](${npmUrl}) | ${escapeCell(npmStatus)} |`,
   ].join('\n');

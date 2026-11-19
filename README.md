@@ -26,7 +26,7 @@ HELIX is a local-first desktop agent that works with your operating system, term
 - **Choose an AI provider:** configure supported cloud providers or local model endpoints, with provider-key fallback where configured; credentials and provider access are your responsibility.
 - **Extend HELIX:** add reviewable Markdown skills and opt-in local MCP servers.
 - **Keep useful context:** use local session memory and the Context Compression Layer (CCL) to pack large tool outputs and retrieve their stored originals.
-- **Choose a client:** HELIX Desktop (Electron), the Android mobile companion, or CLI. Official desktop installers are currently available for Windows x64 only.
+- **Choose a client:** HELIX Desktop (Electron), the Android mobile companion, or CLI. Official desktop installers are available for Windows x64, Linux x64 and macOS on Apple Silicon.
 
 <!-- HELIX-DATA:model-summary:start -->
 The repository catalog contains **49 entries** across 8 provider identifiers: `anthropic` (7), `free` (6), `google` (4), `groq` (5), `llama_server` (1), `ollama` (8), `openai` (10), `openrouter` (8). These are configured catalog entries, not a guarantee of provider access or successful live requests. See [config/model-catalog.json](config/model-catalog.json).
@@ -102,11 +102,13 @@ Gallery videos are opened on demand rather than eagerly downloaded on first load
 | Product | Platform | Public release / download | Status |
 |---|---|---|---|
 | HELIX Normal | Windows x64 | [v0.9.0](https://github.com/joelpizza0818-blip/Helix-Assitant/releases/tag/v0.9.0) / [Download page](https://helix-assistant.vercel.app/download) | Public release published; no installer asset is attached. Use the authenticated download page. |
+| HELIX Linux desktop | Linux x64 | [Download page](https://helix-assistant.vercel.app/download) | AppImage and .deb 0.9.0 built and published; unsigned, no auto-update. |
+| HELIX macOS desktop | macOS arm64 | [Download page](https://helix-assistant.vercel.app/download) | DMG and ZIP 0.9.0 built and published; unsigned and not notarized, no auto-update. |
 | HELIX Mobile | Android APK | [mobile-v0.9.0](https://github.com/joelpizza0818-blip/Helix-Assitant/releases/tag/mobile-v0.9.0) | Published with four APK variants and SHA-256 sidecars. |
-| HELIX CLI | Node.js / npm | [npm package](https://www.npmjs.com/package/helix-assistant-cli) | npm latest 0.8.0; repository source is 0.9.0. |
+| HELIX CLI | Node.js / npm | [npm package](https://www.npmjs.com/package/helix-assistant-cli) | npm latest 0.9.0; source matches. |
 <!-- HELIX-DATA:download-rows:end -->
 
-The Windows desktop installers are not Authenticode-signed, so SmartScreen may show a warning. Verify the SHA-256 published with the artifact before running it. Official desktop installers are currently available for Windows x64 only; Linux and macOS desktop installers are not published.
+The Windows desktop installers are not Authenticode-signed, so SmartScreen may show a warning. Verify the SHA-256 published with the artifact before running it. Linux x64 builds are published as AppImage and .deb packages, and macOS builds are published for Apple Silicon (arm64) as DMG and ZIP. Both are unsigned, the macOS build is not notarized, and neither platform has auto-update yet. Official desktop installers are available for Windows x64, Linux x64 and macOS arm64 only.
 
 ## Quick start
 
@@ -132,7 +134,7 @@ helix
 ```
 
 <!-- HELIX-DATA:cli-version:start -->
-npm's current `latest` version is **0.8.0**; the repository source package is **0.9.0**. The `/subagents` and `/browser live` commands require version **0.5.0 or newer**.
+npm's current `latest` version is **0.9.0**; the repository source package is **0.9.0**. The `/subagents` and `/browser live` commands require version **0.5.0 or newer**.
 <!-- HELIX-DATA:cli-version:end -->
 
 ### From source (Windows PowerShell)
@@ -234,7 +236,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete testing command list and
 ## Project status
 
 <!-- HELIX-DATA:project-status:start -->
-Desktop 0.9.0: published (no installer asset on the public release); Android 0.9.0: published; CLI npm latest 0.8.0 (repository source 0.9.0).
+Desktop 0.9.0: published (no installer asset on the public release); Android 0.9.0: published; CLI npm latest 0.9.0 (repository source 0.9.0).
 <!-- HELIX-DATA:project-status:end -->
 
 ## License
