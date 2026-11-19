@@ -102,8 +102,8 @@ Gallery videos are opened on demand rather than eagerly downloaded on first load
 | Product | Platform | Public release / download | Status |
 |---|---|---|---|
 | HELIX Normal | Windows x64 | [v0.8.0](https://github.com/joelpizza0818-blip/Helix-Assitant/releases/tag/v0.8.0) / [Download page](https://helix-assistant.vercel.app/download) | Public release published; no installer asset is attached. Use the authenticated download page. |
-| HELIX Mobile | Android APK | [mobile-v0.8.0](https://github.com/joelpizza0818-blip/Helix-Assitant/releases/tag/mobile-v0.8.0) | Published with four APK variants and SHA-256 sidecars. |
-| HELIX CLI | Node.js / npm | [npm package](https://www.npmjs.com/package/helix-assistant-cli) | npm latest 0.8.0; source matches. |
+| HELIX Mobile | Android APK | [mobile-v0.9.0](https://github.com/joelpizza0818-blip/Helix-Assitant/releases) | Source mobile-v0.9.0; no published public release found. |
+| HELIX CLI | Node.js / npm | [npm package](https://www.npmjs.com/package/helix-assistant-cli) | npm latest 0.8.0; repository source is 0.9.0. |
 <!-- HELIX-DATA:download-rows:end -->
 
 The Windows desktop installers are not Authenticode-signed, so SmartScreen may show a warning. Verify the SHA-256 published with the artifact before running it. Official desktop installers are currently available for Windows x64 only; Linux and macOS desktop installers are not published.
@@ -132,7 +132,7 @@ helix
 ```
 
 <!-- HELIX-DATA:cli-version:start -->
-npm's current `latest` version is **0.8.0**; the repository source package is **0.8.0**. The `/subagents` and `/browser live` commands require version **0.5.0 or newer**.
+npm's current `latest` version is **0.8.0**; the repository source package is **0.9.0**. The `/subagents` and `/browser live` commands require version **0.5.0 or newer**.
 <!-- HELIX-DATA:cli-version:end -->
 
 ### From source (Windows PowerShell)
@@ -234,7 +234,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete testing command list and
 ## Project status
 
 <!-- HELIX-DATA:project-status:start -->
-Desktop 0.8.0: published (no installer asset on the public release); Android 0.8.0: published; CLI npm latest 0.8.0 (repository source 0.8.0).
+Desktop 0.8.0: published (no installer asset on the public release); Android 0.9.0: not published; CLI npm latest 0.8.0 (repository source 0.9.0).
 <!-- HELIX-DATA:project-status:end -->
 
 ## License
