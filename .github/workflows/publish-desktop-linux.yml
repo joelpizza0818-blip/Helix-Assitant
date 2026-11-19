@@ -1,0 +1,178 @@
+name: Publish Linux desktop
+
+on:
+  push:
+    tags:
+      - 'desktop-linux-v*'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Existing tag to rebuild (desktop-linux-vX.Y.Z)
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-desktop-linux
+  cancel-in-progress: false
+
+jobs:
+  build-and-publish:
+    name: Build AppImage and deb, then publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      GH_TOKEN: ${{ secrets.INSTALLER_REPO_TOKEN }}
+      INSTALLER_REPOSITORY: joelpizza0818-blip/helix-installer-downloads
+    steps:
+      - name: Check out the release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
+
+      - name: Validate version, tag and credentials
+        shell: bash
+        env:
+          INSTALLER_REPO_TOKEN: ${{ secrets.INSTALLER_REPO_TOKEN }}
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+          HELIX_CAPABILITY_PUBLIC_KEY: ${{ vars.HELIX_CAPABILITY_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${INSTALLER_REPO_TOKEN:-}" ]]; then
+            echo "::error::Configure INSTALLER_REPO_TOKEN with write access to $INSTALLER_REPOSITORY."
+            exit 1
+          fi
+          for name in VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY VITE_API_URL HELIX_CAPABILITY_PUBLIC_KEY; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Configure $name before building the Linux desktop package."
+              exit 1
+            fi
+          done
+          if [[ "${GITHUB_REF}" != refs/tags/desktop-linux-v* ]]; then
+            echo "::error::Linux desktop releases must be built from a desktop-linux-vX.Y.Z tag."
+            exit 1
+          fi
+          version=$(node -p "require('./apps/desktop/package.json').version")
+          expected="desktop-linux-v$version"
+          if [[ "${GITHUB_REF_NAME}" != "$expected" ]]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} must match apps/desktop/package.json version ($expected)."
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=$expected" >> "$GITHUB_ENV"
+          echo "SOURCE_COMMIT=$GITHUB_SHA" >> "$GITHUB_ENV"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: services/agent/requirements-linux.txt
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Typecheck and test the desktop release
+        run: |
+          npm run typecheck --workspace=@helix/desktop
+          npm test --workspace=@helix/desktop
+
+      - name: Install Linux agent dependencies
+        run: |
+          python -m venv services/agent/.venv
+          services/agent/.venv/bin/python -m pip install --upgrade pip
+          services/agent/.venv/bin/python -m pip install --prefer-binary -r services/agent/requirements-linux.txt
+          services/agent/.venv/bin/python -m pip install pyinstaller
+
+      - name: Build the bundled agent runtime
+        run: npm run build:agent-runtime
+
+      - name: Build AppImage and deb
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+          HELIX_CAPABILITY_PUBLIC_KEY: ${{ vars.HELIX_CAPABILITY_PUBLIC_KEY }}
+        run: npm run build:linux --workspace=@helix/desktop
+
+      - name: Install smoke-test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libfuse2
+
+      - name: Smoke-test the packaged AppImage
+        env:
+          HELIX_SMOKE_TEST: '1'
+        run: |
+          set -euo pipefail
+          appimage=$(ls apps/desktop/release/*.AppImage | head -n 1)
+          echo "Smoke testing $appimage"
+          timeout 420 xvfb-run -a "$appimage" --appimage-extract-and-run --no-sandbox
+          echo "Packaged AppImage started the bundled agent and exited cleanly."
+
+      - name: Write checksums and build metadata
+        run: |
+          set -euo pipefail
+          node scripts/write-artifact-checksums.mjs apps/desktop/release .AppImage .deb
+          {
+            echo "HELIX Linux desktop $RELEASE_TAG"
+            echo
+            echo "Built from joelpizza0818-blip/Helix-Assitant@$SOURCE_COMMIT."
+            echo "Architecture: x64"
+            echo "Package: AppImage and Debian (.deb)"
+            echo "Signing: unsigned package, no repository signing key."
+            echo "Auto-update: not available for Linux desktop."
+          } > apps/desktop/release/BUILD-INFO.txt
+
+      - name: Publish artifacts to the private installer repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$RELEASE_TAG"
+          notes=$(printf 'HELIX Linux desktop %s\n\nBuilt from joelpizza0818-blip/Helix-Assitant@%s.\nArchitecture: x64. Unsigned package. Auto-update is not available for Linux desktop.\n' "$tag" "$SOURCE_COMMIT")
+          if ! gh api "repos/$INSTALLER_REPOSITORY/releases/tags/$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --repo "$INSTALLER_REPOSITORY" --title "HELIX Linux $tag" --notes "$notes"
+          fi
+          gh release upload "$tag" \
+            apps/desktop/release/*.AppImage \
+            apps/desktop/release/*.AppImage.sha256 \
+            apps/desktop/release/*.deb \
+            apps/desktop/release/*.deb.sha256 \
+            apps/desktop/release/BUILD-INFO.txt \
+            --repo "$INSTALLER_REPOSITORY" \
+            --clobber
+          gh release edit "$tag" --repo "$INSTALLER_REPOSITORY" --title "HELIX Linux $tag" --notes "$notes"
+
+      - name: Verify the published release
+        shell: bash
+        run: |
+          set -euo pipefail
+          release=$(gh api "repos/$INSTALLER_REPOSITORY/releases/tags/$RELEASE_TAG")
+          echo "$release" | jq -e '.draft == false and .prerelease == false' >/dev/null
+          for asset in $(ls apps/desktop/release/*.AppImage apps/desktop/release/*.deb); do
+            name=$(basename "$asset")
+            size=$(stat -c %s "$asset")
+            published=$(echo "$release" | jq -r --arg name "$name" '.assets[] | select(.name == $name) | .size')
+            if [[ "$published" != "$size" ]]; then
+              echo "::error::Published asset $name has size $published, expected $size."
+              exit 1
+            fi
+            digest=$(echo "$release" | jq -r --arg name "$name" '.assets[] | select(.name == $name) | .digest')
+            if [[ -n "$digest" && "$digest" != "null" ]]; then
+              expected="sha256:$(sha256sum "$asset" | cut -d' ' -f1)"
+              if [[ "$digest" != "$expected" ]]; then
+                echo "::error::Published digest for $name does not match the built artifact."
+                exit 1
+              fi
+            fi
+          done
+          echo "Verified $RELEASE_TAG in $INSTALLER_REPOSITORY."
