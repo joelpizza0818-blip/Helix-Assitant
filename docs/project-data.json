@@ -1,6 +1,6 @@
 {
   "sourceVersions": {
-    "normal": "0.8.0",
+    "normal": "0.9.0",
     "mobile": "0.9.0+12",
     "cli": "0.9.0"
   },
@@ -19,10 +19,10 @@
   },
   "publicReleases": {
     "normal": {
-      "tag": "v0.8.0",
-      "published": true,
+      "tag": "v0.9.0",
+      "published": false,
       "prerelease": false,
-      "url": "https://github.com/joelpizza0818-blip/Helix-Assitant/releases/tag/v0.8.0",
+      "url": "https://github.com/joelpizza0818-blip/Helix-Assitant/releases",
       "assetNames": []
     },
     "mobile": {
