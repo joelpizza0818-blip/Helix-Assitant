@@ -99,6 +99,7 @@
         "deb"
       ],
       "category": "Utility",
+      "executableName": "helix",
       "artifactName": "HELIX-${version}-${arch}.${ext}",
       "icon": "assets/icon.png",
       "maintainer": "HELIX Team",

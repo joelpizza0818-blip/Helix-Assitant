@@ -116,7 +116,18 @@ jobs:
           set -euo pipefail
           app=$(ls -d apps/desktop/release/mac*/HELIX.app | head -n 1)
           echo "Smoke testing $app"
-          timeout 420 "$app/Contents/MacOS/HELIX"
+          "$app/Contents/MacOS/HELIX" &
+          pid=$!
+          for _ in $(seq 1 210); do
+            if ! kill -0 "$pid" 2>/dev/null; then break; fi
+            sleep 2
+          done
+          if kill -0 "$pid" 2>/dev/null; then
+            kill -9 "$pid" 2>/dev/null || true
+            echo "::error::The packaged app did not exit within 420 seconds."
+            exit 1
+          fi
+          wait "$pid"
           echo "Packaged app started the bundled agent and exited cleanly."
 
       - name: Write checksums and build metadata
